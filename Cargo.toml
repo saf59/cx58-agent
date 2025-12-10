@@ -1,0 +1,37 @@
+[package]
+name = "cx58-agent"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Common dependencies
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Backend
+axum = "0.7"
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+opendal = { version = "0.45", features = ["services-s3"] }
+qdrant-client = "1.7"
+rig-core = "0.2"
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+
+# Additional
+dotenv = "0.15"
+env_logger = "0.11"
+log = "0.4"
+futures = "0.3"
+tokio-stream = "0.1"
+reqwest = { version = "0.11", features = ["json", "stream"] }
+aws-sdk-s3 = "1"
+aws-config = "1"
+bytes = "1"
+mime_guess = "2"
+sha2 = "0.10"
+hex = "0.4"
+image = "0.24"
+base64 = "0.21"
