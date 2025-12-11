@@ -1,18 +1,18 @@
-// main.rs - Updated for aws-sdk-s3
+// main.rs - Backend Entry Point
 
-use axum::{middleware, Router};
+use axum::{Router, middleware};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{Any, CorsLayer};
 
 mod agent;
-mod storage;
 mod rig_integration;
+mod storage;
 
 use agent::{AgentExecutor, AppState};
-use storage::{StorageService, ImageUrlResolver, ImageProcessor};
-use rig_integration::{RigAgentChain, AgentOrchestrator};
+use rig_integration::{AgentOrchestrator, RigAgentChain};
+use storage::{ImageProcessor, ImageUrlResolver, S3Config, StorageService};
 
 // ============================================================================
 // Configuration
@@ -29,16 +29,6 @@ pub struct Config {
     pub port: u16,
 }
 
-#[derive(Debug, Clone)]
-pub struct S3Config {
-    pub bucket: String,
-    pub region: String,
-    pub endpoint: Option<String>,
-    pub access_key: String,
-    pub secret_key: String,
-    pub public_url_base: String,
-}
-
 impl Config {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
@@ -47,8 +37,7 @@ impl Config {
                 .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),
             s3: S3Config {
                 bucket: std::env::var("S3_BUCKET")?,
-                region: std::env::var("S3_REGION")
-                    .unwrap_or_else(|_| "us-east-1".to_string()),
+                region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
                 endpoint: std::env::var("S3_ENDPOINT").ok(),
                 access_key: std::env::var("AWS_ACCESS_KEY_ID")?,
                 secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
@@ -58,8 +47,7 @@ impl Config {
                 .unwrap_or_else(|_| "http://127.0.0.1:6334".to_string()),
             ollama_url: std::env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
-            host: std::env::var("HOST")
-                .unwrap_or_else(|_| "0.0.0.0".to_string()),
+            host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "3000".to_string())
                 .parse()?,
@@ -94,6 +82,7 @@ async fn initialize_qdrant_collections(
 ) -> Result<(), String> {
     use qdrant_client::prelude::*;
 
+    // Create image_embeddings collection if not exists
     let collections = qdrant
         .list_collections()
         .await
@@ -111,7 +100,7 @@ async fn initialize_qdrant_collections(
                 vectors_config: Some(VectorsConfig {
                     config: Some(qdrant_client::qdrant::vectors_config::Config::Params(
                         VectorParams {
-                            size: 512,
+                            size: 512, // Adjust based on your embedding model
                             distance: Distance::Cosine.into(),
                             ..Default::default()
                         },
@@ -129,30 +118,6 @@ async fn initialize_qdrant_collections(
 }
 
 // ============================================================================
-// Storage Setup (Updated for aws-sdk-s3)
-// ============================================================================
-
-async fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, ai_agent_shared::AppError> {
-    // Option 1: Use environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
-    // let storage = StorageService::from_env(
-    //     config.bucket.clone(),
-    //     config.public_url_base.clone(),
-    // ).await?;
-
-    // Option 2: Use explicit credentials (from config)
-    let storage = StorageService::new(
-        config.bucket.clone(),
-        config.region.clone(),
-        config.access_key.clone(),
-        config.secret_key.clone(),
-        config.public_url_base.clone(),
-        config.endpoint.clone(),
-    ).await?;
-
-    Ok(Arc::new(storage))
-}
-
-// ============================================================================
 // Middleware
 // ============================================================================
 
@@ -161,10 +126,11 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
 
-async fn auth_middleware(
-    mut request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
+/// Extract user context from JWT (implement based on your OIDC setup)
+async fn auth_middleware(mut request: Request, next: Next) -> Result<Response, StatusCode> {
+    // Your OIDC JWT validation here
+    // For now, we'll extract from headers
+
     let user_id = request
         .headers()
         .get("X-User-ID")
@@ -193,6 +159,7 @@ async fn auth_middleware(
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
         .unwrap_or_else(uuid::Uuid::new_v4);
 
+    // Store in request extensions
     request.extensions_mut().insert(user_id);
     request.extensions_mut().insert(session_id);
     request.extensions_mut().insert(language);
@@ -208,84 +175,69 @@ async fn auth_middleware(
 fn create_app_router(state: Arc<AppState>) -> Router {
     Router::new()
         // Agent routes
-        .route("/api/agent/chat", axum::routing::post(agent::chat_stream_handler_with_images))
-        .route("/api/agent/tree/:user_id/:root_id", axum::routing::get(agent::get_tree_handler))
-        
+        .route(
+            "/api/agent/chat",
+            axum::routing::post(agent::chat_stream_handler_with_images),
+        )
+        .route(
+            "/api/agent/tree/:user_id/:root_id",
+            axum::routing::get(agent::get_tree_handler),
+        )
         // Image management routes
-        .route("/api/images/upload", axum::routing::post(storage::upload_image_handler))
-        .route("/api/images/:node_id", axum::routing::get(storage::get_image_handler))
-        .route("/api/images/:node_id", axum::routing::delete(storage::delete_image_handler))
-        .route("/api/images/batch", axum::routing::post(storage::batch_upload_handler))
-        
+        .route(
+            "/api/images/upload",
+            axum::routing::post(storage::upload_image_handler),
+        )
+        .route(
+            "/api/images/:node_id",
+            axum::routing::get(storage::get_image_handler),
+        )
+        .route(
+            "/api/images/:node_id",
+            axum::routing::delete(storage::delete_image_handler),
+        )
+        .route(
+            "/api/images/batch",
+            axum::routing::post(storage::batch_upload_handler),
+        )
+        .route(
+            "/api/images/:node_id/thumbnail",
+            axum::routing::post(agent::create_thumbnail_handler),
+        )
+        .route(
+            "/api/images/:node_id/download",
+            axum::routing::get(agent::get_download_url_handler),
+        )
+        // Image import routes
+        .route(
+            "/api/images/import",
+            axum::routing::post(agent::import_image_handler),
+        )
+        .route(
+            "/api/images/import/batch",
+            axum::routing::post(agent::batch_import_handler),
+        )
+        // Admin routes
+        .route(
+            "/api/admin/migrate/:user_id",
+            axum::routing::post(agent::migrate_user_images_handler),
+        )
         // Health check
         .route("/health", axum::routing::get(health_check))
-        
+        // Apply auth middleware to all routes
         .layer(middleware::from_fn(auth_middleware))
+        // CORS
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
                 .allow_methods(Any)
-                .allow_headers(Any)
+                .allow_headers(Any),
         )
         .with_state(state)
 }
 
-async fn health_check(State(state): State<Arc<AppState>>) -> axum::Json<ai_agent_shared::HealthStatus> {
-    let mut health = ai_agent_shared::HealthStatus::healthy();
-
-    health.services.database = sqlx::query("SELECT 1")
-        .fetch_one(&state.db)
-        .await
-        .is_ok();
-
-    health.services.redis = redis::cmd("PING")
-        .query_async::<_, String>(&mut state.redis.clone())
-        .await
-        .is_ok();
-
-    // Test S3 connection
-    health.services.s3 = state.storage
-        .exists("health-check")
-        .await
-        .is_ok();
-
-    health.services.qdrant = state.qdrant
-        .health_check()
-        .await
-        .is_ok();
-
-    health.services.ollama = reqwest::get(format!("{}/api/tags", state.ollama_url))
-        .await
-        .is_ok();
-
-    if !health.is_healthy() {
-        health.status = "degraded".to_string();
-    }
-
-    axum::Json(health)
-}
-
-// ============================================================================
-// Updated AppState
-// ============================================================================
-
-pub struct AppState {
-    pub db: sqlx::PgPool,
-    pub redis: redis::aio::ConnectionManager,
-    pub storage: Arc<StorageService>,
-    pub image_resolver: Arc<ImageUrlResolver>,
-    pub image_processor: Arc<ImageProcessor>,
-    pub qdrant: qdrant_client::client::QdrantClient,
-    pub ollama_url: String,
-    pub agent: Arc<RwLock<AgentExecutor>>,
-    pub orchestrator: Arc<AgentOrchestrator>,
-}
-
-impl AppState {
-    pub fn extract_user_id(&self) -> ai_agent_shared::Result<uuid::Uuid> {
-        // This will be populated by middleware
-        Ok(uuid::Uuid::new_v4())
-    }
+async fn health_check() -> &'static str {
+    "OK"
 }
 
 // ============================================================================
@@ -294,52 +246,48 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    log::info!("🚀 Starting AI Agent Server...");
+    log::info!("Starting AI Agent Server...");
 
+    // Load configuration
     dotenv::dotenv().ok();
     let config = Config::from_env()?;
-    log::info!("✅ Configuration loaded");
+    log::info!("Configuration loaded");
 
     // Setup database
-    log::info!("📊 Connecting to PostgreSQL...");
+    log::info!("Connecting to PostgreSQL...");
     let db = setup_database(&config).await?;
-    log::info!("✅ PostgreSQL connected");
+    log::info!("PostgreSQL connected");
 
     // Run migrations
-    log::info!("🔄 Running database migrations...");
+    log::info!("Running database migrations...");
     sqlx::migrate!("./migrations").run(&db).await?;
-    log::info!("✅ Migrations completed");
+    log::info!("Migrations completed");
 
     // Setup Redis
-    log::info!("📮 Connecting to Redis...");
+    log::info!("Connecting to Redis...");
     let redis = setup_redis(&config).await?;
-    log::info!("✅ Redis connected");
+    log::info!("Redis connected");
 
     // Setup Qdrant
-    log::info!("🔍 Connecting to Qdrant...");
+    log::info!("Connecting to Qdrant...");
     let qdrant = setup_qdrant(&config).await?;
     initialize_qdrant_collections(&qdrant).await?;
-    log::info!("✅ Qdrant connected and initialized");
+    log::info!("Qdrant connected and initialized");
 
-    // Setup S3 Storage (Updated!)
-    log::info!("☁️  Initializing S3 storage with aws-sdk-s3...");
-    let storage = setup_storage(&config.s3).await?;
-    log::info!("✅ S3 storage initialized");
-
-    // Test S3 connection
-    match storage.list_user_images(&uuid::Uuid::new_v4()).await {
-        Ok(_) => log::info!("✅ S3 connection verified"),
-        Err(e) => log::warn!("⚠️  S3 connection test failed (might be normal): {}", e),
-    }
+    // Setup S3 Storage
+    log::info!("Initializing S3 storage...");
+    let storage = Arc::new(StorageService::new(config.s3.clone())?);
+    log::info!("S3 storage initialized");
 
     // Create resolvers and processors
     let image_resolver = Arc::new(ImageUrlResolver {
         storage: storage.clone(),
         db: db.clone(),
     });
-    
+
     let image_processor = Arc::new(ImageProcessor::new(storage.clone()));
 
     // Create agent
@@ -365,7 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         orchestrator,
     });
 
-    log::info!("✅ Application state initialized");
+    log::info!("Application state initialized");
 
     // Create router
     let app = create_app_router(state);
@@ -373,20 +321,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start server
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    
-    log::info!("");
-    log::info!("🎉 Server started successfully!");
-    log::info!("📍 Listening on http://{}", addr);
+
+    log::info!("🚀 Server listening on http://{}", addr);
     log::info!("📡 Agent endpoint: http://{}/api/agent/chat", addr);
     log::info!("🖼️  Image upload: http://{}/api/images/upload", addr);
-    log::info!("❤️  Health check: http://{}/health", addr);
-    log::info!("");
-    log::info!("💾 S3 Bucket: {}", config.s3.bucket);
-    log::info!("🌍 S3 Region: {}", config.s3.region);
-    log::info!("🔗 Public URL: {}", config.s3.public_url_base);
-    log::info!("");
-    
+
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+// ============================================================================
+// Updated AppState with Orchestrator
+// ============================================================================
+
+pub struct AppState {
+    pub db: sqlx::PgPool,
+    pub redis: redis::aio::ConnectionManager,
+    pub storage: Arc<StorageService>,
+    pub image_resolver: Arc<ImageUrlResolver>,
+    pub image_processor: Arc<ImageProcessor>,
+    pub qdrant: qdrant_client::client::QdrantClient,
+    pub ollama_url: String,
+    pub agent: Arc<RwLock<AgentExecutor>>,
+    pub orchestrator: Arc<AgentOrchestrator>,
 }
