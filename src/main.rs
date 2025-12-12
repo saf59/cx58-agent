@@ -1,4 +1,4 @@
-// backend/src/main.rs - Ultra-lightweight with rust-s3
+// backend/src/main.rs - No embeddings/Qdrant
 
 use axum::{Router, middleware};
 use sqlx::postgres::PgPoolOptions;
@@ -7,11 +7,8 @@ use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 
 mod agent;
-mod rig_integration;
 mod storage;
-
 use agent::{AgentExecutor, AppState};
-use rig_integration::{AgentOrchestrator, RigAgentChain};
 use storage::{ImageProcessor, ImageUrlResolver, StorageService};
 
 // ============================================================================
@@ -23,7 +20,6 @@ pub struct Config {
     pub database_url: String,
     pub redis_url: String,
     pub s3: S3Config,
-    pub qdrant_url: String,
     pub ollama_url: String,
     pub host: String,
     pub port: u16,
@@ -53,8 +49,6 @@ impl Config {
                 secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
                 public_url_base: std::env::var("S3_PUBLIC_URL")?,
             },
-            qdrant_url: std::env::var("QDRANT_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:6334".to_string()),
             ollama_url: std::env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
@@ -81,56 +75,7 @@ async fn setup_redis(config: &Config) -> Result<redis::aio::ConnectionManager, r
     redis::aio::ConnectionManager::new(client).await
 }
 
-async fn setup_qdrant(config: &Config) -> Result<qdrant_client::client::QdrantClient, String> {
-    qdrant_client::client::QdrantClient::from_url(&config.qdrant_url)
-        .build()
-        .map_err(|e| format!("Qdrant error: {}", e))
-}
-
-async fn initialize_qdrant_collections(
-    qdrant: &qdrant_client::client::QdrantClient,
-) -> Result<(), String> {
-    use qdrant_client::prelude::*;
-
-    let collections = qdrant
-        .list_collections()
-        .await
-        .map_err(|e| format!("List collections failed: {}", e))?;
-
-    let exists = collections
-        .collections
-        .iter()
-        .any(|c| c.name == "image_embeddings");
-
-    if !exists {
-        qdrant
-            .create_collection(&CreateCollection {
-                collection_name: "image_embeddings".to_string(),
-                vectors_config: Some(VectorsConfig {
-                    config: Some(qdrant_client::qdrant::vectors_config::Config::Params(
-                        VectorParams {
-                            size: 512,
-                            distance: Distance::Cosine.into(),
-                            ..Default::default()
-                        },
-                    )),
-                }),
-                ..Default::default()
-            })
-            .await
-            .map_err(|e| format!("Create collection failed: {}", e))?;
-
-        log::info!("Created Qdrant collection: image_embeddings");
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// Storage Setup with rust-s3
-// ============================================================================
-
-fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, ai_agent_shared::AppError> {
+fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, AppError> {
     let storage = StorageService::new(
         config.bucket.clone(),
         config.region.clone(),
@@ -147,10 +92,13 @@ fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, ai_agent_shar
 // Middleware
 // ============================================================================
 
-use axum::extract::Request;
+use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
+use cx58_agent::error::AppError;
+use cx58_agent::models::HealthStatus;
+use cx58_agent::rig_integration::AgentOrchestrator;
 
 async fn auth_middleware(mut request: Request, next: Next) -> Result<Response, StatusCode> {
     let user_id = request
@@ -232,8 +180,8 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 
 async fn health_check(
     State(state): State<Arc<AppState>>,
-) -> axum::Json<ai_agent_shared::HealthStatus> {
-    let mut health = ai_agent_shared::HealthStatus::healthy();
+) -> axum::Json<HealthStatus> {
+    let mut health = HealthStatus::healthy();
 
     health.services.database = sqlx::query("SELECT 1").fetch_one(&state.db).await.is_ok();
 
@@ -242,9 +190,7 @@ async fn health_check(
         .await
         .is_ok();
 
-    health.services.s3 = state.storage.exists("health-check").await.unwrap_or(true); // Don't fail health check for missing test file
-
-    health.services.qdrant = state.qdrant.health_check().await.is_ok();
+    health.services.s3 = state.storage.exists("health-check").await.unwrap_or(true);
 
     health.services.ollama = reqwest::get(format!("{}/api/tags", state.ollama_url))
         .await
@@ -258,10 +204,6 @@ async fn health_check(
 }
 
 // ============================================================================
-// AppState
-// ============================================================================
-
-// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -269,7 +211,7 @@ async fn health_check(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    log::info!("🚀 Starting AI Agent Server with rust-s3...");
+    log::info!("🚀 Starting AI Agent Server (lightweight, no embeddings)...");
 
     dotenv::dotenv().ok();
     let config = Config::from_env()?;
@@ -289,21 +231,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let redis = setup_redis(&config).await?;
     log::info!("✅ Redis connected");
 
-    // Qdrant
-    log::info!("🔍 Connecting to Qdrant...");
-    let qdrant = setup_qdrant(&config).await?;
-    initialize_qdrant_collections(&qdrant).await?;
-    log::info!("✅ Qdrant connected");
-
-    // S3 Storage with rust-s3 (synchronous setup)
-    log::info!("☁️  Initializing S3 with rust-s3 (ultra-lightweight)...");
+    // S3 Storage
+    log::info!("☁️  Initializing S3 with rust-s3...");
     let storage = setup_storage(&config.s3)?;
     log::info!("✅ S3 storage initialized");
 
-    // Test S3 connection
+    // Test S3
     match storage.list_user_images(&uuid::Uuid::new_v4()).await {
         Ok(_) => log::info!("✅ S3 connection verified"),
-        Err(e) => log::warn!("⚠️  S3 test (expected): {}", e),
+        Err(e) => log::warn!("⚠️  S3 test: {}", e),
     }
 
     // Resolvers and processors
@@ -316,12 +252,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Agent
     let agent = Arc::new(RwLock::new(AgentExecutor::new(config.ollama_url.clone())));
-
     // Orchestrator
     let orchestrator = Arc::new(AgentOrchestrator::new(
         &config.ollama_url,
         db.clone(),
-        qdrant.clone(),
     ));
 
     // Application state
@@ -331,10 +265,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         storage,
         image_resolver,
         image_processor,
-        qdrant,
         ollama_url: config.ollama_url.clone(),
         agent,
-        orchestrator,
+        orchestrator
     });
 
     log::info!("✅ Application state initialized");
@@ -347,19 +280,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
     log::info!("");
-    log::info!("🎉 Server started successfully!");
-    log::info!("📍 Listening on http://{}", addr);
+    log::info!("🎉 Server started!");
+    log::info!("📍 http://{}", addr);
     log::info!("📡 Agent: http://{}/api/agent/chat", addr);
     log::info!("🖼️  Upload: http://{}/api/images/upload", addr);
     log::info!("❤️  Health: http://{}/health", addr);
     log::info!("");
-    log::info!("💾 S3 Bucket: {}", config.s3.bucket);
-    log::info!("🌍 S3 Region: {}", config.s3.region);
+    log::info!("💾 S3: {}", config.s3.bucket);
+    log::info!("🌍 Region: {}", config.s3.region);
     if let Some(ep) = &config.s3.endpoint {
-        log::info!("🔌 S3 Endpoint: {}", ep);
+        log::info!("🔌 Endpoint: {}", ep);
     }
-    log::info!("🔗 Public URL: {}", config.s3.public_url_base);
-    log::info!("⚡ Using rust-s3 (ultra-lightweight, no AWS SDK!)");
+    log::info!("🔗 CDN: {}", config.s3.public_url_base);
+    log::info!("⚡ rust-s3 + Ollama (NO embeddings, NO Qdrant)");
     log::info!("");
 
     axum::serve(listener, app).await?;

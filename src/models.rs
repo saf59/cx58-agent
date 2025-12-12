@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[cfg(feature = "backend")]
 use sqlx::Type;
 
 // ============================================================================
@@ -11,7 +10,6 @@ use sqlx::Type;
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "backend", derive(sqlx::FromRow))]
 pub struct TreeNode {
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
@@ -19,13 +17,10 @@ pub struct TreeNode {
     pub data: NodeData,
     #[serde(default)]
     pub children: Vec<TreeNode>,
-    #[cfg_attr(feature = "backend", sqlx(try_from = "chrono::DateTime<chrono::Utc>"))]
     pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "backend", derive(Type))]
-#[cfg_attr(feature = "backend", sqlx(type_name = "node_type_enum", rename_all = "PascalCase"))]
 #[serde(tag = "type")]
 pub enum NodeType {
     Root,
@@ -36,14 +31,14 @@ pub enum NodeType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum NodeData {
-    Root { 
-        title: String 
+    Root {
+        title: String,
     },
-    Branch { 
-        label: String, 
-        description: Option<String> 
+    Branch {
+        label: String,
+        description: Option<String>,
     },
-    Image { 
+    Image {
         url: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         storage_path: Option<String>,
@@ -55,23 +50,18 @@ pub enum NodeData {
         hash: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        embeddings: Option<Vec<f32>>,
     },
 }
 
 impl TreeNode {
-    /// Check if node is a leaf
     pub fn is_leaf(&self) -> bool {
         matches!(self.node_type, NodeType::ImageLeaf)
     }
 
-    /// Check if node has children
     pub fn has_children(&self) -> bool {
         !self.children.is_empty()
     }
 
-    /// Get depth of tree from this node
     pub fn depth(&self) -> usize {
         if self.children.is_empty() {
             0
@@ -80,12 +70,10 @@ impl TreeNode {
         }
     }
 
-    /// Count total nodes in subtree
     pub fn count_nodes(&self) -> usize {
         1 + self.children.iter().map(|c| c.count_nodes()).sum::<usize>()
     }
 
-    /// Find node by ID recursively
     pub fn find_node(&self, id: &Uuid) -> Option<&TreeNode> {
         if self.id == *id {
             Some(self)
@@ -94,7 +82,6 @@ impl TreeNode {
         }
     }
 
-    /// Collect all leaf nodes
     pub fn collect_leaves(&self) -> Vec<&TreeNode> {
         if self.is_leaf() {
             vec![self]
@@ -112,7 +99,6 @@ impl TreeNode {
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "backend", derive(sqlx::FromRow))]
 pub struct ChatMessage {
     pub id: Uuid,
     pub chat_id: Uuid,
@@ -126,13 +112,10 @@ pub struct ChatMessage {
     pub input_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<i32>,
-    #[cfg_attr(feature = "backend", sqlx(try_from = "chrono::DateTime<chrono::Utc>"))]
     pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "backend", derive(Type))]
-#[cfg_attr(feature = "backend", sqlx(type_name = "message_role_enum", rename_all = "PascalCase"))]
 pub enum MessageRole {
     User,
     Assistant,
@@ -191,22 +174,11 @@ impl AgentRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum StreamEvent {
-    TextChunk { 
-        content: String 
-    },
-    TreeUpdate { 
-        nodes: Vec<TreeNode> 
-    },
-    ToolCall { 
-        tool: String, 
-        status: String 
-    },
-    Complete { 
-        message_id: Uuid 
-    },
-    Error { 
-        error: String 
-    },
+    TextChunk { content: String },
+    TreeUpdate { nodes: Vec<TreeNode> },
+    ToolCall { tool: String, status: String },
+    Complete { message_id: Uuid },
+    Error { error: String },
 }
 
 impl StreamEvent {
@@ -294,19 +266,15 @@ impl AgentIntent {
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "backend", derive(sqlx::FromRow))]
 pub struct AgentToolCall {
     pub id: Uuid,
     pub message_id: Uuid,
     pub tool_name: String,
-    #[cfg_attr(feature = "backend", sqlx(json))]
     pub tool_input: serde_json::Value,
-    #[cfg_attr(feature = "backend", sqlx(json))]
     pub tool_output: Option<serde_json::Value>,
     pub status: ToolCallStatus,
     pub error_message: Option<String>,
     pub duration_ms: Option<i32>,
-    #[cfg_attr(feature = "backend", sqlx(try_from = "chrono::DateTime<chrono::Utc>"))]
     pub created_at: String,
 }
 
@@ -332,7 +300,6 @@ impl std::fmt::Display for ToolCallStatus {
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "backend", derive(sqlx::FromRow))]
 pub struct ImageDescription {
     pub id: Uuid,
     pub node_id: Uuid,
@@ -340,7 +307,6 @@ pub struct ImageDescription {
     pub prompt: String,
     pub description: String,
     pub confidence: Option<f32>,
-    #[cfg_attr(feature = "backend", sqlx(try_from = "chrono::DateTime<chrono::Utc>"))]
     pub created_at: String,
 }
 
@@ -420,7 +386,7 @@ pub struct SearchFilters {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchUploadRequest {
     pub parent_id: Uuid,
-    pub files: Vec<String>, // Base64 or URLs
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,7 +468,6 @@ pub struct ServiceHealth {
     pub database: bool,
     pub redis: bool,
     pub s3: bool,
-    pub qdrant: bool,
     pub ollama: bool,
 }
 
@@ -515,18 +480,13 @@ impl HealthStatus {
                 database: true,
                 redis: true,
                 s3: true,
-                qdrant: true,
                 ollama: true,
             },
         }
     }
 
     pub fn is_healthy(&self) -> bool {
-        self.services.database
-            && self.services.redis
-            && self.services.s3
-            && self.services.qdrant
-            && self.services.ollama
+        self.services.database && self.services.redis && self.services.s3 && self.services.ollama
     }
 }
 
@@ -565,7 +525,6 @@ mod tests {
                 mime_type: None,
                 hash: None,
                 description: None,
-                embeddings: None,
             },
             children: vec![],
             created_at: "2024-01-01T00:00:00Z".to_string(),

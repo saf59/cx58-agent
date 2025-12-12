@@ -1,8 +1,9 @@
 // backend/src/storage.rs - Ultra-lightweight implementation with rust-s3
 
-use crate::models::*;
-use crate::error::*;
 use crate::agent::AppState;
+use crate::error::*;
+use crate::types::*;
+use crate::models::*;
 use axum::{
     Json,
     extract::{Multipart, Path, State},
@@ -13,6 +14,7 @@ use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
 use sha2::{Digest, Sha256};
+use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -56,7 +58,7 @@ impl StorageService {
         bucket = bucket.with_path_style();
 
         Ok(Self {
-            bucket,
+            bucket: *bucket,
             public_url_base,
         })
     }
@@ -150,9 +152,9 @@ impl StorageService {
         })?;
 
         Ok(ImageMetadata {
-            size: response.content_length.unwrap_or(0) as u64,
-            content_type: response.content_type,
-            last_modified: response.last_modified,
+            size: response.0.content_length.unwrap_or(0) as u64,
+            content_type: response.0.content_type,
+            last_modified: response.0.last_modified,
         })
     }
 
@@ -472,7 +474,7 @@ pub async fn delete_image_handler(
 }
 
 pub async fn batch_upload_handler(
-    State(state): State<Arc<crate::AppState>>,
+    State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<Vec<UploadResponse>>> {
     let user_id = state.extract_user_id()?;

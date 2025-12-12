@@ -33,9 +33,6 @@ redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-native-tls"] }
 
-# Qdrant vector DB
-qdrant-client = "1.16"
-
 # AI/LLM
 rig-core = "0.26"
 
@@ -45,6 +42,7 @@ chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
 futures = "0.3"
 tokio-stream = "0.1"
+async-stream = "0.3.6"
 
 # HTTP client (already needed for Ollama)
 reqwest = { version = "0.12", features = ["json", "stream"] }
@@ -64,10 +62,6 @@ base64 = "0.22"
 dotenv = "0.15"
 env_logger = "0.11"
 log = "0.4"
-async-stream = "0.3.6"
-
-# Shared types
-# ai-agent-shared = { path = "../shared", features = ["backend"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

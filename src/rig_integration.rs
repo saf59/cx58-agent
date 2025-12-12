@@ -1,8 +1,11 @@
+use rig::client::CompletionClient;
 use rig::completion::{Chat, Prompt};
 use rig::providers::ollama::{Client as OllamaClient, CompletionModel};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
+use futures::pin_mut;
+use crate::agent::*;
+use crate::models::{AgentRequest, NodeData, StreamEvent};
 // ============================================================================
 // Rig-based Agent Chain Implementation
 // ============================================================================
@@ -222,28 +225,25 @@ pub struct AgentIntent {
 pub struct AgentOrchestrator {
     pub chain: RigAgentChain,
     pub db: sqlx::PgPool,
-    pub qdrant: qdrant_client::client::QdrantClient,
 }
 
 impl AgentOrchestrator {
     pub fn new(
         ollama_url: &str,
         db: sqlx::PgPool,
-        qdrant: qdrant_client::client::QdrantClient,
     ) -> Self {
         Self {
             chain: RigAgentChain::new(ollama_url),
             db,
-            qdrant,
         }
     }
 
     pub async fn execute_intent(
         &self,
         intent: AgentIntent,
-        request: &crate::AgentRequest,
-        state: &Arc<crate::AppState>,
-    ) -> Result<impl futures::Stream<Item = Result<crate::StreamEvent, String>>, String> {
+        request: &AgentRequest,
+        state: &Arc<AppState>,
+    ) -> Result<impl futures::Stream<Item = Result<StreamEvent, String>>, String> {
         match intent.intent.as_str() {
             "describe_image" => self.handle_image_description(request, state).await,
             "compare_images" => self.handle_image_comparison(request, state).await,
@@ -254,9 +254,9 @@ impl AgentOrchestrator {
 
     async fn handle_image_description(
         &self,
-        request: &crate::AgentRequest,
-        state: &Arc<crate::AppState>,
-    ) -> Result<impl futures::Stream<Item = Result<crate::StreamEvent, String>>, String> {
+        request: &AgentRequest,
+        state: &Arc<AppState>,
+    ) -> Result<impl futures::Stream<Item = Result<StreamEvent, String>>, String> {
         use futures::stream;
 
         let tree_refs = request.tree_context.clone().unwrap_or_default();
@@ -264,7 +264,7 @@ impl AgentOrchestrator {
         let message = request.message.clone();
 
         // Load images
-        let images = crate::get_image_nodes(&state.db, &tree_refs, &request.user_id)
+        let images = get_image_nodes(&state.db, &tree_refs, &request.user_id)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -272,17 +272,17 @@ impl AgentOrchestrator {
 
         Ok(async_stream::stream! {
             for img_node in images {
-                if let crate::NodeData::Image { url, .. } = &img_node.data {
-                    yield Ok(crate::StreamEvent::ToolCall {
+                if let NodeData::Image { url, .. } = &img_node.data {
+                    yield Ok(StreamEvent::ToolCall {
                         tool: "describe_image".to_string(),
                         status: format!("Processing {}", url),
                     });
 
                     // Download image
-                    let bytes = match crate::download_image(url).await {
+                    let bytes = match download_image(url).await {
                         Ok(b) => b,
                         Err(e) => {
-                            yield Ok(crate::StreamEvent::Error {
+                            yield Ok(StreamEvent::Error {
                                 error: format!("Download failed: {}", e),
                             });
                             continue;
@@ -292,7 +292,7 @@ impl AgentOrchestrator {
                     // Describe
                     match chain.describe_image(url, bytes, &language, None).await {
                         Ok(description) => {
-                            yield Ok(crate::StreamEvent::TextChunk {
+                            yield Ok(StreamEvent::TextChunk {
                                 content: format!("\n\n**{}:**\n{}\n", url, description),
                             });
 
@@ -309,7 +309,7 @@ impl AgentOrchestrator {
                             ).execute(&self.db).await;
                         }
                         Err(e) => {
-                            yield Ok(crate::StreamEvent::Error {
+                            yield Ok(StreamEvent::Error {
                                 error: format!("Description failed: {}", e),
                             });
                         }
@@ -321,21 +321,21 @@ impl AgentOrchestrator {
 
     async fn handle_image_comparison(
         &self,
-        request: &crate::AgentRequest,
-        state: &Arc<crate::AppState>,
-    ) -> Result<impl futures::Stream<Item = Result<crate::StreamEvent, String>>, String> {
+        request: &AgentRequest,
+        state: &Arc<AppState>,
+    ) -> Result<impl futures::Stream<Item = Result<StreamEvent, String>>, String> {
         let tree_refs = request.tree_context.clone().unwrap_or_default();
         let language = request.language.clone();
 
         // Load images
-        let image_nodes = crate::get_image_nodes(&state.db, &tree_refs, &request.user_id)
+        let image_nodes = get_image_nodes(&state.db, &tree_refs, &request.user_id)
             .await
             .map_err(|e| e.to_string())?;
 
         let mut images = Vec::new();
         for node in image_nodes {
-            if let crate::NodeData::Image { url, .. } = &node.data {
-                if let Ok(bytes) = crate::download_image(url).await {
+            if let NodeData::Image { url, .. } = &node.data {
+                if let Ok(bytes) = download_image(url).await {
                     images.push((url.clone(), bytes));
                 }
             }
@@ -345,7 +345,7 @@ impl AgentOrchestrator {
         let aspects = vec!["composition", "colors", "subject matter", "style"];
 
         Ok(async_stream::stream! {
-            yield Ok(crate::StreamEvent::ToolCall {
+            yield Ok(StreamEvent::ToolCall {
                 tool: "compare_images".to_string(),
                 status: format!("Comparing {} images", images.len()),
             });
@@ -355,14 +355,14 @@ impl AgentOrchestrator {
                     // Stream the comparison in chunks
                     for chunk in comparison.chars().collect::<Vec<_>>().chunks(50) {
                         let chunk_str: String = chunk.iter().collect();
-                        yield Ok(crate::StreamEvent::TextChunk {
+                        yield Ok(StreamEvent::TextChunk {
                             content: chunk_str,
                         });
                         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
                     }
                 }
                 Err(e) => {
-                    yield Ok(crate::StreamEvent::Error {
+                    yield Ok(StreamEvent::Error {
                         error: format!("Comparison failed: {}", e),
                     });
                 }
@@ -372,12 +372,12 @@ impl AgentOrchestrator {
 
     async fn handle_general_query(
         &self,
-        request: &crate::AgentRequest,
-        state: &Arc<crate::AppState>,
-    ) -> Result<impl futures::Stream<Item = Result<crate::StreamEvent, String>>, String> {
+        request: &AgentRequest,
+        state: &Arc<AppState>,
+    ) -> Result<impl futures::Stream<Item = Result<StreamEvent, String>>, String> {
         // Load context from tree
         let context = if let Some(refs) = &request.tree_context {
-            let nodes = crate::load_tree_nodes(&state.db, refs, &request.user_id)
+            let nodes = load_tree_nodes(&state.db, refs, &request.user_id)
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -392,78 +392,18 @@ impl AgentOrchestrator {
             .await?;
 
         Ok(async_stream::stream! {
+            pin_mut!(stream); // ??
             while let Some(chunk) = stream.next().await {
                 match chunk {
                     Ok(text) => {
-                        yield Ok(crate::StreamEvent::TextChunk { content: text });
+                        yield Ok(StreamEvent::TextChunk { content: text });
                     }
                     Err(e) => {
-                        yield Ok(crate::StreamEvent::Error { error: e });
+                        yield Ok(StreamEvent::Error { error: e });
                     }
                 }
             }
         })
     }
 
-    /// Store embeddings in Qdrant for semantic search
-    pub async fn index_image_embedding(
-        &self,
-        node_id: uuid::Uuid,
-        description: &str,
-    ) -> Result<(), String> {
-        use qdrant_client::prelude::*;
-
-        // Generate embedding
-        let embedding = self.chain.generate_embedding(description).await?;
-
-        // Create point
-        let point = PointStruct::new(
-            node_id.to_string(),
-            embedding,
-            Payload::new_from_hashmap([("description".to_string(), description.into())].into()),
-        );
-
-        // Insert to Qdrant
-        self.qdrant
-            .upsert_points_blocking("image_embeddings", vec![point], None)
-            .await
-            .map_err(|e| format!("Qdrant error: {}", e))?;
-
-        Ok(())
-    }
-
-    /// Search similar images using Qdrant
-    pub async fn search_similar_images(
-        &self,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<(uuid::Uuid, f32)>, String> {
-        use qdrant_client::prelude::*;
-
-        // Generate query embedding
-        let query_embedding = self.chain.generate_embedding(query).await?;
-
-        // Search in Qdrant
-        let results = self
-            .qdrant
-            .search_points(&SearchPoints {
-                collection_name: "image_embeddings".to_string(),
-                vector: query_embedding,
-                limit: limit as u64,
-                with_payload: Some(true.into()),
-                ..Default::default()
-            })
-            .await
-            .map_err(|e| format!("Qdrant search error: {}", e))?;
-
-        Ok(results
-            .result
-            .into_iter()
-            .filter_map(|r| {
-                uuid::Uuid::parse_str(&r.id.to_string())
-                    .ok()
-                    .map(|id| (id, r.score))
-            })
-            .collect())
-    }
 }

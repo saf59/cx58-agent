@@ -1,6 +1,7 @@
 ﻿// backend/src/agent.rs - Works with rust-s3
 
 use crate::models::*;
+use crate::types::*;
 use crate::error::*;
 use axum::{
     extract::{Path, State},
@@ -190,7 +191,7 @@ fn build_prompt(request: &AgentRequest) -> String {
     format!("Language: {}. User: {}", request.language, request.message)
 }
 
-async fn load_tree_nodes(
+pub async fn load_tree_nodes(
     db: &sqlx::PgPool,
     node_ids: &[Uuid],
     user_id: &Uuid,
@@ -221,7 +222,7 @@ async fn load_tree_nodes(
         .collect())
 }
 
-async fn get_image_nodes(
+pub async fn get_image_nodes(
     db: &sqlx::PgPool,
     node_ids: &[Uuid],
     user_id: &Uuid,
@@ -252,7 +253,7 @@ async fn get_image_nodes(
         .collect())
 }
 
-async fn download_image(url: &str) -> std::result::Result<Vec<u8>, reqwest::Error> {
+pub async fn download_image(url: &str) -> std::result::Result<Vec<u8>, reqwest::Error> {
     reqwest::get(url).await?.bytes().await.map(|b| b.to_vec())
 }
 
@@ -395,7 +396,6 @@ pub struct AppState {
     pub storage: Arc<StorageService>,
     pub image_resolver: Arc<ImageUrlResolver>,
     pub image_processor: Arc<ImageProcessor>,
-    pub qdrant: qdrant_client::client::QdrantClient,
     pub ollama_url: String,
     pub agent: Arc<RwLock<AgentExecutor>>,
     pub orchestrator: Arc<crate::rig_integration::AgentOrchestrator>,
