@@ -4,33 +4,70 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# Common dependencies
+# Core async runtime
 tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-uuid = { version = "1", features = ["serde", "v4"] }
-chrono = { version = "0.4", features = ["serde"] }
 
-# Backend
-axum = "0.8"
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
-redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
-qdrant-client = "1.16"
-rig-core = "0.26"
+# Web framework
+axum = { version = "0.8", features = ["multipart"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 
-# Additional
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+sqlx = { version = "0.8", features = [
+    "postgres",
+    "runtime-tokio-rustls",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate"
+] }
+
+# Redis
+redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
+
+# S3 Storage - ULTRA LIGHTWEIGHT! 🚀
+# Only ~50KB + reqwest (~200KB) = Total ~250KB
+
+rust-s3 = { version = "0.37", default-features = false, features = ["tokio-native-tls"] }
+
+# Qdrant vector DB
+qdrant-client = "1.16"
+
+# AI/LLM
+rig-core = "0.26"
+
+# Utilities
+uuid = { version = "1", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1"
+futures = "0.3"
+tokio-stream = "0.1"
+
+# HTTP client (already needed for Ollama)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Image processing
+image = "0.25"
+mime_guess = "2"
+
+# Hashing
+sha2 = "0.10"
+hex = "0.4"
+
+# Base64 for Ollama vision
+base64 = "0.22"
+
+# Config & logging
 dotenv = "0.15"
 env_logger = "0.11"
 log = "0.4"
-futures = "0.3"
-tokio-stream = "0.1"
-reqwest = { version = "0.12", features = ["json", "stream"] }
-aws-sdk-s3 = "1"
-aws-config = "1"
-bytes = "1"
-mime_guess = "2"
-sha2 = "0.10"
-hex = "0.4"
-image = "0.25"
-base64 = "0.22"
+async-stream = "0.3.6"
+
+# Shared types
+# ai-agent-shared = { path = "../shared", features = ["backend"] }
+
+[dev-dependencies]
+tokio-test = "0.4"

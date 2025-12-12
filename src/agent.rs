@@ -1,6 +1,7 @@
-// backend/src/agent.rs - Updated for aws-sdk-s3
+﻿// backend/src/agent.rs - Works with rust-s3
 
-use ai_agent_shared::*;
+use crate::models::*;
+use crate::error::*;
 use axum::{
     extract::{Path, State},
     response::sse::{Event, KeepAlive, Sse},
@@ -8,6 +9,7 @@ use axum::{
 };
 use futures::stream::{Stream, StreamExt};
 use std::sync::Arc;
+use futures::pin_mut;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -35,7 +37,6 @@ impl AgentExecutor {
         let req_clone = request.clone();
         
         async_stream::stream! {
-            // Load tree context if provided
             if let Some(tree_refs) = &req_clone.tree_context {
                 yield Ok(StreamEvent::tool("load_tree_context", "started"));
 
@@ -44,13 +45,12 @@ impl AgentExecutor {
                         yield Ok(StreamEvent::TreeUpdate { nodes });
                     }
                     Err(e) => {
-                        yield Ok(StreamEvent::error(format!("Failed to load tree: {}", e)));
+                        yield Ok(StreamEvent::error(format!("Load tree failed: {}", e)));
                         return;
                     }
                 }
             }
 
-            // Detect if we need vision
             let needs_vision = detect_image_operations(&req_clone.message);
             
             if needs_vision {
@@ -58,6 +58,7 @@ impl AgentExecutor {
 
                 match self.process_vision_request(&req_clone, &state_clone).await {
                     Ok(mut stream) => {
+                        pin_mut!(stream);
                         while let Some(event) = stream.next().await {
                             yield event;
                         }
@@ -69,6 +70,7 @@ impl AgentExecutor {
             } else {
                 match self.process_text_request(&req_clone, &state_clone).await {
                     Ok(mut stream) => {
+                        pin_mut!(stream);
                         while let Some(event) = stream.next().await {
                             yield event;
                         }
@@ -79,8 +81,7 @@ impl AgentExecutor {
                 }
             }
 
-            let message_id = Uuid::new_v4();
-            yield Ok(StreamEvent::complete(message_id));
+            yield Ok(StreamEvent::complete(Uuid::new_v4()));
         }
     }
 
@@ -105,30 +106,28 @@ impl AgentExecutor {
                 if let NodeData::Image { url, storage_path, .. } = &img_node.data {
                     yield Ok(StreamEvent::tool("describe_image", format!("Processing {}", img_node.id)));
 
-                    // Download from S3 using storage_path
+                    // Download from S3 using rust-s3
                     let img_bytes = match storage_path {
                         Some(path) => {
                             match storage.download_image(path).await {
                                 Ok(bytes) => bytes.to_vec(),
                                 Err(e) => {
-                                    yield Ok(StreamEvent::error(format!("S3 download failed: {}", e)));
+                                    yield Ok(StreamEvent::error(format!("S3 download: {}", e)));
                                     continue;
                                 }
                             }
                         }
                         None => {
-                            // Fallback to URL download for legacy data
                             match download_image(url).await {
                                 Ok(bytes) => bytes,
                                 Err(e) => {
-                                    yield Ok(StreamEvent::error(format!("Download failed: {}", e)));
+                                    yield Ok(StreamEvent::error(format!("Download: {}", e)));
                                     continue;
                                 }
                             }
                         }
                     };
 
-                    // Call Ollama vision model
                     let vision_prompt = format!(
                         "Language: {}. Question: {}. Describe this image.",
                         language, message
@@ -140,20 +139,14 @@ impl AgentExecutor {
 
                             while let Some(chunk) = stream.next().await {
                                 match chunk {
-                                    Ok(text) => {
-                                        yield Ok(StreamEvent::text(text));
-                                    }
-                                    Err(e) => {
-                                        yield Ok(StreamEvent::error(format!("Vision error: {}", e)));
-                                    }
+                                    Ok(text) => yield Ok(StreamEvent::text(text)),
+                                    Err(e) => yield Ok(StreamEvent::error(format!("Vision: {}", e))),
                                 }
                             }
 
                             yield Ok(StreamEvent::text("\n"));
                         }
-                        Err(e) => {
-                            yield Ok(StreamEvent::error(format!("Vision model error: {}", e)));
-                        }
+                        Err(e) => yield Ok(StreamEvent::error(format!("Vision model: {}", e))),
                     }
                 }
             }
@@ -173,18 +166,12 @@ impl AgentExecutor {
                 Ok(mut stream) => {
                     while let Some(chunk) = stream.next().await {
                         match chunk {
-                            Ok(text) => {
-                                yield Ok(StreamEvent::text(text));
-                            }
-                            Err(e) => {
-                                yield Ok(StreamEvent::error(format!("Stream error: {}", e)));
-                            }
+                            Ok(text) => yield Ok(StreamEvent::text(text)),
+                            Err(e) => yield Ok(StreamEvent::error(format!("Stream: {}", e))),
                         }
                     }
                 }
-                Err(e) => {
-                    yield Ok(StreamEvent::error(format!("Model error: {}", e)));
-                }
+                Err(e) => yield Ok(StreamEvent::error(format!("Model: {}", e))),
             }
         })
     }
@@ -195,15 +182,12 @@ impl AgentExecutor {
 // ============================================================================
 
 fn detect_image_operations(message: &str) -> bool {
-    let keywords = ["describe", "compare", "image", "picture", "photo", "показать", "описать", "сравнить"];
+    let keywords = ["describe", "compare", "image", "picture", "photo", "показать", "описать"];
     keywords.iter().any(|k| message.to_lowercase().contains(k))
 }
 
 fn build_prompt(request: &AgentRequest) -> String {
-    format!(
-        "Language: {}. User: {}",
-        request.language, request.message
-    )
+    format!("Language: {}. User: {}", request.language, request.message)
 }
 
 async fn load_tree_nodes(
@@ -419,7 +403,6 @@ pub struct AppState {
 
 impl AppState {
     pub fn extract_user_id(&self) -> Result<Uuid> {
-        // Populated by middleware
         Ok(Uuid::new_v4())
     }
 }
