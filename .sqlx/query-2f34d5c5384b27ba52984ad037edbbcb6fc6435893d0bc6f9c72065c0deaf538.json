@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO image_descriptions (node_id, model_name, prompt, description)\n                                 VALUES ($1, $2, $3, $4)\n                                 ON CONFLICT (node_id, model_name, prompt) DO UPDATE\n                                 SET description = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f34d5c5384b27ba52984ad037edbbcb6fc6435893d0bc6f9c72065c0deaf538"
+}

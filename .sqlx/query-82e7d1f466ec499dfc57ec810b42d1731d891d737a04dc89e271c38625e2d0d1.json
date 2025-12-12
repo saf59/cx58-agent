@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH RECURSIVE tree AS (\n            SELECT * FROM tree_nodes WHERE id = $1 AND user_id = $2\n            UNION ALL\n            SELECT tn.* FROM tree_nodes tn\n            INNER JOIN tree t ON tn.parent_id = t.id\n            WHERE tn.user_id = $2\n        )\n        SELECT id, parent_id, node_type as \"node_type!: NodeType\",\n               data, created_at\n        FROM tree\n        WHERE id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "node_type!: NodeType",
+        "type_info": {
+          "Custom": {
+            "name": "node_type_enum",
+            "kind": {
+              "Enum": [
+                "Root",
+                "Branch",
+                "ImageLeaf"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "82e7d1f466ec499dfc57ec810b42d1731d891d737a04dc89e271c38625e2d0d1"
+}

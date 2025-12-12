@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, parent_id, node_type as \"node_type!: NodeType\", \n               data, created_at\n        FROM tree_nodes\n        WHERE id = ANY($1) AND user_id = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "parent_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "node_type!: NodeType",
+        "type_info": {
+          "Custom": {
+            "name": "node_type_enum",
+            "kind": {
+              "Enum": [
+                "Root",
+                "Branch",
+                "ImageLeaf"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a492b42f95709d012dbc26b36ff069ae96811a93d9e6ce17412fd701979aec48"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT data FROM tree_nodes WHERE id = $1 AND user_id = $2 AND node_type = 'ImageLeaf'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "703e6b1e56979b0abd94be8aa79ce3e05397601e0c7a006bd88322abf8688190"
+}
