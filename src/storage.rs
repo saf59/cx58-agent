@@ -2,7 +2,7 @@
 
 use crate::agent::AppState;
 use crate::error::*;
-use crate::types::*;
+//use crate::types::*;
 use crate::models::*;
 use axum::{
     Json,
@@ -275,7 +275,6 @@ impl ImageProcessor {
         max_width: u32,
         max_height: u32,
     ) -> Result<StorageResult> {
-        use image::GenericImageView;
 
         let data = self.storage.download_image(original_path).await?;
         let img = image::load_from_memory(&data)
@@ -287,7 +286,7 @@ impl ImageProcessor {
         thumbnail
             .write_to(
                 &mut std::io::Cursor::new(&mut buffer),
-                image::ImageOutputFormat::Jpeg(85),
+                image::ImageFormat::Jpeg//   ImageOutputFormat::Jpeg(85),
             )
             .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
 
@@ -400,10 +399,10 @@ pub async fn upload_image_handler(
                 INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data)
                 VALUES ($1, $2, $3, $4, $5)
                 "#,
-                node_id,
-                user_id,
-                None::<Uuid>,
-                "ImageLeaf",
+                node_id,      // TODO id is auto!!
+                user_id,      // TODO it not need
+                None::<Uuid>, // TODO it must be!
+                NodeType::ImageLeaf as NodeType , //"node_type_enum: ImageLeaf", // NodeType::ImageLeaf
                 serde_json::json!({
                     "url": result.public_url,
                     "storage_path": result.storage_path,

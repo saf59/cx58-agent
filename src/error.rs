@@ -264,7 +264,6 @@ impl Default for ValidationErrors {
 // Error Conversion Implementations
 // ============================================================================
 
-#[cfg(feature = "backend")]
 impl From<sqlx::Error> for AppError {
     fn from(err: sqlx::Error) -> Self {
         match err {
@@ -281,7 +280,6 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
-#[cfg(feature = "backend")]
 impl From<redis::RedisError> for AppError {
     fn from(err: redis::RedisError) -> Self {
         Self::new(
@@ -307,7 +305,6 @@ impl From<std::io::Error> for AppError {
 // Backend-specific HTTP Response Conversion
 // ============================================================================
 
-#[cfg(feature = "backend")]
 impl axum::response::IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
         use axum::http::StatusCode;

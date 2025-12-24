@@ -20,8 +20,9 @@ pub struct TreeNode {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Type)]
 #[serde(tag = "type")]
+#[sqlx(type_name = "node_type_enum")]
 pub enum NodeType {
     Root,
     Branch,
@@ -115,7 +116,7 @@ pub struct ChatMessage {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Type)]
 pub enum MessageRole {
     User,
     Assistant,
@@ -172,38 +173,88 @@ impl AgentRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
-    TextChunk { content: String },
-    TreeUpdate { nodes: Vec<TreeNode> },
-    ToolCall { tool: String, status: String },
-    Complete { message_id: Uuid },
-    Error { error: String },
-}
+    // Life cycle events
+    Started {
+        request_id: String,
+        timestamp: i64,
+    },
 
-impl StreamEvent {
-    pub fn text(content: impl Into<String>) -> Self {
-        Self::TextChunk {
-            content: content.into(),
-        }
-    }
+    // Coordinator events
+    CoordinatorThinking {
+        request_id: String,
+        message: String,
+    },
 
-    pub fn tool(tool: impl Into<String>, status: impl Into<String>) -> Self {
-        Self::ToolCall {
-            tool: tool.into(),
-            status: status.into(),
-        }
-    }
+    ToolSelected {
+        request_id: String,
+        tool_name: String,
+        parameters: serde_json::Value,
+    },
 
-    pub fn error(error: impl Into<String>) -> Self {
-        Self::Error {
-            error: error.into(),
-        }
-    }
+    // Pipeline events
+    PipelineStarted {
+        request_id: String,
+        pipeline_name: String,
+        steps: Vec<String>,
+    },
 
-    pub fn complete(message_id: Uuid) -> Self {
-        Self::Complete { message_id }
-    }
+    PipelineStepStarted {
+        request_id: String,
+        step_name: String,
+        step_index: usize,
+    },
+
+    PipelineStepProgress {
+        request_id: String,
+        step_name: String,
+        progress: f32,
+        message: String,
+    },
+
+    PipelineStepCompleted {
+        request_id: String,
+        step_name: String,
+        result_preview: Option<String>,
+    },
+
+    TreeUpdate {
+        request_id: String,
+        nodes: Vec<TreeNode>
+    },
+
+    ToolCall {
+        request_id: String,
+        tool: String,
+        status: String
+    },
+
+    // Content generation events
+    TextChunk {
+        request_id: String,
+        chunk: String,
+    },
+
+    // Completion events
+    Completed {
+        request_id: String,
+        final_result: String,
+        timestamp: i64,
+    },
+
+    // Error events
+    Error {
+        request_id: String,
+        error: String,
+        recoverable: bool,
+    },
+
+    // Cancelled events
+    Cancelled {
+        request_id: String,
+        reason: String,
+    },
 }
 
 // ============================================================================

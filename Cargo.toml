@@ -37,12 +37,13 @@ rust-s3 = { version = "0.37", default-features = false, features = ["tokio-nativ
 rig-core = "0.26"
 
 # Utilities
-uuid = { version = "1", features = ["serde", "v4"] }
+uuid = { version = "1", features = ["serde", "v7"] }
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
 futures = "0.3"
 tokio-stream = "0.1"
 async-stream = "0.3.6"
+thiserror = "2.0.17"
 
 # HTTP client (already needed for Ollama)
 reqwest = { version = "0.12", features = ["json", "stream"] }
@@ -62,6 +63,14 @@ base64 = "0.22"
 dotenv = "0.15"
 env_logger = "0.11"
 log = "0.4"
+
+# lang
+fluent-bundle = "0.16.0"
+unic-langid = "0.9.6"
+schemars = "1.1.0"
+aho-corasick = "1.1.4"
+strum = "0.27.2"
+strum_macros = "0.27.2"
 
 [dev-dependencies]
 tokio-test = "0.4"

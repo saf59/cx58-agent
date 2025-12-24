@@ -1,9 +1,11 @@
-use rig::client::CompletionClient;
-use rig::completion::{Chat, Prompt};
-use rig::providers::ollama::{Client as OllamaClient, CompletionModel};
+```rust
+use rig::client::{CompletionClient, Nothing};
+use rig::providers::ollama::{Client as OllamaClient};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use futures::pin_mut;
+use rig::completion::{CompletionModel};
+use rig::providers::ollama;
 use crate::agent::*;
 use crate::models::{AgentRequest, NodeData, StreamEvent};
 // ============================================================================
@@ -19,8 +21,11 @@ pub struct RigAgentChain {
 
 impl RigAgentChain {
     pub fn new(ollama_url: &str) -> Self {
-        let client = OllamaClient::new(ollama_url);
-
+        let client:  ollama::Client = ollama::Client::builder()
+            .api_key(Nothing)
+            .base_url(ollama_url)
+            .build()
+            .unwrap();
         Self {
             ollama_client: Arc::new(client),
             text_model: "llama3.2".to_string(),
@@ -56,19 +61,21 @@ Response format (JSON only, no other text):
             language, user_message
         );
 
-        let model: CompletionModel = self.ollama_client.completion_model(&self.text_model);
+        let model = self.ollama_client.completion_model(&self.text_model);
 
-        let response = model
-            .prompt(&prompt)
-            .await
-            .map_err(|e| format!("Rig prompt error: {}", e))?;
-
+        let request = model
+            .completion_request (&prompt)
+            .preamble("You are a helpful AI assistant. Provide concise explanations.".to_string())
+            .temperature(0.7)
+            .build();
+        let response = model.completion(request).await.unwrap();
         // Parse JSON response
         let cleaned = response
             .trim()
             .trim_start_matches("```json")
             .trim_end_matches("```");
-        serde_json::from_str::<AgentIntent>(cleaned)
+
+        serde_json::from_str::<AgentIntent>(cleaned.)
             .map_err(|e| format!("Failed to parse intent: {}", e))
     }
 
@@ -87,14 +94,14 @@ Response format (JSON only, no other text):
         let prompt = format!("Language for response: {}. {}", language, base_prompt);
 
         // Use vision model with Rig
-        let model: CompletionModel = self.ollama_client.completion_model(&self.vision_model);
+        let model = self.ollama_client.completion_model(&self.vision_model);
 
         // Rig handles multimodal via special prompt format
         let vision_prompt = format!("[IMAGE: {}]\n{}", base64::encode(&image_bytes), prompt);
 
         let response = model
-            .prompt(&vision_prompt)
-            .await
+            .completion_request(&vision_prompt)
+            //.await
             .map_err(|e| format!("Vision model error: {}", e))?;
 
         Ok(response)
@@ -138,12 +145,13 @@ Provide a detailed comparison highlighting similarities and differences."#,
             descriptions.join("\n\n")
         );
 
-        let model: CompletionModel = self.ollama_client.completion_model(&self.text_model);
+        let model  = self.ollama_client.completion_model(&self.text_model);
 
         let response = model
-            .prompt(&comparison_prompt)
-            .await
-            .map_err(|e| format!("Comparison error: {}", e))?;
+            .completion_request(&comparison_prompt)
+            .preamble("You are a helpful AI assistant. Provide concise explanations.".to_string())
+            .temperature(0.7)
+            .build();
 
         Ok(response)
     }
@@ -246,8 +254,8 @@ impl AgentOrchestrator {
     ) -> Result<impl futures::Stream<Item = Result<StreamEvent, String>>, String> {
         match intent.intent.as_str() {
             "describe_image" => self.handle_image_description(request, state).await,
-            "compare_images" => self.handle_image_comparison(request, state).await,
-            "general_query" => self.handle_general_query(request, state).await,
+            //"compare_images" => self.handle_image_comparison(request, state).await,
+            //"general_query" => self.handle_general_query(request, state).await,
             _ => Err(format!("Unknown intent: {}", intent.intent)),
         }
     }
@@ -407,3 +415,4 @@ impl AgentOrchestrator {
     }
 
 }
+```

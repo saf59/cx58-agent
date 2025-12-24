@@ -1,6 +1,5 @@
-pub mod agent;
+pub mod agents;
 pub mod error;
-pub mod models;
-pub mod rig_integration;
+// pub mod models;
 pub mod storage;
-pub mod types;
+// pub mod types;
