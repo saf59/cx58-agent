@@ -1,9 +1,9 @@
-﻿use crate::events::StreamEvent;
-use crate::parser::TaskParameters;
-use rig::providers::ollama;
+﻿use rig::providers::ollama;
 use rig::completion::Prompt;
+use rig::prelude::CompletionClient;
 use tokio::sync::mpsc;
 use serde_json::json;
+use crate::agents::{StreamEvent, TaskParameters};
 
 pub struct ComparisonAgent {
     client: ollama::Client,

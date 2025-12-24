@@ -1,4 +1,3 @@
-```rust
 use rig::client::{CompletionClient, Nothing};
 use rig::providers::ollama::{Client as OllamaClient};
 use serde::{Deserialize, Serialize};
@@ -75,7 +74,7 @@ Response format (JSON only, no other text):
             .trim_start_matches("```json")
             .trim_end_matches("```");
 
-        serde_json::from_str::<AgentIntent>(cleaned.)
+        serde_json::from_str::<AgentIntent>(cleaned)
             .map_err(|e| format!("Failed to parse intent: {}", e))
     }
 
@@ -415,4 +414,3 @@ impl AgentOrchestrator {
     }
 
 }
-```

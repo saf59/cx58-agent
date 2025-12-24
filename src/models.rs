@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use sqlx::Type;
-
 // ============================================================================
 // Tree Node Models
 // ============================================================================
@@ -566,7 +565,7 @@ mod tests {
     #[test]
     fn test_tree_node_depth() {
         let leaf = TreeNode {
-            id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
             parent_id: None,
             node_type: NodeType::ImageLeaf,
             data: NodeData::Image {
@@ -589,23 +588,14 @@ mod tests {
     fn test_agent_request_builder() {
         let request = AgentRequest::new(
             "test".to_string(),
-            Uuid::new_v4(),
-            Uuid::new_v4(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
             "session".to_string(),
             "en".to_string(),
         )
-        .with_tree_context(vec![Uuid::new_v4()]);
+        .with_tree_context(vec![Uuid::now_v7()]);
 
         assert!(request.tree_context.is_some());
-    }
-
-    #[test]
-    fn test_stream_event_factory() {
-        let event = StreamEvent::text("Hello");
-        assert!(matches!(event, StreamEvent::TextChunk { .. }));
-
-        let error = StreamEvent::error("Failed");
-        assert!(matches!(error, StreamEvent::Error { .. }));
     }
 
     #[test]

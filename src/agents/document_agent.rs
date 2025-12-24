@@ -1,5 +1,6 @@
 ﻿use rig::providers::ollama;
 use rig::completion::Prompt;
+use rig::prelude::CompletionClient;
 use tokio::sync::mpsc;
 use serde_json::json;
 use crate::agents::{StreamEvent, TaskParameters};

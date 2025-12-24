@@ -1,6 +1,5 @@
+use std::error::Error;
 // backend/src/storage.rs - Ultra-lightweight implementation with rust-s3
-
-use crate::agent::AppState;
 use crate::error::*;
 //use crate::types::*;
 use crate::models::*;
@@ -17,6 +16,28 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
+
+// ============================================================================
+// AppState
+// ============================================================================
+
+pub struct AppState {
+    pub db: sqlx::PgPool,
+    pub redis: redis::aio::ConnectionManager,
+    pub storage: Arc<StorageService>,
+    pub image_resolver: Arc<ImageUrlResolver>,
+    pub image_processor: Arc<ImageProcessor>,
+    pub ollama_url: String,
+    //pub agent: Arc<RwLock<AgentExecutor>>,
+    //pub orchestrator: Arc<crate::rig_integration::AgentOrchestrator>,
+}
+
+impl AppState {
+    pub fn extract_user_id(&self) -> std::result::Result<Uuid,AppError> {
+        Ok(Uuid::now_v7())
+    }
+}
+
 
 // ============================================================================
 // Storage Service with rust-s3
@@ -290,7 +311,7 @@ impl ImageProcessor {
             )
             .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
 
-        let thumb_node_id = Uuid::new_v4();
+        let thumb_node_id = Uuid::now_v7();
         self.storage
             .upload_image(
                 user_id,
@@ -369,7 +390,7 @@ pub async fn upload_image_handler(
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>> {
     let user_id = state.extract_user_id()?;
-    let node_id = Uuid::new_v4();
+    let node_id = Uuid::now_v7();
 
     while let Some(field) = multipart
         .next_field()
@@ -491,7 +512,7 @@ pub async fn batch_upload_handler(
                 .await
                 .map_err(|e| AppError::bad_request(format!("Read: {}", e)))?;
 
-            let node_id = Uuid::new_v4();
+            let node_id = Uuid::now_v7();
 
             if let Ok(result) = state
                 .storage

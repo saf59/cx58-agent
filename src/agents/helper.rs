@@ -1,5 +1,6 @@
 use rig::client::Nothing;
 use rig::providers::ollama;
+use rig::providers::ollama::Client;
 // visual
 // tool
 // 0..1 thinking: Qwen, DeepSeek

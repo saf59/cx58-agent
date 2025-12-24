@@ -1,7 +1,8 @@
-﻿use crate::events::StreamEvent;
-use rig::providers::ollama;
+﻿use rig::providers::ollama;
 use rig::completion::Prompt;
+use rig::prelude::CompletionClient;
 use tokio::sync::mpsc;
+use crate::agents::StreamEvent;
 
 pub struct ChatAgent {
     client: ollama::Client,

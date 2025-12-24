@@ -2,6 +2,7 @@
 use rig::completion::Prompt;
 use tokio::sync::mpsc;
 use serde_json::json;
+use rig::prelude::CompletionClient;
 use crate::agents::StreamEvent;
 use crate::agents::task_detector::TaskParameters;
 

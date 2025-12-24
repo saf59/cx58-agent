@@ -386,23 +386,3 @@ async fn load_full_tree(
     })
 }
 
-// ============================================================================
-// AppState
-// ============================================================================
-
-pub struct AppState {
-    pub db: sqlx::PgPool,
-    pub redis: redis::aio::ConnectionManager,
-    pub storage: Arc<StorageService>,
-    pub image_resolver: Arc<ImageUrlResolver>,
-    pub image_processor: Arc<ImageProcessor>,
-    pub ollama_url: String,
-    pub agent: Arc<RwLock<AgentExecutor>>,
-    pub orchestrator: Arc<crate::rig_integration::AgentOrchestrator>,
-}
-
-impl AppState {
-    pub fn extract_user_id(&self) -> Result<Uuid> {
-        Ok(Uuid::new_v4())
-    }
-}
