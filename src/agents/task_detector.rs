@@ -1,4 +1,4 @@
-﻿use crate::agents::{ParserError, Period, PromptContext, PromptKey};
+use crate::agents::{ParserError, Period, PromptContext, PromptKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +19,12 @@ pub struct TaskParameters {
 }
 
 pub struct TaskDetector;
+
+impl Default for TaskDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TaskDetector {
     pub fn new() -> Self {

@@ -1,11 +1,9 @@
-﻿use rig::providers::ollama;
+use rig::providers::ollama;
 use rig::completion::Prompt;
 use tokio::sync::mpsc;
 use serde_json::json;
 use rig::prelude::CompletionClient;
-use crate::agents::StreamEvent;
-use crate::agents::task_detector::TaskParameters;
-
+use crate::{StreamEvent,TaskParameters};
 pub struct ObjectAgent {
     client: ollama::Client,
     request_id: String,

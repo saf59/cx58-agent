@@ -4,7 +4,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use tower_http::cors::{Any, CorsLayer};
 
-use cx58_agent::agents::master_agent::MasterAgent;
+use cx58_agent::MasterAgent;
 use cx58_agent::error::AppError;
 use cx58_agent::handlers::{auth_middleware, chat_stream_handler, get_tree_handler};
 use cx58_agent::models::HealthStatus;

@@ -1,4 +1,4 @@
-﻿// Public module exports
+// Public module exports
 pub mod events;
 pub mod prompt_context;
 pub mod task_detector;
@@ -19,4 +19,4 @@ pub use document_agent::DocumentAgent;
 pub use description_agent::DescriptionAgent;
 pub use comparison_agent::ComparisonAgent;
 pub use chat_agent::ChatAgent;
-pub use master_agent::{AgentRequest,AgentContext,CancellationToken,RequestManager};
+pub use master_agent::{AgentRequest,AgentContext,CancellationToken,RequestManager,MasterAgent};

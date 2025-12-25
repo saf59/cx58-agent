@@ -289,7 +289,7 @@ impl ImageProcessor {
             .await
             .map_err(|e| AppError::internal(format!("Read failed: {}", e)))?;
 
-        let filename = external_url.split('/').last().unwrap_or("image.jpg");
+        let filename = external_url.split('/').next_back().unwrap_or("image.jpg");
 
         self.storage
             .upload_image(user_id, node_id, bytes, filename)
