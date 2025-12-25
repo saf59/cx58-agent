@@ -4,6 +4,7 @@ pub mod error;
 pub mod models;
 pub mod storage;
 pub mod handlers;
+pub mod init;
 
 pub use crate::agents::master_agent::MasterAgent;
 pub use crate::storage::{AiConfig, AppState};

@@ -227,3 +227,27 @@ pub async fn chat_stream_cancel(
         ))
     }
 }
+pub async fn health_check(
+    State(state): State<Arc<AppState>>,
+) -> axum::Json<HealthStatus> {
+    let mut health = HealthStatus::healthy();
+
+    health.services.database = sqlx::query("SELECT 1").fetch_one(&state.db).await.is_ok();
+
+    /*    health.services.redis = redis::cmd("PING")
+            .query_async::<_, String>(&mut state.redis.clone())
+            .await
+            .is_ok();
+    */
+    health.services.s3 = state.storage.exists("health-check").await.unwrap_or(true);
+
+    health.services.ollama = reqwest::get(format!("{}/api/tags", state.ai_config.url))
+        .await
+        .is_ok();
+
+    if !health.is_healthy() {
+        health.status = "degraded".to_string();
+    }
+
+    axum::Json(health)
+}

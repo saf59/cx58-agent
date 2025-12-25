@@ -300,7 +300,7 @@ impl ImageProcessor {
     pub async fn create_thumbnail(
         &self,
         user_id: &Uuid,
-        node_id: &Uuid,
+        _node_id: &Uuid,
         original_path: &str,
         max_width: u32,
         max_height: u32,

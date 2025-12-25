@@ -158,7 +158,7 @@ impl MasterAgent {
 
     pub async fn handle_request_stream(
         &self,
-        state:Arc<AppState>,
+        _state:Arc<AppState>,
         request: AgentRequest
     ) -> mpsc::Receiver<StreamEvent> {
         let (tx, rx) = mpsc::channel(100);
@@ -305,6 +305,7 @@ impl MasterAgent {
 
 #[cfg(test)]
 mod tests {
+    use crate::init::app_init;
     use super::*;
     const URL:&str = "http://localhost:8080";
     #[tokio::test]
@@ -320,8 +321,10 @@ mod tests {
             session_id: None,
             metadata: None,
         };
+        dotenv::dotenv().ok();
+        let (_config, state) = app_init().await.unwrap();
 
-        let mut rx = agent.handle_request_stream(request).await;
+        let mut rx = agent.handle_request_stream(state.clone(),request).await;
 
         while let Some(event) = rx.recv().await {
             match event {
@@ -361,8 +364,10 @@ mod tests {
             session_id: None,
             metadata: None,
         };
+        dotenv::dotenv().ok();
+        let (_config, state) = app_init().await.unwrap();
 
-        let mut rx = agent.handle_request_stream(request).await;
+        let mut rx = agent.handle_request_stream(state.clone(),request).await;
 
         while let Some(event) = rx.recv().await {
             match event {
@@ -391,8 +396,10 @@ mod tests {
             session_id: None,
             metadata: None,
         };
+        dotenv::dotenv().ok();
+        let (_config, state) = app_init().await.unwrap();
 
-        let mut rx = agent.handle_request_stream(request).await;
+        let mut rx = agent.handle_request_stream(state.clone(),request).await;
 
         while let Some(event) = rx.recv().await {
             match event {
