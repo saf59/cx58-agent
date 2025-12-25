@@ -3,14 +3,18 @@
 use axum::{Router, middleware};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
+use axum::extract::State;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 
 mod agent;
 mod storage;
 use agent::{AgentExecutor, AppState};
+use cx58_agent::agents::master_agent::MasterAgent;
+use cx58_agent::error::AppError;
+use cx58_agent::models::HealthStatus;
 use storage::{ImageProcessor, ImageUrlResolver, StorageService};
-
+use crate::storage::{AiConfig, AppState};
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -18,9 +22,7 @@ use storage::{ImageProcessor, ImageUrlResolver, StorageService};
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
-    pub redis_url: String,
     pub s3: S3Config,
-    pub ollama_url: String,
     pub host: String,
     pub port: u16,
 }
@@ -39,8 +41,6 @@ impl Config {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             database_url: std::env::var("DATABASE_URL")?,
-            redis_url: std::env::var("REDIS_URL")
-                .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),
             s3: S3Config {
                 bucket: std::env::var("S3_BUCKET")?,
                 region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
@@ -49,8 +49,6 @@ impl Config {
                 secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
                 public_url_base: std::env::var("S3_PUBLIC_URL")?,
             },
-            ollama_url: std::env::var("OLLAMA_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "3000".to_string())
@@ -70,11 +68,12 @@ async fn setup_database(config: &Config) -> Result<sqlx::PgPool, sqlx::Error> {
         .await
 }
 
+/*
 async fn setup_redis(config: &Config) -> Result<redis::aio::ConnectionManager, redis::RedisError> {
     let client = redis::Client::open(config.redis_url.as_str())?;
     redis::aio::ConnectionManager::new(client).await
 }
-
+*/
 fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, AppError> {
     let storage = StorageService::new(
         config.bucket.clone(),
@@ -87,7 +86,7 @@ fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, AppError> {
 
     Ok(Arc::new(storage))
 }
-
+/*
 // ============================================================================
 // Middleware
 // ============================================================================
@@ -98,7 +97,6 @@ use axum::middleware::Next;
 use axum::response::Response;
 use cx58_agent::error::AppError;
 use cx58_agent::models::HealthStatus;
-use cx58_agent::rig_integration::AgentOrchestrator;
 
 async fn auth_middleware(mut request: Request, next: Next) -> Result<Response, StatusCode> {
     let user_id = request
@@ -136,7 +134,7 @@ async fn auth_middleware(mut request: Request, next: Next) -> Result<Response, S
 
     Ok(next.run(request).await)
 }
-
+*/
 // ============================================================================
 // Router
 // ============================================================================
@@ -168,7 +166,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             axum::routing::post(storage::batch_upload_handler),
         )
         .route("/health", axum::routing::get(health_check))
-        .layer(middleware::from_fn(auth_middleware))
+        //.layer(middleware::from_fn(auth_middleware))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -216,6 +214,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
     let config = Config::from_env()?;
     log::info!("✅ Configuration loaded");
+    let ai_config = AiConfig::from_env()?;
+    log::info!("✅ Ai Configuration loaded");
 
     // Database
     log::info!("📊 Connecting to PostgreSQL...");
@@ -226,18 +226,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::migrate!("./migrations").run(&db).await?;
     log::info!("✅ Migrations completed");
 
-    // Redis
+/*    // Redis
     log::info!("📮 Connecting to Redis...");
     let redis = setup_redis(&config).await?;
     log::info!("✅ Redis connected");
-
+*/
     // S3 Storage
     log::info!("☁️  Initializing S3 with rust-s3...");
     let storage = setup_storage(&config.s3)?;
     log::info!("✅ S3 storage initialized");
 
     // Test S3
-    match storage.list_user_images(&uuid::Uuid::new_v4()).await {
+    match storage.list_user_images(&uuid::Uuid::now_v7()).await {
         Ok(_) => log::info!("✅ S3 connection verified"),
         Err(e) => log::warn!("⚠️  S3 test: {}", e),
     }
@@ -250,24 +250,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let image_processor = Arc::new(ImageProcessor::new(storage.clone()));
 
-    // Agent
-    let agent = Arc::new(RwLock::new(AgentExecutor::new(config.ollama_url.clone())));
-    // Orchestrator
-    let orchestrator = Arc::new(AgentOrchestrator::new(
-        &config.ollama_url,
-        db.clone(),
-    ));
+
+    let master_agent = Arc::new(MasterAgent::new(&ai_config.url));
 
     // Application state
     let state = Arc::new(AppState {
         db,
-        redis,
         storage,
         image_resolver,
         image_processor,
-        ollama_url: config.ollama_url.clone(),
-        agent,
-        orchestrator
+        master_agent,
+        ai_config
     });
 
     log::info!("✅ Application state initialized");

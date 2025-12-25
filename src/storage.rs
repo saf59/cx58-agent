@@ -16,28 +16,39 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
-
+use crate::agents::master_agent::MasterAgent;
 // ============================================================================
 // AppState
 // ============================================================================
 
-pub struct AppState {
-    pub db: sqlx::PgPool,
-    pub redis: redis::aio::ConnectionManager,
-    pub storage: Arc<StorageService>,
-    pub image_resolver: Arc<ImageUrlResolver>,
-    pub image_processor: Arc<ImageProcessor>,
-    pub ollama_url: String,
-    //pub agent: Arc<RwLock<AgentExecutor>>,
-    //pub orchestrator: Arc<crate::rig_integration::AgentOrchestrator>,
+pub struct AiConfig {
+    url: String,
+    text_model: String,
+    vision_model: String,
+    chat_model: String,
 }
-
-impl AppState {
-    pub fn extract_user_id(&self) -> std::result::Result<Uuid,AppError> {
-        Ok(Uuid::now_v7())
+impl AiConfig {
+    pub fn from_env() -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self {
+            url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            text_model: std::env::var("TEXT_MODEL").unwrap_or_else(|_| "llava".to_string()),
+            vision_model: std::env::var("VISION_MODEL").unwrap_or_else(|_| "llama3.2-vision".to_string()),
+            chat_model: std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llava".to_string()),
+        })
     }
 }
 
+pub struct AppState {
+    pub db: sqlx::PgPool,
+    pub storage: Arc<StorageService>,
+    pub image_resolver: Arc<ImageUrlResolver>,
+    pub image_processor: Arc<ImageProcessor>,
+    pub master_agent: Arc<MasterAgent>,
+    pub ai_config: AiConfig,
+}
+//pub redis: redis::aio::ConnectionManager,
+//pub agent: Arc<RwLock<AgentExecutor>>,
+//pub orchestrator: Arc<crate::rig_integration::AgentOrchestrator>,
 
 // ============================================================================
 // Storage Service with rust-s3
@@ -296,7 +307,6 @@ impl ImageProcessor {
         max_width: u32,
         max_height: u32,
     ) -> Result<StorageResult> {
-
         let data = self.storage.download_image(original_path).await?;
         let img = image::load_from_memory(&data)
             .map_err(|e| AppError::internal(format!("Invalid image: {}", e)))?;
@@ -307,7 +317,7 @@ impl ImageProcessor {
         thumbnail
             .write_to(
                 &mut std::io::Cursor::new(&mut buffer),
-                image::ImageFormat::Jpeg//   ImageOutputFormat::Jpeg(85),
+                image::ImageFormat::Jpeg, //   ImageOutputFormat::Jpeg(85),
             )
             .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
 
@@ -353,8 +363,8 @@ impl ImageUrlResolver {
             r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
             node_id
         )
-        .fetch_one(&self.db)
-        .await?;
+            .fetch_one(&self.db)
+            .await?;
 
         let data: serde_json::Value = node.data;
         data.get("url")
@@ -368,8 +378,8 @@ impl ImageUrlResolver {
             r#"SELECT id, data FROM tree_nodes WHERE id = ANY($1) AND node_type = 'ImageLeaf'"#,
             node_ids
         )
-        .fetch_all(&self.db)
-        .await?;
+            .fetch_all(&self.db)
+            .await?;
 
         Ok(nodes
             .into_iter()
@@ -389,7 +399,7 @@ pub async fn upload_image_handler(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>> {
-    let user_id = state.extract_user_id()?;
+    let user_id = Uuid::now_v7();
     let node_id = Uuid::now_v7();
 
     while let Some(field) = multipart
@@ -432,8 +442,8 @@ pub async fn upload_image_handler(
                     "hash": result.hash,
                 })
             )
-            .execute(&state.db)
-            .await?;
+                .execute(&state.db)
+                .await?;
 
             return Ok(Json(UploadResponse {
                 node_id,
@@ -451,15 +461,15 @@ pub async fn get_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>> {
-    let user_id = state.extract_user_id()?;
+    let user_id = Uuid::now_v7();
 
     let node = sqlx::query!(
         r#"SELECT data FROM tree_nodes WHERE id = $1 AND user_id = $2 AND node_type = 'ImageLeaf'"#,
         node_id,
         user_id
     )
-    .fetch_one(&state.db)
-    .await?;
+        .fetch_one(&state.db)
+        .await?;
 
     Ok(Json(node.data))
 }
@@ -468,15 +478,15 @@ pub async fn delete_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
 ) -> Result<StatusCode> {
-    let user_id = state.extract_user_id()?;
+    let user_id = Uuid::now_v7();
 
     let node = sqlx::query!(
         r#"SELECT data FROM tree_nodes WHERE id = $1 AND user_id = $2 AND node_type = 'ImageLeaf'"#,
         node_id,
         user_id
     )
-    .fetch_one(&state.db)
-    .await?;
+        .fetch_one(&state.db)
+        .await?;
 
     let storage_path = node
         .data
@@ -497,7 +507,7 @@ pub async fn batch_upload_handler(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<Vec<UploadResponse>>> {
-    let user_id = state.extract_user_id()?;
+    let user_id = Uuid::now_v7();
     let mut responses = Vec::new();
 
     while let Some(field) = multipart

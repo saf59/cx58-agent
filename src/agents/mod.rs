@@ -9,8 +9,6 @@ pub mod description_agent;
 pub mod comparison_agent;
 pub mod chat_agent;
 pub mod lang;
-pub mod helper;
-
 // Re-export main types for convenience
 pub use events::StreamEvent;
 pub use lang::TextManager;

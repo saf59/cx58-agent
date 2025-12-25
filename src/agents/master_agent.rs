@@ -2,10 +2,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use rig::client::Nothing;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, StreamEvent, Task, TaskDetector};
 use crate::agents::helper::client;
+use crate::storage::AiConfig;
 
 const IS_LOCAL: bool = false;
 
@@ -137,8 +139,12 @@ pub struct MasterAgent {
 }
 
 impl MasterAgent {
-    pub fn new() -> Self {
-        let client = client(IS_LOCAL);
+    pub fn new(ai_url: &str) -> Self {
+        let client = ollama::Client::builder()
+            .api_key(Nothing)
+            .base_url(ai_url)
+            .build()
+            .unwrap();
         Self {
             client,
             request_manager: Arc::new(RequestManager::new()),
