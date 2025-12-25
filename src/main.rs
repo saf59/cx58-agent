@@ -1,20 +1,15 @@
-// backend/src/main.rs - No embeddings/Qdrant
-
 use axum::{Router, middleware};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use axum::extract::State;
-use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 
-mod agent;
-mod storage;
-use agent::{AgentExecutor, AppState};
 use cx58_agent::agents::master_agent::MasterAgent;
 use cx58_agent::error::AppError;
+use cx58_agent::handlers::{auth_middleware, get_tree_handler};
 use cx58_agent::models::HealthStatus;
-use storage::{ImageProcessor, ImageUrlResolver, StorageService};
-use crate::storage::{AiConfig, AppState};
+use cx58_agent::storage::{batch_upload_handler, delete_image_handler, get_image_handler, upload_image_handler, ImageProcessor, ImageUrlResolver, StorageService};
+use cx58_agent::{AiConfig, AppState};
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -87,53 +82,6 @@ fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, AppError> {
     Ok(Arc::new(storage))
 }
 /*
-// ============================================================================
-// Middleware
-// ============================================================================
-
-use axum::extract::{Request, State};
-use axum::http::StatusCode;
-use axum::middleware::Next;
-use axum::response::Response;
-use cx58_agent::error::AppError;
-use cx58_agent::models::HealthStatus;
-
-async fn auth_middleware(mut request: Request, next: Next) -> Result<Response, StatusCode> {
-    let user_id = request
-        .headers()
-        .get("X-User-ID")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let session_id = request
-        .headers()
-        .get("X-Session-ID")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-
-    let language = request
-        .headers()
-        .get("X-Language")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "en".to_string());
-
-    let chat_id = request
-        .headers()
-        .get("X-Chat-ID")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-        .unwrap_or_else(uuid::Uuid::new_v4);
-
-    request.extensions_mut().insert(user_id);
-    request.extensions_mut().insert(session_id);
-    request.extensions_mut().insert(language);
-    request.extensions_mut().insert(chat_id);
-
-    Ok(next.run(request).await)
-}
 */
 // ============================================================================
 // Router
@@ -143,30 +91,30 @@ fn create_app_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route(
             "/api/agent/chat",
-            axum::routing::post(agent::chat_stream_handler_with_images),
+            axum::routing::post(chat_stream_handler_with_images),
         )
         .route(
             "/api/agent/tree/:user_id/:root_id",
-            axum::routing::get(agent::get_tree_handler),
+            axum::routing::get(get_tree_handler),
         )
         .route(
             "/api/images/upload",
-            axum::routing::post(storage::upload_image_handler),
+            axum::routing::post(upload_image_handler),
         )
         .route(
             "/api/images/:node_id",
-            axum::routing::get(storage::get_image_handler),
+            axum::routing::get(get_image_handler),
         )
         .route(
             "/api/images/:node_id",
-            axum::routing::delete(storage::delete_image_handler),
+            axum::routing::delete(delete_image_handler),
         )
         .route(
             "/api/images/batch",
-            axum::routing::post(storage::batch_upload_handler),
+            axum::routing::post(batch_upload_handler),
         )
         .route("/health", axum::routing::get(health_check))
-        //.layer(middleware::from_fn(auth_middleware))
+        .layer(middleware::from_fn(auth_middleware))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -183,14 +131,14 @@ async fn health_check(
 
     health.services.database = sqlx::query("SELECT 1").fetch_one(&state.db).await.is_ok();
 
-    health.services.redis = redis::cmd("PING")
+/*    health.services.redis = redis::cmd("PING")
         .query_async::<_, String>(&mut state.redis.clone())
         .await
         .is_ok();
-
+*/
     health.services.s3 = state.storage.exists("health-check").await.unwrap_or(true);
 
-    health.services.ollama = reqwest::get(format!("{}/api/tags", state.ollama_url))
+    health.services.ollama = reqwest::get(format!("{}/api/tags", state.ai_config.url))
         .await
         .is_ok();
 

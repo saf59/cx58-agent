@@ -6,8 +6,6 @@ use rig::client::Nothing;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, StreamEvent, Task, TaskDetector};
-use crate::agents::helper::client;
-use crate::storage::AiConfig;
 
 const IS_LOCAL: bool = false;
 
@@ -300,10 +298,10 @@ impl MasterAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    const URL:&str = "http://localhost:8080";
     #[tokio::test]
     async fn test_object_task() {
-        let agent = MasterAgent::new();
+        let agent = MasterAgent::new(URL);
         
         let request = AgentRequest {
             message: "show me the last 5 objects".to_string(),
@@ -344,7 +342,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_chat_task() {
-        let agent = MasterAgent::new();
+        let agent = MasterAgent::new(URL);
         
         let request = AgentRequest {
             message: "hello, how are you?".to_string(),
@@ -374,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_comparison_task() {
-        let agent = MasterAgent::new();
+        let agent = MasterAgent::new(URL);
         
         let request = AgentRequest {
             message: "compare the last 2 documents".to_string(),

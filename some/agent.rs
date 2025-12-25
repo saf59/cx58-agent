@@ -343,46 +343,4 @@ pub async fn chat_stream_handler_with_images(
     Sse::new(event_stream).keep_alive(KeepAlive::default())
 }
 
-pub async fn get_tree_handler(
-    State(state): State<Arc<AppState>>,
-    Path((user_id, root_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<TreeNode>> {
-    let tree = load_full_tree(&state.db, &user_id, &root_id).await?;
-    Ok(Json(tree))
-}
-
-async fn load_full_tree(
-    db: &sqlx::PgPool,
-    user_id: &Uuid,
-    root_id: &Uuid,
-) -> Result<TreeNode> {
-    let node = sqlx::query!(
-        r#"
-        WITH RECURSIVE tree AS (
-            SELECT * FROM tree_nodes WHERE id = $1 AND user_id = $2
-            UNION ALL
-            SELECT tn.* FROM tree_nodes tn
-            INNER JOIN tree t ON tn.parent_id = t.id
-            WHERE tn.user_id = $2
-        )
-        SELECT id, parent_id, node_type as "node_type!: NodeType",
-               data, created_at
-        FROM tree
-        WHERE id = $1
-        "#,
-        root_id,
-        user_id
-    )
-    .fetch_one(db)
-    .await?;
-
-    Ok(TreeNode {
-        id: node.id,
-        parent_id: node.parent_id,
-        node_type: node.node_type,
-        data: serde_json::from_value(node.data).unwrap(),
-        children: vec![],
-        created_at: node.created_at.to_rfc3339(),
-    })
-}
 

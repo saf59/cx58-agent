@@ -1,7 +1,4 @@
-use std::error::Error;
-// backend/src/storage.rs - Ultra-lightweight implementation with rust-s3
 use crate::error::*;
-//use crate::types::*;
 use crate::models::*;
 use axum::{
     Json,
@@ -17,15 +14,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 use crate::agents::master_agent::MasterAgent;
+
 // ============================================================================
-// AppState
+// AppState && AiConfig
 // ============================================================================
 
 pub struct AiConfig {
-    url: String,
-    text_model: String,
-    vision_model: String,
-    chat_model: String,
+    pub url: String,
+    pub text_model: String,
+    pub vision_model: String,
+    pub chat_model: String,
 }
 impl AiConfig {
     pub fn from_env() -> std::result::Result<Self, Box<dyn std::error::Error>> {
