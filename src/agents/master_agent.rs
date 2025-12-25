@@ -18,7 +18,11 @@ const IS_LOCAL: bool = false;
 pub struct CancellationToken {
     cancelled: Arc<RwLock<bool>>,
 }
-
+impl Default for CancellationToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl CancellationToken {
     pub fn new() -> Self {
         Self {
@@ -51,7 +55,11 @@ impl CancellationToken {
 pub struct RequestManager {
     active_requests: Arc<RwLock<HashMap<String, CancellationToken>>>,
 }
-
+impl Default for RequestManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl RequestManager {
     pub fn new() -> Self {
         Self {
