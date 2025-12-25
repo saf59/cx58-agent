@@ -8,8 +8,6 @@ use uuid::Uuid;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, StreamEvent, Task, TaskDetector};
 use crate::AppState;
 
-const IS_LOCAL: bool = false;
-
 // ============================================================================
 // CANCELLATION TOKEN
 // ============================================================================
@@ -408,9 +406,4 @@ mod tests {
             }
         }
     }
-}
-
-fn main() {
-    println!("Master Agent SSE Application");
-    println!("Use tests to run examples: cargo test -- --nocapture");
 }
