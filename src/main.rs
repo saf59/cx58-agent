@@ -6,7 +6,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use cx58_agent::agents::master_agent::MasterAgent;
 use cx58_agent::error::AppError;
-use cx58_agent::handlers::{auth_middleware, get_tree_handler};
+use cx58_agent::handlers::{auth_middleware, chat_stream_handler, get_tree_handler};
 use cx58_agent::models::HealthStatus;
 use cx58_agent::storage::{batch_upload_handler, delete_image_handler, get_image_handler, upload_image_handler, ImageProcessor, ImageUrlResolver, StorageService};
 use cx58_agent::{AiConfig, AppState};
@@ -91,7 +91,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route(
             "/api/agent/chat",
-            axum::routing::post(chat_stream_handler_with_images),
+            axum::routing::post(chat_stream_handler),
         )
         .route(
             "/api/agent/tree/:user_id/:root_id",

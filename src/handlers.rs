@@ -3,7 +3,7 @@
 // ============================================================================
 use axum::http::StatusCode;
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{Response, Sse};
 use crate::models::*;
 use crate::error::*;
 use axum::{
@@ -11,10 +11,13 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use axum::response::sse::{Event, KeepAlive};
+use futures::Stream;
 use uuid::Uuid;
 
 pub use crate::storage::{StorageService, ImageProcessor, ImageUrlResolver};
-use crate::storage::AppState;
+use crate::AppState;
+use crate::AgentRequest;
 
 pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::Result<Response, StatusCode> {
     let user_id = request
@@ -94,4 +97,23 @@ async fn load_full_tree(
         children: vec![],
         created_at: node.created_at.unwrap().to_rfc3339(),
     })
+}
+
+pub async fn chat_stream_handler(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<AgentRequest>,
+) -> Sse<impl Stream<Item = std::result::Result<Event, String>>> {
+    let agent = state.master_agent.clone();
+    let state = state.clone();
+    let stream = agent.handle_request_stream(state, request).await;
+
+    let event_stream = stream.map(|result| {
+        result.and_then(|event| {
+            serde_json::to_string(&event)
+                .map_err(|e| e.to_string())
+                .map(|json| Event::default().data(json))
+        })
+    });
+
+    Sse::new(event_stream).keep_alive(KeepAlive::default())
 }

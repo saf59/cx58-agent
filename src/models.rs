@@ -131,7 +131,7 @@ impl std::fmt::Display for MessageRole {
         }
     }
 }
-
+/*
 // ============================================================================
 // Agent Request/Response Models
 // ============================================================================
@@ -170,7 +170,7 @@ impl AgentRequest {
         self
     }
 }
-
+*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
@@ -560,6 +560,7 @@ pub struct S3Config {
 
 #[cfg(test)]
 mod tests {
+    use crate::AgentRequest;
     use super::*;
 
     #[test]
@@ -582,20 +583,6 @@ mod tests {
 
         assert_eq!(leaf.depth(), 0);
         assert!(leaf.is_leaf());
-    }
-
-    #[test]
-    fn test_agent_request_builder() {
-        let request = AgentRequest::new(
-            "test".to_string(),
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            "session".to_string(),
-            "en".to_string(),
-        )
-        .with_tree_context(vec![Uuid::now_v7()]);
-
-        assert!(request.tree_context.is_some());
     }
 
     #[test]

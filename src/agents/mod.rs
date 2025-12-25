@@ -19,3 +19,4 @@ pub use document_agent::DocumentAgent;
 pub use description_agent::DescriptionAgent;
 pub use comparison_agent::ComparisonAgent;
 pub use chat_agent::ChatAgent;
+pub use master_agent::{AgentRequest,AgentContext,CancellationToken,RequestManager};

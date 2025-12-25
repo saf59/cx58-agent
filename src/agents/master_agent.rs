@@ -6,6 +6,7 @@ use rig::client::Nothing;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, StreamEvent, Task, TaskDetector};
+use crate::AppState;
 
 const IS_LOCAL: bool = false;
 
@@ -85,7 +86,7 @@ impl RequestManager {
 // REQUEST STRUCTURES
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentRequest {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,7 +102,11 @@ pub struct AgentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
 }
-
+impl AgentRequest {
+    fn new(message:String) -> Self {
+        Self {message, ..}
+    }
+}
 #[derive(Debug, Clone)]
 pub struct AgentContext {
     pub request_id: String,
@@ -151,7 +156,8 @@ impl MasterAgent {
 
     pub async fn handle_request_stream(
         &self,
-        request: AgentRequest,
+        state:Arc<AppState>,
+        request: AgentRequest
     ) -> mpsc::Receiver<StreamEvent> {
         let (tx, rx) = mpsc::channel(100);
 
