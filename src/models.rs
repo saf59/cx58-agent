@@ -171,7 +171,7 @@ impl AgentRequest {
     }
 }
 */
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/*#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEvent {
     // Life cycle events
@@ -255,7 +255,7 @@ pub enum StreamEvent {
         reason: String,
     },
 }
-
+*/
 // ============================================================================
 // Storage Models
 // ============================================================================

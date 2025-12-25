@@ -18,7 +18,7 @@ use crate::agents::master_agent::MasterAgent;
 // ============================================================================
 // AppState && AiConfig
 // ============================================================================
-
+#[derive(Clone)]
 pub struct AiConfig {
     pub url: String,
     pub text_model: String,
@@ -35,7 +35,7 @@ impl AiConfig {
         })
     }
 }
-
+#[derive(Clone)]
 pub struct AppState {
     pub db: sqlx::PgPool,
     pub storage: Arc<StorageService>,

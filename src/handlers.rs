@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 // ============================================================================
 // Middleware
 // ============================================================================
@@ -13,11 +14,13 @@ use axum::{
 use std::sync::Arc;
 use axum::response::sse::{Event, KeepAlive};
 use futures::Stream;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub use crate::storage::{StorageService, ImageProcessor, ImageUrlResolver};
 use crate::AppState;
 use crate::AgentRequest;
+use crate::agents::StreamEvent;
 
 pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::Result<Response, StatusCode> {
     let user_id = request
@@ -98,22 +101,129 @@ async fn load_full_tree(
         created_at: node.created_at.unwrap().to_rfc3339(),
     })
 }
+// ============================================================================
+// RESPONSE TYPES
+// ============================================================================
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelResponse {
+    pub success: bool,
+    pub request_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelErrorResponse {
+    pub error: String,
+    pub message: String,
+}
+
+// ============================================================================
+// SSE STREAM HANDLER
+// ============================================================================
+
+/// Handler for streaming chat responses via SSE
+///
+/// POST /api/chat/stream
+/// Body: AgentRequest JSON
+///
+/// Returns: Server-Sent Events stream with StreamEvent data
 pub async fn chat_stream_handler(
     State(state): State<Arc<AppState>>,
     Json(request): Json<AgentRequest>,
-) -> Sse<impl Stream<Item = std::result::Result<Event, String>>> {
+) -> Sse<impl Stream<Item = std::result::Result<Event, Infallible>>> {
     let agent = state.master_agent.clone();
-    let state = state.clone();
-    let stream = agent.handle_request_stream(state, request).await;
+    let mut rx = agent.handle_request_stream(state.clone(), request).await;
 
-    let event_stream = stream.map(|result| {
-        result.and_then(|event| {
-            serde_json::to_string(&event)
-                .map_err(|e| e.to_string())
-                .map(|json| Event::default().data(json))
-        })
-    });
+    // Get event receiver from agent
+    //let mut rx = state.agent.handle_request_stream(request).await;
 
-    Sse::new(event_stream).keep_alive(KeepAlive::default())
+    // Create async stream
+    let stream = async_stream::stream! {
+        while let Some(event) = rx.recv().await {
+            // Serialize event to JSON
+            match serde_json::to_string(&event) {
+                Ok(json_data) => {
+                    // Create SSE event with JSON data
+                    let sse_event = Event::default()
+                        .event("message")
+                        .data(json_data);
+
+                    yield Ok(sse_event);
+
+                    // Check if this is a terminal event
+                    match event {
+                        StreamEvent::Completed { .. }
+                        | StreamEvent::Error { .. }
+                        | StreamEvent::Cancelled { .. } => {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                Err(e) => {
+                    // If serialization fails, send error event
+                    let error_event = StreamEvent::Error {
+                        request_id: "unknown".to_string(),
+                        error: format!("Serialization error: {}", e),
+                        recoverable: false,
+                    };
+
+                    if let Ok(json_data) = serde_json::to_string(&error_event) {
+                        let sse_event = Event::default()
+                            .event("error")
+                            .data(json_data);
+                        yield Ok(sse_event);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Send final event to indicate stream end
+        let done_event = Event::default()
+            .event("done")
+            .data("Stream closed");
+        yield Ok(done_event);
+    };
+
+    // Return SSE with keep-alive
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(std::time::Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}
+
+// ============================================================================
+// CANCEL HANDLER
+// ============================================================================
+
+/// Handler for cancelling an active request
+///
+/// DELETE /api/chat/cancel/:request_id
+///
+/// Returns: JSON with cancellation status
+pub async fn chat_stream_cancel(
+    State(state): State<AppState>,
+    Path(request_id): Path<String>,
+) -> std::result::Result<Json<CancelResponse>, (StatusCode, Json<CancelErrorResponse>)> {
+    // Attempt to cancel the request
+    let cancelled = state.master_agent.cancel_request(&request_id).await;
+
+    if cancelled {
+        Ok(Json(CancelResponse {
+            success: true,
+            request_id: request_id.clone(),
+            message: format!("Request {} cancelled successfully", request_id),
+        }))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(CancelErrorResponse {
+                error: "NOT_FOUND".to_string(),
+                message: format!("Request {} not found or already completed", request_id),
+            }),
+        ))
+    }
 }

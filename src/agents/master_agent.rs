@@ -110,11 +110,6 @@ pub struct AgentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
 }
-impl AgentRequest {
-    fn new(message:String) -> Self {
-        Self {message, ..}
-    }
-}
 #[derive(Debug, Clone)]
 pub struct AgentContext {
     pub request_id: String,
