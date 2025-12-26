@@ -1,9 +1,10 @@
+use std::sync::Arc;
 use rig::providers::ollama;
 use rig::completion::Prompt;
 use rig::prelude::CompletionClient;
 use tokio::sync::mpsc;
 use serde_json::json;
-use crate::{StreamEvent, TaskParameters};
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 pub struct ComparisonAgent {
     client: ollama::Client,
@@ -30,7 +31,9 @@ impl ComparisonAgent {
 
     pub async fn execute(
         &self,
+        state:Arc<AppState>,
         prompt: &str,
+        context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Send initial text chunk

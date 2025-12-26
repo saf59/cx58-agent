@@ -1,9 +1,10 @@
+use std::sync::Arc;
 use rig::providers::ollama;
 use rig::completion::Prompt;
 use tokio::sync::mpsc;
 use serde_json::json;
 use rig::prelude::CompletionClient;
-use crate::{StreamEvent,TaskParameters};
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 pub struct ObjectAgent {
     client: ollama::Client,
     request_id: String,
@@ -29,7 +30,9 @@ impl ObjectAgent {
 
     pub async fn execute(
         &self,
+        state:Arc<AppState>,
         prompt: &str,
+        context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Send initial text chunk

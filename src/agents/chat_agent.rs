@@ -1,8 +1,10 @@
+use std::sync::Arc;
 use rig::providers::ollama;
 use rig::completion::Prompt;
 use rig::prelude::CompletionClient;
 use tokio::sync::mpsc;
 use crate::agents::StreamEvent;
+use crate::{AgentContext, AppState};
 
 pub struct ChatAgent {
     client: ollama::Client,
@@ -29,15 +31,16 @@ impl ChatAgent {
 
     pub async fn execute(
         &self,
+        state:Arc<AppState>,
         prompt: &str,
-        language: &str,
+        context: &AgentContext,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let agent = self
             .client
             .agent("ministral-3:14b")
             .preamble(&format!(
                 "You are a friendly chat assistant. Respond naturally in {} language.",
-                language
+                context.language
             ))
             .build();
 
