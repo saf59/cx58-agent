@@ -31,7 +31,7 @@ impl DescriptionAgent {
 
     pub async fn execute(
         &self,
-        _state:Arc<AppState>,
+        state:Arc<AppState>,
         prompt: &str,
         _context: &AgentContext,
         parameters: &TaskParameters,
@@ -51,7 +51,7 @@ impl DescriptionAgent {
 
         let agent = self
             .client
-            .agent("ministral-3:14b")
+            .agent(&state.ai_config.vision_model)
             .preamble("You are a detailed description assistant. Provide comprehensive explanations in a structured format.")
             .build();
 

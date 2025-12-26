@@ -31,13 +31,13 @@ impl ChatAgent {
 
     pub async fn execute(
         &self,
-        _state:Arc<AppState>,
+        state:Arc<AppState>,
         prompt: &str,
         context: &AgentContext,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let agent = self
             .client
-            .agent("ministral-3:14b")
+            .agent(&state.ai_config.text_model)
             .preamble(&format!(
                 "You are a friendly chat assistant. Respond naturally in {} language.",
                 context.language

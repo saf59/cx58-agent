@@ -31,7 +31,7 @@ impl DocumentAgent {
 
     pub async fn execute(
         &self,
-        _state:Arc<AppState>,
+        state:Arc<AppState>,
         prompt: &str,
         _context: &AgentContext,
         parameters: &TaskParameters,
@@ -51,7 +51,7 @@ impl DocumentAgent {
 
         let agent = self
             .client
-            .agent("ministral-3:14b")
+            .agent(&state.ai_config.text_model)
             .preamble("You are a document management system. Return structured document data in JSON format.")
             .build();
 

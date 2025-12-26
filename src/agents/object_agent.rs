@@ -30,7 +30,7 @@ impl ObjectAgent {
 
     pub async fn execute(
         &self,
-        _state:Arc<AppState>,
+        state:Arc<AppState>,
         prompt: &str,
         _context: &AgentContext,
         parameters: &TaskParameters,
@@ -50,7 +50,7 @@ impl ObjectAgent {
 
         let agent = self
             .client
-            .agent("ministral-3:14b")
+            .agent(&state.ai_config.text_model)
             .preamble("You are an object management system. Return structured object data in JSON format.")
             .build();
 
