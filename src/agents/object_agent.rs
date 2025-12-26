@@ -30,9 +30,9 @@ impl ObjectAgent {
 
     pub async fn execute(
         &self,
-        state:Arc<AppState>,
+        _state:Arc<AppState>,
         prompt: &str,
-        context: &AgentContext,
+        _context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Send initial text chunk

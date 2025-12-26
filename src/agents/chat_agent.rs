@@ -31,7 +31,7 @@ impl ChatAgent {
 
     pub async fn execute(
         &self,
-        state:Arc<AppState>,
+        _state:Arc<AppState>,
         prompt: &str,
         context: &AgentContext,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
