@@ -1,8 +1,8 @@
 use rig::providers::ollama;
+use rig::client::Nothing;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use rig::client::Nothing;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, Task, TaskDetector};

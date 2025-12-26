@@ -1,12 +1,7 @@
-// shared/src/models.rs
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use sqlx::Type;
-// ============================================================================
-// Tree Node Models
-// ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TreeNode {
@@ -94,44 +89,7 @@ impl TreeNode {
     }
 }
 
-// ============================================================================
-// Chat Message Models
-// ============================================================================
 
-/*#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ChatMessage {
-    pub id: Uuid,
-    pub chat_id: Uuid,
-    pub user_id: Uuid,
-    pub session_id: String,
-    pub role: MessageRole,
-    pub content: String,
-    #[serde(default)]
-    pub tree_refs: Vec<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_tokens: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_tokens: Option<i32>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Type)]
-pub enum MessageRole {
-    User,
-    Assistant,
-    System,
-}
-
-impl std::fmt::Display for MessageRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MessageRole::User => write!(f, "user"),
-            MessageRole::Assistant => write!(f, "assistant"),
-            MessageRole::System => write!(f, "system"),
-        }
-    }
-}
-*/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageResult {
     pub storage_path: String,
@@ -156,71 +114,6 @@ pub struct ImageMetadata {
     pub last_modified: Option<String>,
 }
 
-// ============================================================================
-// Agent Intent Models
-// ============================================================================
-
-/*#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentIntent {
-    pub intent: String,
-    pub confidence: f32,
-    pub entities: serde_json::Value,
-}
-
-impl AgentIntent {
-    pub fn is_image_operation(&self) -> bool {
-        matches!(
-            self.intent.as_str(),
-            "describe_image" | "compare_images" | "analyze_image"
-        )
-    }
-
-    pub fn is_tree_operation(&self) -> bool {
-        matches!(
-            self.intent.as_str(),
-            "create_tree_node" | "update_tree_node" | "delete_tree_node"
-        )
-    }
-}
-*/
-// ============================================================================
-// Tool Call Models (for observability)
-// ============================================================================
-/*
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentToolCall {
-    pub id: Uuid,
-    pub message_id: Uuid,
-    pub tool_name: String,
-    pub tool_input: serde_json::Value,
-    pub tool_output: Option<serde_json::Value>,
-    pub status: ToolCallStatus,
-    pub error_message: Option<String>,
-    pub duration_ms: Option<i32>,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum ToolCallStatus {
-    Started,
-    Completed,
-    Failed,
-}
-
-impl std::fmt::Display for ToolCallStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ToolCallStatus::Started => write!(f, "started"),
-            ToolCallStatus::Completed => write!(f, "completed"),
-            ToolCallStatus::Failed => write!(f, "failed"),
-        }
-    }
-}
-*/
-// ============================================================================
-// Image Description Cache
-// ============================================================================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageDescription {
     pub id: Uuid,
@@ -231,153 +124,6 @@ pub struct ImageDescription {
     pub confidence: Option<f32>,
     pub created_at: String,
 }
-
-// ============================================================================
-// Pagination & Filtering
-// ============================================================================
-/*
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaginationParams {
-    #[serde(default = "default_page")]
-    pub page: u32,
-    #[serde(default = "default_limit")]
-    pub limit: u32,
-}
-
-fn default_page() -> u32 {
-    1
-}
-
-fn default_limit() -> u32 {
-    20
-}
-
-impl PaginationParams {
-    pub fn offset(&self) -> u32 {
-        (self.page - 1) * self.limit
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaginatedResponse<T> {
-    pub data: Vec<T>,
-    pub page: u32,
-    pub limit: u32,
-    pub total: u64,
-    pub total_pages: u32,
-}
-
-impl<T> PaginatedResponse<T> {
-    pub fn new(data: Vec<T>, page: u32, limit: u32, total: u64) -> Self {
-        let total_pages = ((total as f64) / (limit as f64)).ceil() as u32;
-        Self {
-            data,
-            page,
-            limit,
-            total,
-            total_pages,
-        }
-    }
-}
-
-// ============================================================================
-// Search & Filter
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchParams {
-    pub query: String,
-    #[serde(default)]
-    pub filters: SearchFilters,
-    #[serde(flatten)]
-    pub pagination: PaginationParams,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SearchFilters {
-    pub node_types: Option<Vec<NodeType>>,
-    pub date_from: Option<String>,
-    pub date_to: Option<String>,
-    pub has_description: Option<bool>,
-}
-*/
-// ============================================================================
-// Batch Operations
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchUploadRequest {
-    pub parent_id: Uuid,
-    pub files: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchUploadResponse {
-    pub uploaded: Vec<UploadResponse>,
-    pub failed: Vec<BatchError>,
-    pub total: usize,
-    pub success_count: usize,
-    pub failure_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchError {
-    pub index: usize,
-    pub filename: Option<String>,
-    pub error: String,
-}
-
-// ============================================================================
-// Import Operations
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImportRequest {
-    pub url: String,
-    pub parent_id: Uuid,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BatchImportRequest {
-    pub urls: Vec<String>,
-    pub parent_id: Uuid,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImportResponse {
-    pub node: TreeNode,
-    pub storage_result: StorageResult,
-}
-
-// ============================================================================
-// Statistics & Analytics
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserStats {
-    pub user_id: Uuid,
-    pub total_nodes: u64,
-    pub total_images: u64,
-    pub total_messages: u64,
-    pub storage_used_bytes: u64,
-    pub last_activity: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatStats {
-    pub chat_id: Uuid,
-    pub message_count: u64,
-    pub referenced_nodes: Vec<Uuid>,
-    pub total_tokens: u64,
-    pub created_at: String,
-    pub last_message_at: Option<String>,
-}
-
-// ============================================================================
-// Health Check
-// ============================================================================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub status: String,
@@ -413,23 +159,8 @@ impl HealthStatus {
 }
 
 // ============================================================================
-// Config Models
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct S3Config {
-    pub bucket: String,
-    pub region: String,
-    pub endpoint: Option<String>,
-    pub access_key: String,
-    pub secret_key: String,
-    pub public_url_base: String,
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
-
 #[cfg(test)]
 mod tests {
     use super::*;
