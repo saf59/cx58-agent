@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data)\n                VALUES ($1, $2, $3, $4, $5)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "node_type_enum",
+            "kind": {
+              "Enum": [
+                "Root",
+                "Branch",
+                "ImageLeaf"
+              ]
+            }
+          }
+        },
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "52332bcadd24dc30149a7a26a49b6db9d5ec49d0564ca067e76bc5e79196d715"
+}
