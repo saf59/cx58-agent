@@ -280,6 +280,7 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+/*
 impl From<redis::RedisError> for AppError {
     fn from(err: redis::RedisError) -> Self {
         Self::new(
@@ -288,7 +289,7 @@ impl From<redis::RedisError> for AppError {
         )
     }
 }
-
+*/
 impl From<serde_json::Error> for AppError {
     fn from(err: serde_json::Error) -> Self {
         Self::bad_request(format!("JSON error: {}", err))

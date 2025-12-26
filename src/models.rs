@@ -98,7 +98,7 @@ impl TreeNode {
 // Chat Message Models
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/*#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatMessage {
     pub id: Uuid,
     pub chat_id: Uuid,
@@ -131,135 +131,7 @@ impl std::fmt::Display for MessageRole {
         }
     }
 }
-/*
-// ============================================================================
-// Agent Request/Response Models
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentRequest {
-    pub message: String,
-    pub chat_id: Uuid,
-    pub user_id: Uuid,
-    pub session_id: String,
-    pub language: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tree_context: Option<Vec<Uuid>>,
-}
-
-impl AgentRequest {
-    pub fn new(
-        message: String,
-        chat_id: Uuid,
-        user_id: Uuid,
-        session_id: String,
-        language: String,
-    ) -> Self {
-        Self {
-            message,
-            chat_id,
-            user_id,
-            session_id,
-            language,
-            tree_context: None,
-        }
-    }
-
-    pub fn with_tree_context(mut self, context: Vec<Uuid>) -> Self {
-        self.tree_context = Some(context);
-        self
-    }
-}
 */
-/*#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum StreamEvent {
-    // Life cycle events
-    Started {
-        request_id: String,
-        timestamp: i64,
-    },
-
-    // Coordinator events
-    CoordinatorThinking {
-        request_id: String,
-        message: String,
-    },
-
-    ToolSelected {
-        request_id: String,
-        tool_name: String,
-        parameters: serde_json::Value,
-    },
-
-    // Pipeline events
-    PipelineStarted {
-        request_id: String,
-        pipeline_name: String,
-        steps: Vec<String>,
-    },
-
-    PipelineStepStarted {
-        request_id: String,
-        step_name: String,
-        step_index: usize,
-    },
-
-    PipelineStepProgress {
-        request_id: String,
-        step_name: String,
-        progress: f32,
-        message: String,
-    },
-
-    PipelineStepCompleted {
-        request_id: String,
-        step_name: String,
-        result_preview: Option<String>,
-    },
-
-    TreeUpdate {
-        request_id: String,
-        nodes: Vec<TreeNode>
-    },
-
-    ToolCall {
-        request_id: String,
-        tool: String,
-        status: String
-    },
-
-    // Content generation events
-    TextChunk {
-        request_id: String,
-        chunk: String,
-    },
-
-    // Completion events
-    Completed {
-        request_id: String,
-        final_result: String,
-        timestamp: i64,
-    },
-
-    // Error events
-    Error {
-        request_id: String,
-        error: String,
-        recoverable: bool,
-    },
-
-    // Cancelled events
-    Cancelled {
-        request_id: String,
-        reason: String,
-    },
-}
-*/
-// ============================================================================
-// Storage Models
-// ============================================================================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageResult {
     pub storage_path: String,
@@ -288,7 +160,7 @@ pub struct ImageMetadata {
 // Agent Intent Models
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/*#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentIntent {
     pub intent: String,
     pub confidence: f32,
@@ -310,11 +182,11 @@ impl AgentIntent {
         )
     }
 }
-
+*/
 // ============================================================================
 // Tool Call Models (for observability)
 // ============================================================================
-
+/*
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentToolCall {
     pub id: Uuid,
@@ -344,7 +216,7 @@ impl std::fmt::Display for ToolCallStatus {
         }
     }
 }
-
+*/
 // ============================================================================
 // Image Description Cache
 // ============================================================================
@@ -363,7 +235,7 @@ pub struct ImageDescription {
 // ============================================================================
 // Pagination & Filtering
 // ============================================================================
-
+/*
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginationParams {
     #[serde(default = "default_page")]
@@ -428,7 +300,7 @@ pub struct SearchFilters {
     pub date_to: Option<String>,
     pub has_description: Option<bool>,
 }
-
+*/
 // ============================================================================
 // Batch Operations
 // ============================================================================
@@ -560,7 +432,6 @@ pub struct S3Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::AgentRequest;
     use super::*;
 
     #[test]
@@ -583,11 +454,5 @@ mod tests {
 
         assert_eq!(leaf.depth(), 0);
         assert!(leaf.is_leaf());
-    }
-
-    #[test]
-    fn test_pagination_offset() {
-        let params = PaginationParams { page: 3, limit: 10 };
-        assert_eq!(params.offset(), 20);
     }
 }

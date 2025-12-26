@@ -1,7 +1,7 @@
 [package]
 name = "cx58-agent"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 # Core async runtime
@@ -26,7 +26,7 @@ sqlx = { version = "0.8", features = [
 ] }
 
 # Redis
-redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
+# redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 
 # S3 Storage - ULTRA LIGHTWEIGHT! 🚀
 # Only ~50KB + reqwest (~200KB) = Total ~250KB
@@ -34,7 +34,7 @@ redis = { version = "1", features = ["tokio-comp", "connection-manager"] }
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-native-tls"] }
 
 # AI/LLM
-rig-core = "0.26"
+rig-core = "0.27"
 
 # Utilities
 uuid = { version = "1", features = ["serde", "v7"] }
