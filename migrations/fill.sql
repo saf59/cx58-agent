@@ -1,76 +1,94 @@
-﻿-- ============================================================================
--- Sample Data Insertion
--- ============================================================================
+﻿DO
+$$
+    DECLARE
+        root_id      UUID := uuidv7();
+        branch1_id   UUID := uuidv7();
+        branch11_id  UUID := uuidv7();
+        branch2_id   UUID := uuidv7();
+        branch21_id  UUID := uuidv7();
+        branch211_id UUID := uuidv7();
+        branch3_id   UUID := uuidv7();
+    BEGIN
+        -- Root node
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (root_id,
+                   -- sample_user_id,
+                NULL,
+                'Root',
+                'Root',
+                '{
+                  "title": "CX-5.8"
+                }'::JSONB);
 
--- Insert sample user and root node
-DO $$
-DECLARE
-    --sample_user_id UUID := '00000000-0000-0000-0000-000000000001';
-    root_id UUID := uuidv7();
-    branch1_id UUID := uuidv7();
-    branch2_id UUID := uuidv7();
-BEGIN
-    -- Root node
-    INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data, sort_order)
-    VALUES (
-        root_id,
-        -- sample_user_id,
-        NULL,
-        'Root',
-        '{"title": "My Project"}'::JSONB,
-        0
-    );
+        -- Branch 1
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (branch1_id,
+                root_id,
+                'Oblect 1',
+                    'Branch',
+                '{}'::JSONB);
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (branch11_id,
+                branch1_id,
+                'Room 11',
+                'Branch',
+                '{}'::JSONB);
 
-    -- Branch 1
-    INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data, sort_order)
-    VALUES (
-        branch1_id,
-        -- sample_user_id,
-        root_id,
-        'Branch',
-        '{"label": "Category A", "description": "First category"}'::JSONB,
-        0
-    );
+        -- Branch 2
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (branch2_id,
+                root_id,
+                'Oblect 2',
+                'Branch',
+                '{}'::JSONB);
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (branch21_id,
+                branch2_id,
+                'Floor 21',
+                'Branch',
+                '{}'::JSONB);
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (branch211_id,
+                branch21_id,
+                'Room 211',
+                'Branch',
+                '{}'::JSONB);
+        -- Branch 3
+        INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
+        VALUES (branch3_id,
+                root_id,
+                'Oblect 3',
+                'Branch',
+                '{
+                  "label": "Mock"
+                }'::JSONB);
 
-    -- Branch 2
-    INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data, sort_order)
-    VALUES (
-        branch2_id,
-        -- sample_user_id,
-        root_id,
-        'Branch',
-        '{"label": "Category B", "description": "Second category"}'::JSONB,
-        1
-    );
+		RAISE NOTICE 'Base tree_nodes data created successfully';
 
-    -- Image leaves
-    INSERT INTO tree_nodes (user_id, parent_id, node_type, data, sort_order)
-    VALUES 
-        ( branch1_id, 'ImageLeaf', '{"url": "https://example.com/image1.jpg", "description": "Sample image 1"}'::JSONB, 0),
-        ( branch1_id, 'ImageLeaf', '{"url": "https://example.com/image2.jpg", "description": "Sample image 2"}'::JSONB, 1),
-        ( branch2_id, 'ImageLeaf', '{"url": "https://example.com/image3.jpg", "description": "Sample image 3"}'::JSONB, 0);
 
-    INSERT INTO node_access (user_id, node_id)
-    VALUES
-        ('shpirkov@gmail.com','e0d9d61c-8494-4df3-bf22-4ba8f399956c'),
-        ('alexandr.shpirkov@ispredict.com','c7f3d7a7-69ec-4c7d-a0e7-e96a63a646d3');
+        PERFORM  insert_image_leaf(branch11_id, '4к_1.jpg', '27.11.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch11_id, '4к_2.jpg', '01.12.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch11_id, '4к_3.jpg', '15.12.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch11_id, '4к_4.jpg', '27.12.2025 17:00:00');
 
-END $$;
+        PERFORM  insert_image_leaf(branch211_id, '3w_1.jpg', '27.11.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch211_id, '3w_2.jpg', '01.12.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch211_id, '3w_3.jpg', '05.12.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch211_id, '3w_4.jpg', '15.12.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch211_id, '3w_5.jpg', '27.11.2025 17:00:00');
 
--- ============================================================================
--- Useful Queries
--- ============================================================================
+        PERFORM  insert_image_leaf(branch3_id, 'noise_1.jpg', '27.11.2025 17:00:00');
+        PERFORM  insert_image_leaf(branch3_id, 'noise_2.jpg', '27.12.2025 17:00:00');
 
-COMMENT ON FUNCTION get_tree_children IS 
-'Example: SELECT * FROM get_tree_children(''root-uuid-here'') ORDER BY depth, sort_order;';
+        INSERT INTO node_access (user_id, node_id)
+        VALUES ('shpirkov@gmail.com', branch11_id),
+               ('shpirkov@gmail.com', branch211_id),
+               ('alexandr.shpirkov@ispredict.com', branch211_id),
+               ('mock', branch3_id);
 
-COMMENT ON TABLE tree_nodes IS 
-'Query images: SELECT * FROM tree_nodes WHERE user_id = $1 AND node_type = ''ImageLeaf'';';
+		RAISE NOTICE 'Access data created successfully';
+    END
+$$;
 
-COMMENT ON TABLE chat_messages IS 
-'Query with refs: SELECT m.*, array_agg(t.data) as referenced_nodes 
-FROM chat_messages m 
-LEFT JOIN tree_nodes t ON t.id = ANY(m.tree_refs) 
-WHERE m.chat_id = $1 
-GROUP BY m.id 
-ORDER BY m.id;';
+-- SELECT * FROM get_tree('alexandr.shpirkov@ispredict.com')
+-- SELECT * FROM get_tree('shpirkov@gmail.com')
