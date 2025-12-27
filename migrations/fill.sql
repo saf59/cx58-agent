@@ -6,9 +6,9 @@
 DO $$
 DECLARE
     --sample_user_id UUID := '00000000-0000-0000-0000-000000000001';
-    root_id UUID := uuid_generate_v4();
-    branch1_id UUID := uuid_generate_v4();
-    branch2_id UUID := uuid_generate_v4();
+    root_id UUID := uuidv7();
+    branch1_id UUID := uuidv7();
+    branch2_id UUID := uuidv7();
 BEGIN
     -- Root node
     INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data, sort_order)
@@ -49,6 +49,12 @@ BEGIN
         ( branch1_id, 'ImageLeaf', '{"url": "https://example.com/image1.jpg", "description": "Sample image 1"}'::JSONB, 0),
         ( branch1_id, 'ImageLeaf', '{"url": "https://example.com/image2.jpg", "description": "Sample image 2"}'::JSONB, 1),
         ( branch2_id, 'ImageLeaf', '{"url": "https://example.com/image3.jpg", "description": "Sample image 3"}'::JSONB, 0);
+
+    INSERT INTO node_access (user_id, node_id)
+    VALUES
+        ('shpirkov@gmail.com','e0d9d61c-8494-4df3-bf22-4ba8f399956c'),
+        ('alexandr.shpirkov@ispredict.com','c7f3d7a7-69ec-4c7d-a0e7-e96a63a646d3');
+
 END $$;
 
 -- ============================================================================
