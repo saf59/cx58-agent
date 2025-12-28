@@ -24,7 +24,7 @@ $$
         INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
         VALUES (branch1_id,
                 root_id,
-                'Oblect 1',
+                'Object 1',
                     'Branch',
                 '{}'::JSONB);
         INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
@@ -38,7 +38,7 @@ $$
         INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
         VALUES (branch2_id,
                 root_id,
-                'Oblect 2',
+                'Object 2',
                 'Branch',
                 '{}'::JSONB);
         INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
@@ -57,7 +57,7 @@ $$
         INSERT INTO tree_nodes (id, parent_id, name, node_type, data)
         VALUES (branch3_id,
                 root_id,
-                'Oblect 3',
+                'Object 3',
                 'Branch',
                 '{
                   "label": "Mock"

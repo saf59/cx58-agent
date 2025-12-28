@@ -1,20 +1,26 @@
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use sqlx::Type;
+use sqlx::types::Json;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TreeNode {
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
+    #[sqlx(try_from = "String")]
     pub node_type: NodeType,
+    pub name: Option<String>,
+    #[sqlx(try_from = "String")]
     pub data: NodeData,
-    #[serde(default)]
-    pub children: Vec<TreeNode>,
-    pub created_at: String,
+    pub path: Option<String>,
+    pub updated_at: DateTime<Utc>,
+    pub depth: i32,
+    pub own: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[serde(tag = "type")]
 #[sqlx(type_name = "node_type_enum")]
 pub enum NodeType {
@@ -51,41 +57,6 @@ pub enum NodeData {
 impl TreeNode {
     pub fn is_leaf(&self) -> bool {
         matches!(self.node_type, NodeType::ImageLeaf)
-    }
-
-    pub fn has_children(&self) -> bool {
-        !self.children.is_empty()
-    }
-
-    pub fn depth(&self) -> usize {
-        if self.children.is_empty() {
-            0
-        } else {
-            1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
-        }
-    }
-
-    pub fn count_nodes(&self) -> usize {
-        1 + self.children.iter().map(|c| c.count_nodes()).sum::<usize>()
-    }
-
-    pub fn find_node(&self, id: &Uuid) -> Option<&TreeNode> {
-        if self.id == *id {
-            Some(self)
-        } else {
-            self.children.iter().find_map(|c| c.find_node(id))
-        }
-    }
-
-    pub fn collect_leaves(&self) -> Vec<&TreeNode> {
-        if self.is_leaf() {
-            vec![self]
-        } else {
-            self.children
-                .iter()
-                .flat_map(|c| c.collect_leaves())
-                .collect()
-        }
     }
 }
 
@@ -170,6 +141,7 @@ mod tests {
         let leaf = TreeNode {
             id: Uuid::now_v7(),
             parent_id: None,
+            name: None,
             node_type: NodeType::ImageLeaf,
             data: NodeData::Image {
                 url: "test.jpg".to_string(),
@@ -179,11 +151,10 @@ mod tests {
                 hash: None,
                 description: None,
             },
-            children: vec![],
-            created_at: "2024-01-01T00:00:00Z".to_string(),
+            path: None,
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            depth: 0,
+            own: false
         };
-
-        assert_eq!(leaf.depth(), 0);
-        assert!(leaf.is_leaf());
     }
 }

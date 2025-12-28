@@ -96,7 +96,6 @@ impl StorageService {
     /// Upload image to S3
     pub async fn upload_image(
         &self,
-        user_id: &Uuid,
         node_id: &Uuid,
         image_data: Bytes,
         filename: &str,
@@ -107,7 +106,7 @@ impl StorageService {
             .and_then(|e| e.to_str())
             .unwrap_or("jpg");
 
-        let storage_path = format!("images/{}/{}/{}.{}", user_id, node_id, hash, extension);
+        let storage_path = format!("images/{}/{}.{}", node_id, hash, extension);
 
         let mime_type = mime_guess::from_path(filename)
             .first_or_octet_stream()
@@ -276,7 +275,6 @@ impl ImageProcessor {
     /// Import external image
     pub async fn import_external_image(
         &self,
-        user_id: &Uuid,
         node_id: &Uuid,
         external_url: &str,
     ) -> Result<StorageResult> {
@@ -292,14 +290,13 @@ impl ImageProcessor {
         let filename = external_url.split('/').next_back().unwrap_or("image.jpg");
 
         self.storage
-            .upload_image(user_id, node_id, bytes, filename)
+            .upload_image(node_id, bytes, filename)
             .await
     }
 
     /// Create thumbnail
     pub async fn create_thumbnail(
         &self,
-        user_id: &Uuid,
         _node_id: &Uuid,
         original_path: &str,
         max_width: u32,
@@ -322,7 +319,6 @@ impl ImageProcessor {
         let thumb_node_id = Uuid::now_v7();
         self.storage
             .upload_image(
-                user_id,
                 &thumb_node_id,
                 Bytes::from(buffer),
                 "thumbnail.jpg",
@@ -397,7 +393,6 @@ pub async fn upload_image_handler(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResponse>> {
-    let user_id = Uuid::now_v7();
     let node_id = Uuid::now_v7();
 
     while let Some(field) = multipart
@@ -420,16 +415,15 @@ pub async fn upload_image_handler(
 
             let result = state
                 .storage
-                .upload_image(&user_id, &node_id, data, &filename)
+                .upload_image(&node_id, data, &filename)
                 .await?;
 
             sqlx::query!(
                 r#"
-                INSERT INTO tree_nodes (id, user_id, parent_id, node_type, data)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO tree_nodes (id, parent_id, node_type, data)
+                VALUES ($1, $2, $3, $4)
                 "#,
                 node_id,      // TODO id is auto!!
-                user_id,      // TODO it not need
                 None::<Uuid>, // TODO it must be!
                 NodeType::ImageLeaf as NodeType , //"node_type_enum: ImageLeaf", // NodeType::ImageLeaf
                 serde_json::json!({
@@ -459,12 +453,9 @@ pub async fn get_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>> {
-    let user_id = Uuid::now_v7();
-
     let node = sqlx::query!(
-        r#"SELECT data FROM tree_nodes WHERE id = $1 AND user_id = $2 AND node_type = 'ImageLeaf'"#,
-        node_id,
-        user_id
+        r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
+        node_id
     )
         .fetch_one(&state.db)
         .await?;
@@ -476,12 +467,10 @@ pub async fn delete_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
 ) -> Result<StatusCode> {
-    let user_id = Uuid::now_v7();
 
     let node = sqlx::query!(
-        r#"SELECT data FROM tree_nodes WHERE id = $1 AND user_id = $2 AND node_type = 'ImageLeaf'"#,
+        r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
         node_id,
-        user_id
     )
         .fetch_one(&state.db)
         .await?;
@@ -505,7 +494,6 @@ pub async fn batch_upload_handler(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<Vec<UploadResponse>>> {
-    let user_id = Uuid::now_v7();
     let mut responses = Vec::new();
 
     while let Some(field) = multipart
@@ -524,7 +512,7 @@ pub async fn batch_upload_handler(
 
             if let Ok(result) = state
                 .storage
-                .upload_image(&user_id, &node_id, data, &filename)
+                .upload_image(&node_id, data, &filename)
                 .await
             {
                 responses.push(UploadResponse {

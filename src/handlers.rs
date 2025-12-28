@@ -61,47 +61,51 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::R
 
 pub async fn get_tree_handler(
     State(state): State<Arc<AppState>>,
-    Path((user_id, root_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<TreeNode>> {
-    let tree = load_full_tree(&state.db, &user_id, &root_id).await?;
+    Path(user_id): Path<String>,
+) -> Result<Json<Vec<TreeNode>>> {
+    let tree = load_full_tree(&state.db, &user_id).await?;
     Ok(Json(tree))
 }
 
 async fn load_full_tree(
     db: &sqlx::PgPool,
-    user_id: &Uuid,
-    root_id: &Uuid,
-) -> Result<TreeNode> {
-    let node = sqlx::query!(
+    user_id: &String,
+) -> Result<Vec<TreeNode>> {
+    let nodes = sqlx::query_as!(
+        TreeNode,
         r#"
-        WITH RECURSIVE tree AS (
-            SELECT * FROM tree_nodes WHERE id = $1 AND user_id = $2
-            UNION ALL
-            SELECT tn.* FROM tree_nodes tn
-            INNER JOIN tree t ON tn.parent_id = t.id
-            WHERE tn.user_id = $2
-        )
-        SELECT id, parent_id, node_type as "node_type!: NodeType",
-               data, created_at
-        FROM tree
-        WHERE id = $1
+        SELECT
+            id,
+            parent_id,
+            node_type as "node_type: NodeType",
+            name,
+            data as "data!: _",
+            path,
+            updated_at,
+            depth,
+            COALESCE(own, false) as "own!"
+        FROM get_tree($1, true)
         "#,
-        root_id,
-        user_id
+        user_id // This binds to $1
     )
         .fetch_one(db)
         .await?;
-
-    Ok(TreeNode {
-        id: node.id.unwrap(),
-        parent_id: node.parent_id,
-        node_type: node.node_type,
-        data: serde_json::from_value(node.data.unwrap())?,
-        children: vec![],
-        created_at: node.created_at.unwrap().to_rfc3339(),
-    })
+    Ok(nodes)
 }
-// ============================================================================
+/*    Ok(TreeNode {
+        id: node.id.unwrap(),
+        parent_id: node.parent_id.into(),
+        name: node.name,
+        node_type: node.node_type,
+        path: node.path,
+        data: serde_json::from_value(node.data.unwrap())?,
+        updated_at: node.updated_at.unwrap().and_utc(),
+        depth: node.depth.unwrap(),
+        own: node.own.unwrap()
+    })
+*/
+
+/// ============================================================================
 // RESPONSE TYPES
 // ============================================================================
 
