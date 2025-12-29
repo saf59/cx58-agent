@@ -30,14 +30,14 @@ pub struct S3Config {
 impl Config {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            database_url: std::env::var("DATABASE_URL")?,
+            database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
             s3: S3Config {
-                bucket: std::env::var("S3_BUCKET")?,
+                bucket: std::env::var("S3_BUCKET").expect("S3_BUCKET must be set"),
                 region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
                 endpoint: std::env::var("S3_ENDPOINT").ok(),
-                access_key: std::env::var("AWS_ACCESS_KEY_ID")?,
-                secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
-                public_url_base: std::env::var("S3_PUBLIC_URL")?,
+                access_key: std::env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID must be set"),
+                secret_key: std::env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY must be set"),
+                public_url_base: std::env::var("S3_PUBLIC_URL").expect("S3_PUBLIC_URL must be set"),
             },
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: std::env::var("PORT")
@@ -48,32 +48,32 @@ impl Config {
 }
 pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     let config = Config::from_env()?;
-    log::info!("✅ Configuration loaded");
+    log::info!("Configuration loaded");
     let ai_config = AiConfig::from_env()?;
-    log::info!("✅ Ai Configuration loaded");
+    log::info!("Ai Configuration loaded");
 
     // Database
-    log::info!("📊 Connecting to PostgreSQL...");
+    log::info!("Connecting to PostgreSQL...");
     let db = setup_database(&config).await?;
-    log::info!("✅ PostgreSQL connected");
+    log::info!("PostgreSQL connected");
 
-    log::info!("🔄 Running migrations...");
+    log::info!("Running migrations...");
     sqlx::migrate!("./migrations").run(&db).await?;
-    log::info!("✅ Migrations completed");
+    log::info!("Migrations completed");
 
     /*    // Redis
-        log::info!("📮 Connecting to Redis...");
+        log::info!("Connecting to Redis...");
         let redis = setup_redis(&config).await?;
-        log::info!("✅ Redis connected");
+        log::info!("Redis connected");
     */
     // S3 Storage
-    log::info!("☁️  Initializing S3 with rust-s3...");
+    log::info!("Initializing S3 with rust-s3...");
     let storage = setup_storage(&config.s3)?;
-    log::info!("✅ S3 storage initialized");
+    log::info!("S3 storage initialized");
 
     // Test S3
     match storage.list_user_images(&uuid::Uuid::now_v7()).await {
-        Ok(_) => log::info!("✅ S3 connection verified"),
+        Ok(_) => log::info!("S3 connection verified"),
         Err(e) => log::warn!("⚠️  S3 test: {}", e),
     }
 

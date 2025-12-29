@@ -14,7 +14,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             axum::routing::post(chat_stream_handler),
         )
         .route(
-            "/api/agent/tree/:user_id/:root_id",
+            "/api/agent/tree",
             axum::routing::get(get_tree_handler),
         )
         .route(
@@ -22,11 +22,11 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             axum::routing::post(upload_image_handler),
         )
         .route(
-            "/api/images/:node_id",
+            "/api/images",
             axum::routing::get(get_image_handler),
         )
         .route(
-            "/api/images/:node_id",
+            "/api/images",
             axum::routing::delete(delete_image_handler),
         )
         .route(
@@ -48,34 +48,29 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    log::info!("🚀 Starting AI Agent Server (lightweight, no embeddings)...");
+    log::info!("Starting AI Agent Server");
     dotenv::dotenv().ok();
     let (config, state) = app_init().await?;
-    log::info!("✅ Application state initialized");
+    log::info!("Application state initialized");
     let app = create_app_router(state);
 
     // Start server
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    log::info!("");
-    log::info!("🎉 Server started!");
-    log::info!("📍 http://{}", addr);
-    log::info!("📡 Agent: http://{}/api/agent/chat", addr);
-    log::info!("🖼️  Upload: http://{}/api/images/upload", addr);
-    log::info!("❤️  Health: http://{}/health", addr);
-    log::info!("");
-    log::info!("💾 S3: {}", config.s3.bucket);
-    log::info!("🌍 Region: {}", config.s3.region);
+    log::info!("Server started!");
+    log::info!("http://{}", addr);
+    log::info!("Agent: http://{}/api/agent/chat", addr);
+    log::info!("Upload: http://{}/api/images/upload", addr);
+    log::info!("Health: http://{}/health", addr);
+    log::info!("S3: {}", config.s3.bucket);
+    log::info!("Region: {}", config.s3.region);
     if let Some(ep) = &config.s3.endpoint {
-        log::info!("🔌 Endpoint: {}", ep);
+        log::info!("Endpoint: {}", ep);
     }
-    log::info!("🔗 CDN: {}", config.s3.public_url_base);
-    log::info!("⚡ rust-s3 + Ollama (NO embeddings, NO Qdrant)");
-    log::info!("");
+    log::info!("CDN: {}", config.s3.public_url_base);
 
     axum::serve(listener, app).await?;
-
     Ok(())
 }
 
