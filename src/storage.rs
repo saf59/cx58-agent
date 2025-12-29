@@ -14,6 +14,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 use crate::agents::master_agent::MasterAgent;
+use crate::db::NodeType;
 
 // ============================================================================
 // AppState && AiConfig

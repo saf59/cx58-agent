@@ -1,11 +1,7 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use sqlx::Type;
-use sqlx::types::Json;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/*#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TreeNode {
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
@@ -59,7 +55,7 @@ impl TreeNode {
         matches!(self.node_type, NodeType::ImageLeaf)
     }
 }
-
+*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageResult {
@@ -129,32 +125,3 @@ impl HealthStatus {
     }
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tree_node_depth() {
-        let leaf = TreeNode {
-            id: Uuid::now_v7(),
-            parent_id: None,
-            name: None,
-            node_type: NodeType::ImageLeaf,
-            data: NodeData::Image {
-                url: "test.jpg".to_string(),
-                storage_path: None,
-                size: None,
-                mime_type: None,
-                hash: None,
-                description: None,
-            },
-            path: None,
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
-            depth: 0,
-            own: false
-        };
-    }
-}
