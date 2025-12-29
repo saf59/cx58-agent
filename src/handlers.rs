@@ -21,6 +21,7 @@ pub use crate::storage::{StorageService, ImageProcessor, ImageUrlResolver};
 use crate::AppState;
 use crate::AgentRequest;
 use crate::agents::StreamEvent;
+use crate::db::{get_tree, TreeNode};
 
 pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::Result<Response, StatusCode> {
     let user_id = request
@@ -59,14 +60,14 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::R
     Ok(next.run(request).await)
 }
 
-/*pub async fn get_tree_handler(
+pub async fn get_tree_handler(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<TreeNode>>> {
-    let tree = load_full_tree(&state.db, &user_id).await?;
+    let tree = get_tree(&state.db, &user_id, false).await?;
     Ok(Json(tree))
 }
-*/
+
 /*async fn load_full_tree(
     db: &sqlx::PgPool,
     user_id: &String,
