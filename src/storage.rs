@@ -189,7 +189,7 @@ impl StorageService {
     }
 
     /// List all user images
-    pub async fn list_user_images(&self, user_id: &Uuid) -> Result<Vec<String>> {
+    pub async fn list_user_images(&self, user_id: &str) -> Result<Vec<String>> {
         let prefix = format!("images/{}/", user_id);
 
         let results = self.bucket.list(prefix, None).await.map_err(|e| {

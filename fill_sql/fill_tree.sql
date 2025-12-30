@@ -65,21 +65,6 @@ $$
 
 		RAISE NOTICE 'Base tree_nodes data created successfully';
 
-
-        PERFORM  insert_image_leaf(branch11_id, '4к_1.jpg', '27.11.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch11_id, '4к_2.jpg', '01.12.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch11_id, '4к_3.jpg', '15.12.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch11_id, '4к_4.jpg', '27.12.2025 17:00:00');
-
-        PERFORM  insert_image_leaf(branch211_id, '3w_1.jpg', '27.11.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch211_id, '3w_2.jpg', '01.12.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch211_id, '3w_3.jpg', '05.12.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch211_id, '3w_4.jpg', '15.12.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch211_id, '3w_5.jpg', '27.11.2025 17:00:00');
-
-        PERFORM  insert_image_leaf(branch3_id, 'noise_1.jpg', '27.11.2025 17:00:00');
-        PERFORM  insert_image_leaf(branch3_id, 'noise_2.jpg', '27.12.2025 17:00:00');
-
         INSERT INTO node_access (user_id, node_id)
         VALUES ('shpirkov@gmail.com', branch11_id),
                ('shpirkov@gmail.com', branch211_id),
