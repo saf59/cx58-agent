@@ -528,3 +528,170 @@ pub async fn batch_upload_handler(
 
     Ok(Json(responses))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::init::S3Config;
+
+    #[tokio::test]
+    async fn example_usage() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        let s3_path = "test.file";
+        let test = b"I'm going to S3!";
+
+        // Загрузка файла
+        let response_data = storage.bucket.put_object(s3_path, test).await.unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        println!("{:#?}", response_data.headers());
+
+        // Получение файла через SDK
+        let response_data = storage.bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 200);
+        assert_eq!(test, response_data.as_slice());
+
+        // Получение части файла
+        let response_data = storage.bucket.get_object_range(s3_path, 1, Some(10)).await.unwrap();
+        assert_eq!(response_data.status_code(), 206);
+
+        // Head запрос
+        let (head_object_result, code) = storage.bucket.head_object(s3_path).await.unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(
+            head_object_result.content_type.unwrap_or_default(),
+            "application/octet-stream".to_owned()
+        );
+
+        // Генерация временной URL (presigned URL)
+        let presigned_url = storage.bucket.presign_get(s3_path, 300, None).await.unwrap();
+        println!("Presigned URL: {}", presigned_url);
+
+        // Проверка доступности временной URL через HTTP-запрос
+        let client = reqwest::Client::new();
+        let presigned_response = client.get(&presigned_url).send().await.unwrap();
+        assert_eq!(presigned_response.status(), 200);
+        let presigned_body = presigned_response.bytes().await.unwrap();
+        assert_eq!(test, presigned_body.as_ref());
+        println!("✓ Presigned URL works correctly");
+
+        // Генерация публичной URL (если бакет публичный)
+        let public_url = format!(
+            "{}/{}/{}",
+            storage.bucket.url(),
+            storage.bucket.name(),
+            s3_path
+        );
+        println!("Public URL: {}", public_url);
+
+        // Попытка доступа к публичной URL
+        // Примечание: это работает только если бакет настроен как публичный
+        let public_response = client.get(&public_url).send().await;
+        match public_response {
+            Ok(resp) => {
+                if resp.status() == 200 {
+                    let public_body = resp.bytes().await.unwrap();
+                    assert_eq!(test, public_body.as_ref());
+                    println!("✓ Public URL works correctly");
+                } else {
+                    println!("⚠ Public URL returned status: {} (bucket might not be public)", resp.status());
+                }
+            }
+            Err(e) => {
+                println!("⚠ Public URL access failed: {} (bucket might not be public)", e);
+            }
+        }
+
+        // Тест на истечение временной URL (опционально)
+        // Генерируем URL с коротким временем жизни
+        let short_presigned_url = storage.bucket.presign_get(s3_path, 1, None).await.unwrap();
+        println!("Short-lived presigned URL: {}", short_presigned_url);
+
+        // Ждем истечения
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        let expired_response = client.get(&short_presigned_url).send().await.unwrap();
+        assert_ne!(expired_response.status(), 200, "Expired URL should not return 200");
+        println!("✓ Presigned URL correctly expires");
+
+        // Удаление файла
+        let response_data = storage.bucket.delete_object(s3_path).await.unwrap();
+        assert_eq!(response_data.status_code(), 204);
+
+        // Проверка, что после удаления URL больше не работают
+        let deleted_response = client.get(&presigned_url).send().await.unwrap();
+        assert_eq!(deleted_response.status(), 404);
+        println!("✓ URLs return 404 after object deletion");
+    }
+
+    #[tokio::test]
+    async fn test_presigned_put_url() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        let s3_path = "test_presigned_upload.file";
+        let test_data = b"Uploaded via presigned URL!";
+
+        // Генерация presigned URL для загрузки
+        let presigned_put_url = storage.bucket.presign_put(s3_path, 300, None, None).await.unwrap();
+        println!("Presigned PUT URL: {}", presigned_put_url);
+
+        // Загрузка через presigned URL
+        let client = reqwest::Client::new();
+        let upload_response = client
+            .put(&presigned_put_url)
+            .body(test_data.to_vec())
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(upload_response.status(), 200);
+        println!("✓ Upload via presigned PUT URL successful");
+
+        // Проверка, что файл действительно загрузился
+        let response_data = storage.bucket.get_object(s3_path).await.unwrap();
+        assert_eq!(test_data, response_data.as_slice());
+        println!("✓ File uploaded correctly");
+
+        // Очистка
+        storage.bucket.delete_object(s3_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_presigned_url_with_custom_headers() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        let s3_path = "test_custom_headers.file";
+        let test_data = b"Test with custom headers";
+
+        // Загрузка с custom headers
+        let mut custom_headers = std::collections::HashMap::new();
+        custom_headers.insert("Content-Type".to_string(), "text/plain".to_string());
+
+        storage.bucket.put_object_with_content_type(s3_path, test_data, "text/plain").await.unwrap();
+
+        // Генерация presigned URL
+        let presigned_url = storage.bucket.presign_get(s3_path, 300, None).await.unwrap();
+
+        // Проверка через HTTP
+        let client = reqwest::Client::new();
+        let response = client.get(&presigned_url).send().await.unwrap();
+
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "text/plain"
+        );
+        println!("✓ Custom headers preserved correctly");
+
+        // Очистка
+        storage.bucket.delete_object(s3_path).await.unwrap();
+    }
+}

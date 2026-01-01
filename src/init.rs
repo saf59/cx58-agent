@@ -26,19 +26,24 @@ pub struct S3Config {
     pub secret_key: String,
     pub public_url_base: String,
 }
+impl S3Config {
+    pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(S3Config {
+            bucket: std::env::var("S3_BUCKET").expect("S3_BUCKET must be set"),
+            region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
+            endpoint: std::env::var("S3_ENDPOINT").ok(),
+            access_key: std::env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID must be set"),
+            secret_key: std::env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY must be set"),
+            public_url_base: std::env::var("S3_PUBLIC_URL").expect("S3_PUBLIC_URL must be set"),
+        })
+    }
+}
 
 impl Config {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-            s3: S3Config {
-                bucket: std::env::var("S3_BUCKET").expect("S3_BUCKET must be set"),
-                region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
-                endpoint: std::env::var("S3_ENDPOINT").ok(),
-                access_key: std::env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID must be set"),
-                secret_key: std::env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY must be set"),
-                public_url_base: std::env::var("S3_PUBLIC_URL").expect("S3_PUBLIC_URL must be set"),
-            },
+            s3: S3Config::from_env()?,
             host: std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "3000".to_string())
@@ -117,7 +122,7 @@ async fn setup_redis(config: &Config) -> Result<redis::aio::ConnectionManager, r
     redis::aio::ConnectionManager::new(client).await
 }
 */
-fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, AppError> {
+pub(crate) fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, AppError> {
     let storage = StorageService::new(
         config.bucket.clone(),
         config.region.clone(),
