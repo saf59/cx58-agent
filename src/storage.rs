@@ -1,20 +1,22 @@
+use crate::agents::master_agent::MasterAgent;
+use crate::db::NodeType;
 use crate::error::*;
+use crate::init::S3Config;
 use crate::models::*;
 use axum::{
-    Json,
     extract::{Multipart, Path, State},
     http::StatusCode,
+    Json,
 };
 use bytes::Bytes;
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
+use s3::BucketConfiguration;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::agents::master_agent::MasterAgent;
-use crate::db::NodeType;
 
 // ============================================================================
 // AppState && AiConfig
@@ -528,10 +530,39 @@ pub async fn batch_upload_handler(
 
     Ok(Json(responses))
 }
+/// Создание bucket с публичным доступом для чтения
+pub async fn create_public_bucket(config: &S3Config,bucket_name: &str) -> Result<Box<Bucket>> {
+    let region = Region::Custom {
+        region: config.region.clone(),
+        endpoint: config.endpoint.clone().unwrap(),
+    };
+
+    let credentials = Credentials::new(
+        Some(&config.access_key),
+        Some(&config.secret_key),
+        None,
+        None,
+        None,
+    ).map_err( |_| {AppError::unauthorized("Bad S3 credentials".to_string()) })?;
+
+    let create_bucket_config = BucketConfiguration::public();
+
+    let response = Bucket::create_with_path_style(
+        bucket_name,
+        region.clone(),
+        credentials.clone(),
+        create_bucket_config,
+    ).await.unwrap();
+
+    println!("✓ Public bucket '{}' created with code {}\n{}", bucket_name, &response.response_code, &response.response_text );
+
+    Ok(response.bucket)
+}
 
 #[cfg(test)]
 mod tests {
     use crate::init::S3Config;
+    use crate::storage::create_public_bucket;
 
     #[tokio::test]
     async fn example_usage() {
@@ -678,7 +709,7 @@ mod tests {
         storage.bucket.put_object_with_content_type(s3_path, test_data, "text/plain").await.unwrap();
 
         // Генерация presigned URL
-        let presigned_url = storage.bucket.presign_get(s3_path, 300, None).await.unwrap();
+        let presigned_url = storage.bucket.presign_get(s3_path, 3000, None).await.unwrap();
 
         // Проверка через HTTP
         let client = reqwest::Client::new();
@@ -692,6 +723,47 @@ mod tests {
         println!("✓ Custom headers preserved correctly");
 
         // Очистка
-        storage.bucket.delete_object(s3_path).await.unwrap();
+        //storage.bucket.delete_object(s3_path).await.unwrap();
+    }
+    #[tokio::test]
+    async fn test_presigned_url_through_proxy() {
+        dotenv::from_path(".env.test").ok();
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        let s3_path = "test.file";
+        let test_data = b"Test data";
+
+        let response = storage.bucket.put_object(s3_path, test_data).await.unwrap();
+        println!("Put response code:{}", response.status_code());
+        assert_eq!(response.status_code(), 200);
+
+        let presigned_url = storage.bucket
+            .presign_get(s3_path, 300, None)
+            .await
+            .unwrap();
+
+        println!("Generated presigned URL: {}", presigned_url);
+
+        let client = reqwest::Client::new();
+        let response = client.get(&presigned_url).send().await.unwrap();
+
+        println!("Response status: {}", response.status());
+        println!("Response headers: {:?}", response.headers());
+
+        if response.status() == 404 {
+            println!("URL path in request: {:?}", response.url());
+        }
+
+        assert_eq!(response.status(), 200);
+
+       // storage.bucket.delete_object(s3_path).await.unwrap();
+    }
+    #[tokio::test]
+    async fn test_create() {
+        dotenv::from_path(".env.test").ok();
+        let config = S3Config::from_env().unwrap();
+        let bucket_name = &config.bucket;
+        let _bucket = create_public_bucket(&config, bucket_name).await.unwrap();
     }
 }
