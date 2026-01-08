@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use sqlx::PgPool;
 use cx58_agent::db::{get_id_by_name, insert_image_leaf};
+use chrono::{Local, Duration, NaiveTime};
+use uuid::Uuid;
 
 const FILL_TREE_SQL: &str = include_str!("sql/fill_tree.sql");
 const DATA_DIR: &str = "data";
@@ -40,22 +42,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Определяем изображения для каждой ноды
     let room11_images = vec![
-        ("4k_1.jpg", "27.11.2025 17:00:00"),
-        ("4k_2.jpg", "01.12.2025 17:00:00"),
-        ("4k_3.jpg", "15.12.2025 17:00:00"),
-        ("4k_4.jpg", "27.12.2025 17:00:00"),
+        ("4k_1.jpg", -15),
+        ("4k_2.jpg", -8),
+        ("4k_3.jpg", -3),
+        ("4k_4.jpg", -1),
     ];
 
     let room211_images = vec![
-        ("3w_1.jpg", "27.11.2025 17:00:00"),
-        ("3w_2.jpg", "01.12.2025 17:00:00"),
-        ("3w_3.jpg", "05.12.2025 17:00:00"),
-        ("3w_5.jpg", "27.11.2025 17:00:00"),
+        ("3w_1.jpg", -16),
+        ("3w_2.jpg", -9),
+        ("3w_3.jpg", -3),
+        ("3w_5.jpg", -1),
     ];
 
     let object3_images = vec![
-        ("noise_1.jpg", "27.11.2025 17:00:00"),
-//        ("noise_2.jpg", "27.12.2025 17:00:00"),
+        ("noise_1.jpg", -1),
+//        ("noise_2.jpg", -3),
     ];
 
     // Проверяем наличие всех файлов перед началом вставки
@@ -68,35 +70,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     check_files_exist(DATA_DIR, &all_images)?;
     println!("All files verified successfully!");
 
-    // Вставляем листья для Room 11
-    println!("Inserting leafs for Room 11...");
-    for (filename, datetime) in room11_images {
-        let path = format!("{}/{}", DATA_DIR, filename);
-        insert_image_leaf(&pool, branch11_id, &path, datetime).await?;
-        println!("  ✓ {}", filename);
-    }
-
-    // Вставляем листья для Room 211
-    println!("Inserting leafs for Room 211...");
-    for (filename, datetime) in room211_images {
-        let path = format!("{}/{}", DATA_DIR, filename);
-        insert_image_leaf(&pool, branch211_id, &path, datetime).await?;
-        println!("  ✓ {}", filename);
-    }
-
-    // Вставляем листья для Object 3
-    println!("Inserting leafs for Object 3...");
-    for (filename, datetime) in object3_images {
-        let path = format!("{}/{}", DATA_DIR, filename);
-        insert_image_leaf(&pool, branch3_id, &path, datetime).await?;
-        println!("  ✓ {}", filename);
-    }
+    let time = "17:00:00";
+    // Вставляем листья для каждой ноды
+    insert_leafs_for_node(&pool, branch11_id, "Room 11", &room11_images, time).await?;
+    insert_leafs_for_node(&pool, branch211_id, "Room 211", &room211_images, time).await?;
+    insert_leafs_for_node(&pool, branch3_id, "Object 3", &object3_images, time).await?;
 
     println!("\n✅ Leafs data added successfully");
 
     pool.close().await;
-    Ok(())}
+    Ok(())
+}
 
+/// Вставляет листья (изображения) для указанной ноды
+async fn insert_leafs_for_node(
+    pool: &PgPool,
+    node_id: Uuid,
+    node_name: &str,
+    images: &[(&str, i32)],
+    time: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Inserting leafs for {}...", node_name);
+
+    for (filename, shift) in images {
+        let datetime = generate_date(*shift, time)?;
+        let path = format!("{}/{}", DATA_DIR, filename);
+        insert_image_leaf(pool, node_id, &path, &datetime).await?;
+        println!("  ✓ {} ({})", filename, datetime);
+    }
+
+    Ok(())
+}
 /// Проверяет наличие всех файлов в указанной директории
 fn check_files_exist(dir: &str, filenames: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
     let mut missing_files = Vec::new();
@@ -128,4 +132,43 @@ pub async fn run_sql_script(
         .await?;
 
     Ok(())
+}
+pub fn generate_date(shift: i32, time: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let today = Local::now().date_naive();
+    let target_date = today + Duration::days(shift as i64);
+
+    // Проверяем корректность времени
+    NaiveTime::parse_from_str(time, "%H:%M:%S")?;
+
+    Ok(format!("{} {}", target_date.format("%d.%m.%Y"), time))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_date() {
+        // Проверяем формат
+        let result = generate_date(0, "17:00:00").unwrap();
+        assert!(result.contains("17:00:00"));
+
+        // Проверяем что дата содержит точки
+        assert!(result.contains('.'));
+
+        // Проверяем длину (DD.MM.YYYY HH:mm:ss = 19 символов)
+        assert_eq!(result.len(), 19);
+    }
+
+    #[test]
+    fn test_generate_date_negative_shift() {
+        let result = generate_date(-15, "17:00:00").unwrap();
+        assert!(result.contains("17:00:00"));
+    }
+
+    #[test]
+    fn test_generate_date_invalid_time() {
+        let result = generate_date(0, "25:00:00");
+        assert!(result.is_err());
+    }
 }
