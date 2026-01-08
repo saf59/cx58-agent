@@ -1,6 +1,8 @@
 use sqlx::PgPool;
 use cx58_agent::db::{get_id_by_name, insert_image_leaf};
 
+const FILL_TREE_SQL: &str = include_str!("sql/fill_tree.sql");
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL")
@@ -11,9 +13,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let branch211_id_name = "Room 211";
     let branch3_id_name = "Object 3";
 
-    let branch11_id = get_id_by_name(&pool, branch11_id_name)
-        .await?
-        .ok_or(format!("Node '{}' not found", branch11_id_name))?;
+    // Пытаемся получить branch11_id
+    let mut branch11_id = get_id_by_name(&pool, branch11_id_name).await?;
+
+    // Если не найден, выполняем скрипт создания дерева
+    if branch11_id.is_none() {
+        println!("Node '{}' not found. Running fill_tree.sql script...", branch11_id_name);
+        run_sql_script(&pool, FILL_TREE_SQL).await?;
+        println!("Tree creation script completed. Re-reading node IDs...");
+
+        // Читаем branch11_id снова
+        branch11_id = get_id_by_name(&pool, branch11_id_name).await?;
+    }
+    let branch11_id = branch11_id.expect("branch11_id is not exists!\
+    ");
 
     let branch211_id = get_id_by_name(&pool, branch211_id_name)
         .await?
@@ -22,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let branch3_id = get_id_by_name(&pool, branch3_id_name)
         .await?
         .ok_or(format!("Node '{}' not found", branch3_id_name))?;
+
 
     // Room 11
     insert_image_leaf(&pool, branch11_id, "4к_1.jpg", "27.11.2025 17:00:00").await?;
@@ -43,5 +57,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Leafs data added successfully");
 
     pool.close().await;
+    Ok(())
+}
+
+pub async fn run_sql_script(
+    pool: &PgPool,
+    sql: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(sql)
+        .execute(pool)
+        .await?;
+
     Ok(())
 }
