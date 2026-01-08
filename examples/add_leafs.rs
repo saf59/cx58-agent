@@ -1,7 +1,9 @@
+use std::path::PathBuf;
 use sqlx::PgPool;
 use cx58_agent::db::{get_id_by_name, insert_image_leaf};
 
 const FILL_TREE_SQL: &str = include_str!("sql/fill_tree.sql");
+const DATA_DIR: &str = "data";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,27 +38,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .ok_or(format!("Node '{}' not found", branch3_id_name))?;
 
+    // Определяем изображения для каждой ноды
+    let room11_images = vec![
+        ("4k_1.jpg", "27.11.2025 17:00:00"),
+        ("4k_2.jpg", "01.12.2025 17:00:00"),
+        ("4k_3.jpg", "15.12.2025 17:00:00"),
+        ("4k_4.jpg", "27.12.2025 17:00:00"),
+    ];
 
-    // Room 11
-    insert_image_leaf(&pool, branch11_id, "4к_1.jpg", "27.11.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch11_id, "4к_2.jpg", "01.12.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch11_id, "4к_3.jpg", "15.12.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch11_id, "4к_4.jpg", "27.12.2025 17:00:00").await?;
+    let room211_images = vec![
+        ("3w_1.jpg", "27.11.2025 17:00:00"),
+        ("3w_2.jpg", "01.12.2025 17:00:00"),
+        ("3w_3.jpg", "05.12.2025 17:00:00"),
+        ("3w_5.jpg", "27.11.2025 17:00:00"),
+    ];
 
-    // Room 211
-    insert_image_leaf(&pool, branch211_id, "3w_1.jpg", "27.11.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch211_id, "3w_2.jpg", "01.12.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch211_id, "3w_3.jpg", "05.12.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch211_id, "3w_4.jpg", "15.12.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch211_id, "3w_5.jpg", "27.11.2025 17:00:00").await?;
+    let object3_images = vec![
+        ("noise_1.jpg", "27.11.2025 17:00:00"),
+//        ("noise_2.jpg", "27.12.2025 17:00:00"),
+    ];
 
-    // Object 3
-    insert_image_leaf(&pool, branch3_id, "noise_1.jpg", "27.11.2025 17:00:00").await?;
-    insert_image_leaf(&pool, branch3_id, "noise_2.jpg", "27.12.2025 17:00:00").await?;
+    // Проверяем наличие всех файлов перед началом вставки
+    println!("Checking if all image files exist...");
+    let mut all_images: Vec<&str> = Vec::new();
+    all_images.extend(room11_images.iter().map(|(name, _)| *name));
+    all_images.extend(room211_images.iter().map(|(name, _)| *name));
+    all_images.extend(object3_images.iter().map(|(name, _)| *name));
 
-    println!("Leafs data added successfully");
+    check_files_exist(DATA_DIR, &all_images)?;
+    println!("All files verified successfully!");
+
+    // Вставляем листья для Room 11
+    println!("Inserting leafs for Room 11...");
+    for (filename, datetime) in room11_images {
+        let path = format!("{}/{}", DATA_DIR, filename);
+        insert_image_leaf(&pool, branch11_id, &path, datetime).await?;
+        println!("  ✓ {}", filename);
+    }
+
+    // Вставляем листья для Room 211
+    println!("Inserting leafs for Room 211...");
+    for (filename, datetime) in room211_images {
+        let path = format!("{}/{}", DATA_DIR, filename);
+        insert_image_leaf(&pool, branch211_id, &path, datetime).await?;
+        println!("  ✓ {}", filename);
+    }
+
+    // Вставляем листья для Object 3
+    println!("Inserting leafs for Object 3...");
+    for (filename, datetime) in object3_images {
+        let path = format!("{}/{}", DATA_DIR, filename);
+        insert_image_leaf(&pool, branch3_id, &path, datetime).await?;
+        println!("  ✓ {}", filename);
+    }
+
+    println!("\n✅ Leafs data added successfully");
 
     pool.close().await;
+    Ok(())}
+
+/// Проверяет наличие всех файлов в указанной директории
+fn check_files_exist(dir: &str, filenames: &[&str]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut missing_files = Vec::new();
+
+    for filename in filenames {
+        let path = PathBuf::from(dir).join(filename);
+        if !path.exists() {
+            missing_files.push(filename.to_string());
+        }
+    }
+
+    if !missing_files.is_empty() {
+        return Err(format!(
+            "Missing files in '{}' directory:\n  - {}",
+            dir,
+            missing_files.join("\n  - ")
+        ).into());
+    }
+
     Ok(())
 }
 
