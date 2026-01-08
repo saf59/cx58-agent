@@ -1,11 +1,7 @@
 ﻿DO
 $$
     DECLARE
-        root_id      UUID := uuidv7();
-        branch1_id   UUID := uuidv7();
         branch11_id  UUID := uuidv7();
-        branch2_id   UUID := uuidv7();
-        branch21_id  UUID := uuidv7();
         branch211_id UUID := uuidv7();
         branch3_id   UUID := uuidv7();
     BEGIN

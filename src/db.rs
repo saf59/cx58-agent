@@ -226,6 +226,20 @@ pub async fn get_full_node_name(
     Ok(result.0)
 }
 
+pub async fn get_id_by_name(
+    pool: &PgPool,
+    node_name: &str,
+) -> Result<Option<Uuid>, sqlx::Error> {
+    let result = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM tree_nodes WHERE name = $1 LIMIT 1"
+    )
+        .bind(node_name)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(result)
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
