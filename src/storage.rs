@@ -563,6 +563,9 @@ pub async fn create_public_bucket(config: &S3Config,bucket_name: &str) -> Result
 mod tests {
     use crate::init::S3Config;
     use crate::storage::create_public_bucket;
+    use bytes::Bytes;
+    use std::fs;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn example_usage() {
@@ -765,5 +768,108 @@ mod tests {
         let config = S3Config::from_env().unwrap();
         let bucket_name = &config.bucket;
         let _bucket = create_public_bucket(&config, bucket_name).await.unwrap();
+    }
+
+
+    #[tokio::test]
+    async fn test_upload_image() {
+        dotenv::from_path(".env.test").ok();
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        // Read the test image file
+        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_bytes = Bytes::from(image_data);
+        let node_id = Uuid::now_v7();
+        let filename = "noise_1.jpg";
+
+        // Upload the image
+        let result = storage
+            //.bucket
+            .upload_image(&node_id, image_bytes, filename)
+            .await
+            .expect("Failed to upload image");
+        println!("{:#?}",&result);
+        // Verify the upload result
+        assert_eq!(result.size, 527174); // Expected size of noise_1.jpg
+        assert_eq!(result.mime_type, "image/jpeg");
+        assert!(result.storage_path.starts_with(&format!("images/{}", node_id)));
+        assert!(result.public_url.contains(&format!("images/{}", node_id)));
+        assert!(!result.hash.is_empty());
+        assert_eq!(result.hash.len(), 64); // SHA256 hash length
+
+        // Verify the file exists
+        let exists = storage.exists(&result.storage_path).await.unwrap();
+        assert!(exists);
+
+        // Clean up - delete the uploaded file
+        storage.delete_image(&result.storage_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_upload_image_with_different_extensions() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        // Test with PNG file (using the same data for simplicity)
+        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_bytes = Bytes::from(image_data);
+        let node_id = Uuid::now_v7();
+
+        // Upload as PNG
+        let result = storage
+            .upload_image(&node_id, image_bytes, "test.png")
+            .await
+            .expect("Failed to upload image as PNG");
+
+        assert_eq!(result.mime_type, "image/png");
+        assert!(result.storage_path.ends_with(".png"));
+
+        // Clean up
+        storage.delete_image(&result.storage_path).await.unwrap();
+    }
+    #[tokio::test]
+    async fn test_create_thumbnail() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+        let image_processor = crate::storage::ImageProcessor::new(storage.clone());
+
+        // First upload an image to create a thumbnail from
+        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_bytes = Bytes::from(image_data);
+        let node_id = Uuid::now_v7();
+        let filename = "noise_1.jpg";
+
+        // Upload the original image
+        let upload_result = storage
+            .upload_image(&node_id, image_bytes, filename)
+            .await
+            .expect("Failed to upload original image");
+
+        // Create thumbnail
+        let thumbnail_result = image_processor
+            .create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
+            .await
+            .expect("Failed to create thumbnail");
+
+        // Verify thumbnail properties
+        assert_eq!(thumbnail_result.mime_type, "image/jpeg");
+        assert!(thumbnail_result.storage_path.starts_with("images/"));
+        assert!(thumbnail_result.storage_path.contains(".jpg"));
+        assert!(thumbnail_result.size > 0);
+        assert!(!thumbnail_result.hash.is_empty());
+        assert_eq!(thumbnail_result.hash.len(), 64); // SHA256 hash length
+
+        // Verify the thumbnail exists
+        let exists = storage.exists(&thumbnail_result.storage_path).await.unwrap();
+        assert!(exists);
+
+        // Clean up - delete both original and thumbnail
+        storage.delete_image(&upload_result.storage_path).await.unwrap();
+        storage.delete_image(&thumbnail_result.storage_path).await.unwrap();
     }
 }

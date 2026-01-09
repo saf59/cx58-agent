@@ -1,4 +1,4 @@
-﻿DO
+DO
 $$
     DECLARE
         root_id      UUID;

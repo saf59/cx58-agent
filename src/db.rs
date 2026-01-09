@@ -201,6 +201,26 @@ pub async fn insert_image_leaf(
 
     Ok(result.0)
 }
+pub async fn update_leaf_datetime(
+    pool: &PgPool,
+    url: &str,
+    berlin_datetime: &str,
+) -> Result<Uuid, sqlx::Error> {
+    let result: (Uuid,) = sqlx::query_as(
+        r#"
+        UPDATE tree_nodes
+        SET updated_at = timezone('UTC', to_timestamp($2, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+        WHERE data->>'url' = $1
+        RETURNING id
+        "#,
+    )
+        .bind(url)
+        .bind(berlin_datetime)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(result.0)
+}
 
 /// Получить полное имя узла
 ///
