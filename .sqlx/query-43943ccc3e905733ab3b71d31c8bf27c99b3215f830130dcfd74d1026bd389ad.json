@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)\n        VALUES (\n            $1,\n            $2,\n            $3,\n            $4,\n            timezone('UTC', to_timestamp($5, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        {
+          "Custom": {
+            "name": "node_type_enum",
+            "kind": {
+              "Enum": [
+                "Root",
+                "Branch",
+                "ImageLeaf"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "43943ccc3e905733ab3b71d31c8bf27c99b3215f830130dcfd74d1026bd389ad"
+}
