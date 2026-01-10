@@ -1,23 +1,23 @@
-use std::collections::HashMap;
 use crate::agents::master_agent::MasterAgent;
 use crate::db::NodeType;
 use crate::error::*;
 use crate::init::S3Config;
 use crate::models::*;
 use axum::body::Body;
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderValue};
-use axum::response::{IntoResponse, Redirect};
+use axum::response::IntoResponse;
 use axum::{
+    Json,
     extract::{Multipart, Path, State},
     http::StatusCode,
-    Json,
 };
 use bytes::Bytes;
 use reqwest::header::HeaderName;
+use s3::BucketConfiguration;
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
-use s3::BucketConfiguration;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -36,9 +36,11 @@ pub struct AiConfig {
 impl AiConfig {
     pub fn from_env() -> std::result::Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            url: std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             text_model: std::env::var("TEXT_MODEL").unwrap_or_else(|_| "llava".to_string()),
-            vision_model: std::env::var("VISION_MODEL").unwrap_or_else(|_| "llama3.2-vision".to_string()),
+            vision_model: std::env::var("VISION_MODEL")
+                .unwrap_or_else(|_| "llama3.2-vision".to_string()),
             chat_model: std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llava".to_string()),
         })
     }
@@ -63,6 +65,7 @@ pub struct AppState {
 #[derive(Clone)]
 pub struct StorageService {
     bucket: Bucket,
+    #[allow(unused)]
     public_url_base: String,
 }
 
@@ -107,7 +110,8 @@ impl StorageService {
         image_data: Bytes,
         filename: &str,
     ) -> Result<StorageResult> {
-        self.upload_image_type(node_id,image_data,filename,true).await
+        self.upload_image_type(node_id, image_data, filename, true)
+            .await
     }
 
     pub async fn upload_image(
@@ -116,7 +120,8 @@ impl StorageService {
         image_data: Bytes,
         filename: &str,
     ) -> Result<StorageResult> {
-        self.upload_image_type(node_id,image_data,filename,false).await
+        self.upload_image_type(node_id, image_data, filename, false)
+            .await
     }
 
     /// Upload image to S3
@@ -125,14 +130,14 @@ impl StorageService {
         node_id: &Uuid,
         image_data: Bytes,
         filename: &str,
-        is_thumbnail: bool
+        is_thumbnail: bool,
     ) -> Result<StorageResult> {
         let hash = self.compute_hash(&image_data);
         let extension = std::path::Path::new(filename)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("jpg");
-        let image_type = if is_thumbnail {"thumbnails"} else {"images"};
+        let image_type = if is_thumbnail { "thumbnails" } else { "images" };
         let storage_path = format!("{}/{}/{}.{}", image_type, node_id, hash, extension);
         let mime_type = mime_guess::from_path(filename)
             .first_or_octet_stream()
@@ -140,14 +145,17 @@ impl StorageService {
 
         if is_thumbnail {
             let mut headers = HeaderMap::new();
-            headers.insert(HeaderName::from_static("x-amz-acl"),
-                           "public-read".parse().unwrap());
-            let _response_data = self.bucket
+            headers.insert(
+                HeaderName::from_static("x-amz-acl"),
+                "public-read".parse().unwrap(),
+            );
+            let _response_data = self
+                .bucket
                 .put_object_with_content_type_and_headers(
                     &storage_path,
                     &image_data,
                     &mime_type,
-                    Some(headers)
+                    Some(headers),
                 )
                 .await
                 .map_err(|e| {
@@ -164,11 +172,15 @@ impl StorageService {
 
         // Generate presigned URL for both thumbnails and images
         // This ensures consistent access pattern
-        let public_url = self.bucket
+        let public_url = self
+            .bucket
             .presign_get(&storage_path, 86400, None) // 24 hours validity
             .await
             .map_err(|e| {
-                AppError::new(ErrorCode::StorageError, format!("Failed to generate presigned URL: {}", e))
+                AppError::new(
+                    ErrorCode::StorageError,
+                    format!("Failed to generate presigned URL: {}", e),
+                )
             })?;
 
         Ok(StorageResult {
@@ -260,13 +272,13 @@ impl StorageService {
         let mime_type = mime_guess::from_path(storage_path)
             .first_or_octet_stream()
             .to_string();
-        println!("🔍 MIME type: {}", mime_type);
 
         let mut custom_queries = HashMap::new();
-        custom_queries.insert("response-content-disposition".to_string(), "inline".to_string());
+        custom_queries.insert(
+            "response-content-disposition".to_string(),
+            "inline".to_string(),
+        );
         custom_queries.insert("response-content-type".to_string(), mime_type);
-
-        println!("🔍 Custom queries: {:?}", custom_queries);
 
         let url = self
             .bucket
@@ -274,12 +286,9 @@ impl StorageService {
             .await
             .map_err(|e| AppError::internal(format!("Presigned URL failed: {}", e)))?;
 
-        println!("🔍 Generated URL: {}", url);
-
         Ok(url)
     }
     fn get_thumbnail_path(&self, original_path: &str) -> Option<String> {
-        // Преобразуем images/{node_id}/{hash}.{ext} -> thumbnails/{node_id}/{hash}.{ext}
         if original_path.starts_with("images/") {
             Some(original_path.replacen("images/", "thumbnails/", 1))
         } else {
@@ -293,31 +302,28 @@ impl StorageService {
         max_width: u32,
         max_height: u32,
     ) -> Result<StorageResult> {
-        let thumbnail_path = self.get_thumbnail_path(original_path)
+        let thumbnail_path = self
+            .get_thumbnail_path(original_path)
             .ok_or_else(|| AppError::internal("Invalid original path format"))?;
 
         if self.object_exists(&thumbnail_path).await? {
-            // Thumbnail exists - return its metadata
-            /*            let extension = std::path::Path::new(&thumbnail_path)
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("jpg");
-            */
             let mime_type = mime_guess::from_path(&thumbnail_path)
                 .first_or_octet_stream()
                 .to_string();
 
             // Generate fresh presigned URL or use public URL
-            let public_url = format!(
-                "{}/{}",
-                self.bucket.url(),
-                thumbnail_path
-            );
+            let public_url = format!("{}/{}", self.bucket.url(), thumbnail_path);
 
             // Get file size from S3 metadata
-            let (head_result, _) = self.bucket.head_object(&thumbnail_path).await
+            let (head_result, _) = self
+                .bucket
+                .head_object(&thumbnail_path)
+                .await
                 .map_err(|e| {
-                    AppError::new(ErrorCode::StorageError, format!("Failed to get thumbnail metadata: {}", e))
+                    AppError::new(
+                        ErrorCode::StorageError,
+                        format!("Failed to get thumbnail metadata: {}", e),
+                    )
                 })?;
 
             let size = head_result.content_length.unwrap_or(0) as u64;
@@ -335,7 +341,8 @@ impl StorageService {
             })
         } else {
             // Thumbnail doesn't exist - create it
-            self.create_thumbnail(node_id, original_path, max_width, max_height).await
+            self.create_thumbnail(node_id, original_path, max_width, max_height)
+                .await
         }
     }
     pub async fn create_thumbnail(
@@ -386,26 +393,32 @@ impl StorageService {
 
         // Upload directly with the exact path we want
         let mut headers = HeaderMap::new();
-        headers.insert(HeaderName::from_static("x-amz-acl"),
-                       "public-read".parse().unwrap());
+        headers.insert(
+            HeaderName::from_static("x-amz-acl"),
+            "public-read".parse().unwrap(),
+        );
 
         self.bucket
             .put_object_with_content_type_and_headers(
                 &storage_path,
                 &buffer_bytes,
                 &mime_type,
-                Some(headers)
+                Some(headers),
             )
             .await
             .map_err(|e| {
                 AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
             })?;
 
-        let public_url = self.bucket
+        let public_url = self
+            .bucket
             .presign_get(&storage_path, 86400, None)
             .await
             .map_err(|e| {
-                AppError::new(ErrorCode::StorageError, format!("Failed to generate presigned URL: {}", e))
+                AppError::new(
+                    ErrorCode::StorageError,
+                    format!("Failed to generate presigned URL: {}", e),
+                )
             })?;
 
         let thumbnail_hash = self.compute_hash(&buffer_bytes);
@@ -457,7 +470,10 @@ impl StorageService {
             Err(e) => {
                 // Any error means file doesn't exist (404, NoSuchKey, etc.)
                 let err_str = e.to_string();
-                if err_str.contains("404") || err_str.contains("NoSuchKey") || err_str.contains("Not Found") {
+                if err_str.contains("404")
+                    || err_str.contains("NoSuchKey")
+                    || err_str.contains("Not Found")
+                {
                     Ok(false)
                 } else {
                     // Real error, not just "file doesn't exist"
@@ -507,25 +523,7 @@ impl ImageProcessor {
 
         let filename = external_url.split('/').next_back().unwrap_or("image.jpg");
 
-        self.storage
-            .upload_image(node_id, bytes, filename)
-            .await
-    }
-
-    /// Create thumbnail - with original
-
-
-    fn get_thumbnail_path(&self, original_path: &str) -> Option<String> {
-        // Преобразуем images/{node_id}/{hash}.{ext} -> thumbnails/{node_id}/{hash}.{ext}
-        if original_path.starts_with("images/") {
-            Some(original_path.replacen("images/", "thumbnails/", 1))
-        } else {
-            None
-        }
-    }
-
-    async fn object_exists(&self, path: &str) -> Result<bool> {
-        self.storage.object_exists(path).await
+        self.storage.upload_image(node_id, bytes, filename).await
     }
 
     /// Validate image
@@ -559,8 +557,8 @@ impl ImageUrlResolver {
             r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
             node_id
         )
-            .fetch_one(&self.db)
-            .await?;
+        .fetch_one(&self.db)
+        .await?;
 
         let data: serde_json::Value = node.data;
         data.get("url")
@@ -574,8 +572,8 @@ impl ImageUrlResolver {
             r#"SELECT id, data FROM tree_nodes WHERE id = ANY($1) AND node_type = 'ImageLeaf'"#,
             node_ids
         )
-            .fetch_all(&self.db)
-            .await?;
+        .fetch_all(&self.db)
+        .await?;
 
         Ok(nodes
             .into_iter()
@@ -669,8 +667,8 @@ pub async fn upload_image_handler(
         }),
         berlin_datetime
     )
-        .execute(&state.db)
-        .await?;
+    .execute(&state.db)
+    .await?;
 
     Ok(Json(ImageLeafResponse {
         node_id,
@@ -680,97 +678,6 @@ pub async fn upload_image_handler(
         size: storage_result.size,
     }))
 }
-/*pub async fn add_image_leaf_handler(
-    State(state): State<Arc<AppState>>,
-    Path(parent_id): Path<Uuid>,
-    mut multipart: Multipart,
-) -> crate::error::Result<Json<ImageLeafResponse>> {
-    let mut filename = String::new();
-    let mut image_data = Bytes::new();
-    let mut berlin_datetime = String::new();
-
-    // Parse multipart form
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::bad_request(format!("Multipart error: {}", e)))?
-    {
-        match field.name() {
-            Some("image") => {
-                filename = field
-                    .file_name()
-                    .ok_or_else(|| AppError::bad_request("Missing filename"))?
-                    .to_string();
-                image_data = field
-                    .bytes()
-                    .await
-                    .map_err(|e| AppError::bad_request(format!("Read error: {}", e)))?;
-            }
-            Some("berlin_datetime") => {
-                berlin_datetime = field
-                    .text()
-                    .await
-                    .map_err(|e| AppError::bad_request(format!("Text error: {}", e)))?;
-            }
-            _ => {}
-        }
-    }
-
-    // Validate required fields
-    if image_data.is_empty() {
-        return Err(AppError::bad_request("No image provided"));
-    }
-    if berlin_datetime.is_empty() {
-        return Err(AppError::bad_request("Missing berlin_datetime"));
-    }
-
-    // Validate image
-    state.image_processor.validate_image(&image_data, 10)?;
-
-    // Upload to S3
-    let node_id = Uuid::now_v7();
-    let storage_result = state
-        .storage
-        .upload_image(&node_id, image_data, &filename)
-        .await?;
-
-    // Insert into database directly
-    sqlx::query!(
-        r#"
-        INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)
-        VALUES (
-            $1,
-            $2,
-            $3,
-            $4,
-            timezone('UTC', to_timestamp($5, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
-        )
-        "#,
-        node_id,
-        parent_id,
-        NodeType::ImageLeaf as NodeType,
-        serde_json::json!({
-            "url": storage_result.public_url,
-            "storage_path": storage_result.storage_path,
-            "size": storage_result.size,
-            "mime_type": storage_result.mime_type,
-            "hash": storage_result.hash,
-        }),
-        berlin_datetime
-    )
-        .execute(&state.db)
-        .await?;
-
-    Ok(Json(ImageLeafResponse {
-        node_id,
-        parent_id,
-        url: storage_result.public_url,
-        storage_path: storage_result.storage_path,
-        size: storage_result.size,
-    }))
-}
-*/
-use axum::http::header::{CONTENT_TYPE, CACHE_CONTROL, CONTENT_DISPOSITION};
 
 pub async fn get_image_handler(
     State(state): State<Arc<AppState>>,
@@ -780,8 +687,8 @@ pub async fn get_image_handler(
         r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
         node_id
     )
-        .fetch_one(&state.db)
-        .await?;
+    .fetch_one(&state.db)
+    .await?;
 
     let storage_path = node
         .data
@@ -795,13 +702,8 @@ pub async fn get_image_handler(
         .and_then(|v| v.as_str())
         .unwrap_or("application/octet-stream");
 
-    // 🔍 ДИАГНОСТИКА
-    println!("MIME type from DB: {:?}", mime_type);
-    println!("Storage path: {}", storage_path);
 
     let file_data = state.storage.download_image(storage_path).await?;
-
-    println!("File size: {} bytes", file_data.len());
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -810,10 +712,7 @@ pub async fn get_image_handler(
             .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
 
-    headers.insert(
-        CONTENT_DISPOSITION,
-        HeaderValue::from_static("inline"),
-    );
+    headers.insert(CONTENT_DISPOSITION, HeaderValue::from_static("inline"));
 
     headers.insert(
         CACHE_CONTROL,
@@ -827,13 +726,12 @@ pub async fn delete_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
 ) -> Result<StatusCode> {
-
     let node = sqlx::query!(
         r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
         node_id,
     )
-        .fetch_one(&state.db)
-        .await?;
+    .fetch_one(&state.db)
+    .await?;
 
     let storage_path = node
         .data
@@ -870,11 +768,7 @@ pub async fn batch_upload_handler(
 
             let node_id = Uuid::now_v7();
 
-            if let Ok(result) = state
-                .storage
-                .upload_image(&node_id, data, &filename)
-                .await
-            {
+            if let Ok(result) = state.storage.upload_image(&node_id, data, &filename).await {
                 responses.push(UploadResponse {
                     node_id,
                     url: result.public_url.clone(),
@@ -887,8 +781,8 @@ pub async fn batch_upload_handler(
 
     Ok(Json(responses))
 }
-/// Создание bucket с публичным доступом для чтения
-pub async fn create_public_bucket(config: &S3Config,bucket_name: &str) -> Result<Box<Bucket>> {
+/// Create bucket with public access for reading
+pub async fn create_public_bucket(config: &S3Config, bucket_name: &str) -> Result<Box<Bucket>> {
     let region = Region::Custom {
         region: config.region.clone(),
         endpoint: config.endpoint.clone().unwrap(),
@@ -900,7 +794,8 @@ pub async fn create_public_bucket(config: &S3Config,bucket_name: &str) -> Result
         None,
         None,
         None,
-    ).map_err( |_| {AppError::unauthorized("Bad S3 credentials".to_string()) })?;
+    )
+    .map_err(|_| AppError::unauthorized("Bad S3 credentials".to_string()))?;
 
     let create_bucket_config = BucketConfiguration::public();
 
@@ -909,9 +804,14 @@ pub async fn create_public_bucket(config: &S3Config,bucket_name: &str) -> Result
         region.clone(),
         credentials.clone(),
         create_bucket_config,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    println!("✓ Public bucket '{}' created with code {}\n{}", bucket_name, &response.response_code, &response.response_text );
+    println!(
+        "✓ Public bucket '{}' created with code {}\n{}",
+        bucket_name, &response.response_code, &response.response_text
+    );
 
     Ok(response.bucket)
 }
@@ -945,7 +845,11 @@ mod tests {
         assert_eq!(test, response_data.as_slice());
 
         // Get file range
-        let response_data = storage.bucket.get_object_range(s3_path, 1, Some(10)).await.unwrap();
+        let response_data = storage
+            .bucket
+            .get_object_range(s3_path, 1, Some(10))
+            .await
+            .unwrap();
         assert_eq!(response_data.status_code(), 206);
 
         // Head request
@@ -957,7 +861,11 @@ mod tests {
         );
 
         // Generate presigned URL
-        let presigned_url = storage.bucket.presign_get(s3_path, 300, None).await.unwrap();
+        let presigned_url = storage
+            .bucket
+            .presign_get(s3_path, 300, None)
+            .await
+            .unwrap();
         println!("Presigned URL: {}", presigned_url);
 
         // Verify presigned URL via HTTP request
@@ -987,11 +895,17 @@ mod tests {
                     assert_eq!(test, public_body.as_ref());
                     println!("✓ Public URL works correctly");
                 } else {
-                    println!("⚠ Public URL returned status: {} (bucket might not be public)", resp.status());
+                    println!(
+                        "⚠ Public URL returned status: {} (bucket might not be public)",
+                        resp.status()
+                    );
                 }
             }
             Err(e) => {
-                println!("⚠ Public URL access failed: {} (bucket might not be public)", e);
+                println!(
+                    "⚠ Public URL access failed: {} (bucket might not be public)",
+                    e
+                );
             }
         }
 
@@ -1004,7 +918,11 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let expired_response = client.get(&short_presigned_url).send().await.unwrap();
-        assert_ne!(expired_response.status(), 200, "Expired URL should not return 200");
+        assert_ne!(
+            expired_response.status(),
+            200,
+            "Expired URL should not return 200"
+        );
         println!("✓ Presigned URL correctly expires");
 
         // Delete file
@@ -1028,7 +946,11 @@ mod tests {
         let test_data = b"Uploaded via presigned URL!";
 
         // Generate presigned URL for upload
-        let presigned_put_url = storage.bucket.presign_put(s3_path, 300, None, None).await.unwrap();
+        let presigned_put_url = storage
+            .bucket
+            .presign_put(s3_path, 300, None, None)
+            .await
+            .unwrap();
         println!("Presigned PUT URL: {}", presigned_put_url);
 
         // Upload via presigned URL
@@ -1063,10 +985,18 @@ mod tests {
         let test_data = b"Test with custom headers";
 
         // Upload with custom headers
-        storage.bucket.put_object_with_content_type(s3_path, test_data, "text/plain").await.unwrap();
+        storage
+            .bucket
+            .put_object_with_content_type(s3_path, test_data, "text/plain")
+            .await
+            .unwrap();
 
         // Generate presigned URL
-        let presigned_url = storage.bucket.presign_get(s3_path, 3000, None).await.unwrap();
+        let presigned_url = storage
+            .bucket
+            .presign_get(s3_path, 3000, None)
+            .await
+            .unwrap();
 
         // Verify via HTTP
         let client = reqwest::Client::new();
@@ -1096,7 +1026,8 @@ mod tests {
         println!("Put response code: {}", response.status_code());
         assert_eq!(response.status_code(), 200);
 
-        let presigned_url = storage.bucket
+        let presigned_url = storage
+            .bucket
             .presign_get(s3_path, 300, None)
             .await
             .unwrap();
@@ -1149,7 +1080,11 @@ mod tests {
         // Verify the upload result
         assert_eq!(result.size, 527174); // Expected size of noise_1.jpg
         assert_eq!(result.mime_type, "image/jpeg");
-        assert!(result.storage_path.starts_with(&format!("images/{}", node_id)));
+        assert!(
+            result
+                .storage_path
+                .starts_with(&format!("images/{}", node_id))
+        );
         assert!(result.public_url.contains(&format!("images/{}", node_id)));
         assert!(!result.hash.is_empty());
         assert_eq!(result.hash.len(), 64); // SHA256 hash length
@@ -1159,7 +1094,11 @@ mod tests {
         assert!(exists);
 
         // Cleanup - delete the uploaded file
-        storage.bucket.delete_object(&result.storage_path).await.unwrap();
+        storage
+            .bucket
+            .delete_object(&result.storage_path)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1185,8 +1124,16 @@ mod tests {
 
         // Verify the upload result
         assert_eq!(result.mime_type, "image/jpeg");
-        assert!(result.storage_path.starts_with(&format!("thumbnails/{}", node_id)));
-        assert!(result.public_url.contains(&format!("thumbnails/{}", node_id)));
+        assert!(
+            result
+                .storage_path
+                .starts_with(&format!("thumbnails/{}", node_id))
+        );
+        assert!(
+            result
+                .public_url
+                .contains(&format!("thumbnails/{}", node_id))
+        );
         assert!(!result.hash.is_empty());
 
         // Verify the file exists
@@ -1211,7 +1158,11 @@ mod tests {
         }
 
         // Cleanup
-        storage.bucket.delete_object(&result.storage_path).await.unwrap();
+        storage
+            .bucket
+            .delete_object(&result.storage_path)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1236,7 +1187,11 @@ mod tests {
         assert!(result.storage_path.ends_with(".png"));
 
         // Cleanup
-        storage.bucket.delete_object(&result.storage_path).await.unwrap();
+        storage
+            .bucket
+            .delete_object(&result.storage_path)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1245,7 +1200,6 @@ mod tests {
 
         let config = S3Config::from_env().unwrap();
         let storage = crate::init::setup_storage(&config).unwrap();
-        let image_processor = crate::storage::ImageProcessor::new(storage.clone());
 
         // First upload an image to create a thumbnail from
         let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
@@ -1275,10 +1229,7 @@ mod tests {
         assert!(thumbnail_result.storage_path.contains(&node_id.to_string()));
 
         // Extract filename from original path and verify it's used in thumbnail
-        let original_filename = upload_result.storage_path
-            .split('/')
-            .last()
-            .unwrap();
+        let original_filename = upload_result.storage_path.split('/').last().unwrap();
         assert!(thumbnail_result.storage_path.ends_with(original_filename));
 
         assert!(thumbnail_result.size > 0);
@@ -1286,12 +1237,23 @@ mod tests {
         assert_eq!(thumbnail_result.hash.len(), 64); // SHA256 hash length
 
         // Verify the thumbnail exists
-        let exists = storage.object_exists(&thumbnail_result.storage_path).await.unwrap();
+        let exists = storage
+            .object_exists(&thumbnail_result.storage_path)
+            .await
+            .unwrap();
         assert!(exists);
 
         // Cleanup - delete both original and thumbnail
-        storage.bucket.delete_object(&upload_result.storage_path).await.unwrap();
-        storage.bucket.delete_object(&thumbnail_result.storage_path).await.unwrap();
+        storage
+            .bucket
+            .delete_object(&upload_result.storage_path)
+            .await
+            .unwrap();
+        storage
+            .bucket
+            .delete_object(&thumbnail_result.storage_path)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -1300,7 +1262,6 @@ mod tests {
 
         let config = S3Config::from_env().unwrap();
         let storage = crate::init::setup_storage(&config).unwrap();
-        let image_processor = crate::storage::ImageProcessor::new(storage.clone());
 
         // Upload original image
         let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
@@ -1336,7 +1297,10 @@ mod tests {
         println!("Second call (retrieved): {:#?}", thumbnail_result_2);
 
         // Verify same thumbnail is returned
-        assert_eq!(thumbnail_result_1.storage_path, thumbnail_result_2.storage_path);
+        assert_eq!(
+            thumbnail_result_1.storage_path,
+            thumbnail_result_2.storage_path
+        );
         assert_eq!(thumbnail_result_1.hash, thumbnail_result_2.hash);
 
         // Verify thumbnail exists
@@ -1344,7 +1308,11 @@ mod tests {
         assert!(exists);
 
         // Cleanup
-        storage.bucket.delete_object(&upload_result.storage_path).await.unwrap();
+        storage
+            .bucket
+            .delete_object(&upload_result.storage_path)
+            .await
+            .unwrap();
         storage.bucket.delete_object(&thumbnail_path).await.unwrap();
     }
 
@@ -1354,14 +1322,13 @@ mod tests {
 
         let config = S3Config::from_env().unwrap();
         let storage = crate::init::setup_storage(&config).unwrap();
-        let image_processor = crate::storage::ImageProcessor::new(storage.clone());
 
         let node_id = Uuid::now_v7();
         let hash = "abc123def456";
         let original_path = format!("images/{}/{}.jpg", node_id, hash);
 
         // Test path conversion
-        let thumbnail_path = image_processor
+        let thumbnail_path = storage
             .get_thumbnail_path(&original_path)
             .expect("Failed to convert path");
 
@@ -1394,7 +1361,11 @@ mod tests {
         assert!(!exists_before);
 
         // Upload file
-        storage.bucket.put_object(&s3_path, test_data).await.unwrap();
+        storage
+            .bucket
+            .put_object(&s3_path, test_data)
+            .await
+            .unwrap();
 
         // File should exist now
         let exists_after = storage.object_exists(&s3_path).await.unwrap();
@@ -1441,6 +1412,10 @@ mod tests {
         println!("✓ Image download works correctly");
 
         // Cleanup
-        storage.bucket.delete_object(&upload_result.storage_path).await.unwrap();
+        storage
+            .bucket
+            .delete_object(&upload_result.storage_path)
+            .await
+            .unwrap();
     }
 }

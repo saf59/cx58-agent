@@ -1,27 +1,33 @@
-use std::convert::Infallible;
+use crate::error::*;
+use crate::models::*;
+use axum::extract::Query;
 // ============================================================================
 // Middleware
 // ============================================================================
 use axum::http::StatusCode;
 use axum::middleware::Next;
-use axum::response::{Response, Sse};
-use crate::models::*;
-use crate::error::*;
-use axum::{extract::{Path, Request, State}, Extension, Json};
-use std::sync::Arc;
-use axum::extract::Query;
 use axum::response::sse::{Event, KeepAlive};
+use axum::response::{Response, Sse};
+use axum::{
+    Json,
+    extract::{Path, Request, State},
+};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
+use std::sync::Arc;
 use uuid::Uuid;
 
-pub use crate::storage::{StorageService, ImageProcessor, ImageUrlResolver};
-use crate::AppState;
 use crate::AgentRequest;
+use crate::AppState;
 use crate::agents::StreamEvent;
-use crate::db::{get_tree, NodeType, TreeNode};
+use crate::db::{NodeType, TreeNode, get_tree};
+pub use crate::storage::{ImageProcessor, ImageUrlResolver, StorageService};
 
-pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::Result<Response, StatusCode> {
+pub async fn auth_middleware(
+    mut request: Request,
+    next: Next,
+) -> std::result::Result<Response, StatusCode> {
     let user_id = request
         .headers()
         .get("X-User-ID")
@@ -71,35 +77,47 @@ pub async fn get_tree_handler(
 ) -> Result<Json<Vec<TreeNode>>> {
     let mut tree = get_tree(&state.db, &user_id, query.with_leafs).await?;
 
-    // Обрабатываем ImageLeaf ноды
+    // Process ImageLeaf nodes
     for node in &mut tree {
-        if matches!(node.node_type, NodeType::ImageLeaf) {
-            if let Some(obj) = node.data.as_object_mut() {
-                // Копируем storage_path в String, чтобы избежать конфликта заимствований
-                let storage_path = obj.get("storage_path")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+        if matches!(node.node_type, NodeType::ImageLeaf)
+            && let Some(obj) = node.data.as_object_mut()
+        {
+            // Copy storage_path to String to avoid borrowing conflicts
+            let storage_path = obj
+                .get("storage_path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
-                if let Some(storage_path) = storage_path {
-                    // Генерируем signed URL для оригинала
-                    match state.storage.generate_presigned_url(&storage_path, 86400).await {
-                        Ok(url) => {
-                            obj.insert("url".to_string(), serde_json::json!(url));
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to generate URL for {}: {}", storage_path, e);
-                        }
+            if let Some(storage_path) = storage_path {
+                // Generate signed URL for original image
+                match state
+                    .storage
+                    .generate_presigned_url(&storage_path, 86400)
+                    .await
+                {
+                    Ok(url) => {
+                        obj.insert("url".to_string(), serde_json::json!(url));
                     }
+                    Err(e) => {
+                        eprintln!("Failed to generate URL for {}: {}", storage_path, e);
+                    }
+                }
 
-                    // Получаем или создаем thumbnail (уже с публичным URL)
-                    match state.storage.get_or_create_thumbnail(&node.id, &storage_path, 300, 300).await {
-                        Ok(thumbnail) => {
-                            // thumbnail.url уже публичный, просто вставляем
-                            obj.insert("thumbnail_url".to_string(), serde_json::json!(thumbnail.public_url));
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to create thumbnail for {}: {}", storage_path, e);
-                        }
+                // Get or create thumbnail (already with public URL)
+                match state
+                    .storage
+                    .get_or_create_thumbnail(&node.id, &storage_path, 300, 300)
+                    .await
+                {
+                    Ok(thumbnail) => {
+                        // thumbnail.url is already public - just insert it
+                        obj.insert(
+                            "thumbnail_url".to_string(),
+                            serde_json::json!(thumbnail.public_url),
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create thumbnail for {}: {}", storage_path, e);
                     }
                 }
             }
@@ -108,43 +126,6 @@ pub async fn get_tree_handler(
 
     Ok(Json(tree))
 }
-/*async fn load_full_tree(
-    db: &sqlx::PgPool,
-    user_id: &String,
-) -> Result<Vec<TreeNode>> {
-    let nodes = sqlx::query_as!(
-        TreeNode,
-        r#"
-        SELECT
-            id,
-            parent_id,
-            node_type as "node_type: NodeType",
-            name,
-            data as "data!: _",
-            path,
-            updated_at,
-            depth,
-            COALESCE(own, false) as "own!"
-        FROM get_tree($1, true)
-        "#,
-        user_id // This binds to $1
-    )
-        .fetch_one(db)
-        .await?;
-    Ok(nodes)
-}
-*//*    Ok(TreeNode {
-        id: node.id.unwrap(),
-        parent_id: node.parent_id.into(),
-        name: node.name,
-        node_type: node.node_type,
-        path: node.path,
-        data: serde_json::from_value(node.data.unwrap())?,
-        updated_at: node.updated_at.unwrap().and_utc(),
-        depth: node.depth.unwrap(),
-        own: node.own.unwrap()
-    })
-*/
 
 /// ============================================================================
 // RESPONSE TYPES
@@ -272,9 +253,7 @@ pub async fn chat_stream_cancel(
         ))
     }
 }
-pub async fn health_check(
-    State(state): State<Arc<AppState>>,
-) -> axum::Json<HealthStatus> {
+pub async fn health_check(State(state): State<Arc<AppState>>) -> axum::Json<HealthStatus> {
     let mut health = HealthStatus::healthy();
 
     health.services.database = sqlx::query("SELECT 1").fetch_one(&state.db).await.is_ok();

@@ -14,7 +14,7 @@ pub enum NodeType {
     ImageLeaf,
 }
 
-// Ручная реализация для работы с PostgreSQL enum
+// Hand made Implementation for PostgreSQL enum
 impl sqlx::Type<sqlx::Postgres> for NodeType {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("node_type_enum")
@@ -115,15 +115,15 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for NodeWithLeaf {
 // Database Functions
 // ============================================================================
 
-/// Получить дерево узлов для пользователя
+/// Get users node tree
 ///
 /// # Arguments
-/// * `pool` - Пул подключений к базе данных
-/// * `user_id` - ID пользователя
-/// * `with_leafs` - Включать ли ImageLeaf узлы (по умолчанию true)
+/// * `pool` - db pool
+/// * `user_id` - user_id
+/// * `with_leafs` - show ImageLeaf (default true)
 ///
 /// # Returns
-/// Vec<TreeNode> - Вектор узлов дерева
+/// Vec<TreeNode> - nodes
 pub async fn get_tree(
     pool: &PgPool,
     user_id: &str,
@@ -140,17 +140,17 @@ pub async fn get_tree(
     .await
 }
 
-/// Получить узел с его дочерними ImageLeaf
+/// Receive node with its ImageLeafs
 ///
 /// # Arguments
-/// * `pool` - Пул подключений к базе данных
-/// * `node_id` - ID узла
-/// * `limit` - Количество ImageLeaf для получения (по умолчанию 1)
-/// * `from_timestamp` - Начальная временная метка (опционально)
-/// * `to_timestamp` - Конечная временная метка (опционально)
+/// * `pool` - db pool
+/// * `node_id` - node id
+/// * `limit` - Amount of ImageLeaf for getting (default 1)
+/// * `from_timestamp` - Start timestamp (optional)
+/// * `to_timestamp` - End timestamp (optional)
 ///
 /// # Returns
-/// Vec<NodeWithLeaf> - Вектор узлов с полными именами
+/// Vec<NodeWithLeaf> - Owner with_leafs
 pub async fn get_node_with_leafs(
     pool: &PgPool,
     node_id: Uuid,
@@ -171,16 +171,16 @@ pub async fn get_node_with_leafs(
     .await
 }
 
-/// Вставить новый ImageLeaf узел
+/// Insert new ImageLeaf node
 ///
 /// # Arguments
-/// * `pool` - Пул подключений к базе данных
-/// * `parent_id` - ID родительского узла
-/// * `url` - URL изображения
-/// * `berlin_datetime` - Дата и время в формате "DD.MM.YYYY HH24:MI:SS" (берлинское время)
+/// * `pool` - db pool
+/// * `parent_id` - node id
+/// * `url` - image URL
+/// * `berlin_datetime` - like "DD.MM.YYYY HH24:MI:SS"
 ///
 /// # Returns
-/// Uuid - ID созданного узла
+/// Uuid - ID of the created node
 pub async fn insert_image_leaf(
     pool: &PgPool,
     parent_id: Uuid,
@@ -221,14 +221,14 @@ pub async fn update_leaf_datetime(
     Ok(result.0)
 }
 
-/// Получить полное имя узла
+/// Retrieve full node name
 ///
 /// # Arguments
-/// * `pool` - Пул подключений к базе данных
-/// * `node_id` - ID узла
+/// * `pool` - db pool
+/// * `node_id` - node id
 ///
 /// # Returns
-/// String - Полное имя узла (путь через "/")
+/// String - Full node name (path through "/")
 pub async fn get_full_node_name(
     pool: &PgPool,
     node_id: Uuid,
@@ -264,22 +264,22 @@ pub async fn get_id_by_name(
 // ============================================================================
 
 impl TreeNode {
-    /// Проверить, является ли узел корневым
+    /// Check if the node is a root node
     pub fn is_root(&self) -> bool {
         self.node_type == NodeType::Root
     }
 
-    /// Проверить, является ли узел веткой
+    /// Check if the node is a branch node
     pub fn is_branch(&self) -> bool {
         self.node_type == NodeType::Branch
     }
 
-    /// Проверить, является ли узел листом
+    /// Check if the node is a leaf node
     pub fn is_leaf(&self) -> bool {
         self.node_type == NodeType::ImageLeaf
     }
 
-    /// Получить URL изображения для ImageLeaf узла
+    /// Retrieve URL for ImageLeaf node
     pub fn get_image_url(&self) -> Option<String> {
         if self.is_leaf() {
             self.data
@@ -293,12 +293,12 @@ impl TreeNode {
 }
 
 impl NodeWithLeaf {
-    /// Проверить, является ли узел листом
+    /// Check if the node is a leaf node
     pub fn is_leaf(&self) -> bool {
         self.node_type == NodeType::ImageLeaf
     }
 
-    /// Получить URL изображения для ImageLeaf узла
+    /// Retrieve URL for ImageLeaf node
     pub fn get_image_url(&self) -> Option<String> {
         if self.is_leaf() {
             self.data
@@ -324,12 +324,12 @@ mod tests {
         let db_url = env::var("DATABASE_URL")
             .expect("DATABASE_URL must be set in .env.test file or environment");
         let user_id = env::var("TEST_USER").expect("TEST_USER must be set");
-        // Инициализация пула (замените на ваши настройки)
+        // Initialize pool (replace with your settings)
         let pool = PgPool::connect(&db_url)
             .await
             .expect("Failed to connect to database");
 
-        // Пример 1: Получить дерево для пользователя
+        // Example 1: Get tree for user
         let tree = get_tree(&pool, &user_id, true)
             .await
             .expect("Failed to get tree");
@@ -345,7 +345,7 @@ mod tests {
             );
         }
 
-        // Пример 2: Получить узел с последними 5 листьями
+        // Example 2: Get node with last 5 leafs
         let node_id = tree.first().unwrap().id;
         let nodes_with_leafs = get_node_with_leafs(&pool, node_id, Some(5), None, None)
             .await
@@ -363,7 +363,7 @@ mod tests {
             }
         }
 
-        // Пример 3: Получить узлы с временными рамками
+        // Example 3: Get nodes with time frames
         use chrono::NaiveDate;
         let from_date = NaiveDate::from_ymd_opt(2025, 12, 20)
             .unwrap()
@@ -383,14 +383,14 @@ mod tests {
             );
         }
 
-        // Пример 4: Вставить новый ImageLeaf
+        // Example 4: Insert new ImageLeaf
         let new_leaf_id = insert_image_leaf(&pool, node_id, "new_image.jpg", "28.12.2025 15:30:00")
             .await
             .expect("Failed to insert image leaf");
 
         println!("\nNew leaf created with ID: {}", new_leaf_id);
 
-        // Пример 5: Получить полное имя узла
+        // Example 5: Get full name of node
         let full_name = get_full_node_name(&pool, new_leaf_id)
             .await
             .expect("Failed to get full name");
