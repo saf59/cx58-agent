@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::agents::master_agent::MasterAgent;
 use crate::db::NodeType;
 use crate::error::*;
@@ -16,6 +17,9 @@ use s3::BucketConfiguration;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
+use axum::http::HeaderMap;
+use reqwest::header::HeaderName;
+use s3::bucket_ops::CannedBucketAcl;
 use uuid::Uuid;
 
 // ============================================================================
@@ -96,32 +100,72 @@ impl StorageService {
         })
     }
 
-    /// Upload image to S3
+    pub async fn upload_thumbnail(
+        &self,
+        node_id: &Uuid,
+        image_data: Bytes,
+        filename: &str,
+    ) -> Result<StorageResult> {
+        self.upload_image_type(node_id,image_data,filename,true).await
+    }
+
     pub async fn upload_image(
         &self,
         node_id: &Uuid,
         image_data: Bytes,
         filename: &str,
     ) -> Result<StorageResult> {
+        self.upload_image_type(node_id,image_data,filename,false).await
+    }
+
+    /// Upload image to S3
+    pub async fn upload_image_type(
+        &self,
+        node_id: &Uuid,
+        image_data: Bytes,
+        filename: &str,
+        is_thumbnail: bool
+    ) -> Result<StorageResult> {
         let hash = self.compute_hash(&image_data);
         let extension = std::path::Path::new(filename)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("jpg");
+        let image_type = if is_thumbnail {"thumbnails"} else {"images"};
 
-        let storage_path = format!("images/{}/{}.{}", node_id, hash, extension);
+        let storage_path = format!("{}/{}/{}.{}", image_type, node_id, hash, extension);
 
         let mime_type = mime_guess::from_path(filename)
             .first_or_octet_stream()
             .to_string();
 
         // Upload with rust-s3
-        self.bucket
-            .put_object(&storage_path, &image_data)
-            .await
-            .map_err(|e| {
-                AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
-            })?;
+        if is_thumbnail {
+            let mut headers = HeaderMap::new();
+            // set Public accss
+            headers.insert(HeaderName::from_static("x-amz-acl"),
+                           "public-read".parse().unwrap());
+
+            let _responce_data = self.bucket
+                .put_object_with_content_type_and_headers(
+                    &storage_path,
+                    &image_data,
+                    &mime_type,
+                    Some(headers)
+                )
+                .await
+                .map_err(|e| {
+                    AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
+                })?;
+        }
+        else {
+            self.bucket
+                .put_object(&storage_path, &image_data)
+                .await
+                .map_err(|e| {
+                    AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
+                })?;
+        }
 
         let public_url = format!(
             "{}/{}",
@@ -253,7 +297,23 @@ impl StorageService {
 
         Ok(deleted)
     }
-
+    pub async fn object_exists(&self, path: &str) -> Result<bool> {
+        match self.bucket.head_object(path).await {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                // Проверяем, это ошибка "не найден" или что-то другое
+                let err_str = e.to_string();
+                if err_str.contains("404") || err_str.contains("NoSuchKey") {
+                    Ok(false)
+                } else {
+                    Err(AppError::new(
+                        ErrorCode::StorageError,
+                        format!("S3 head_object failed: {}", e),
+                    ))
+                }
+            }
+        }
+    }
     /// Compute SHA256 hash
     fn compute_hash(&self, data: &Bytes) -> String {
         let mut hasher = Sha256::new();
@@ -297,10 +357,10 @@ impl ImageProcessor {
             .await
     }
 
-    /// Create thumbnail
+    /// Create thumbnail - with original
     pub async fn create_thumbnail(
         &self,
-        _node_id: &Uuid,
+        node_id: &Uuid,
         original_path: &str,
         max_width: u32,
         max_height: u32,
@@ -315,18 +375,82 @@ impl ImageProcessor {
         thumbnail
             .write_to(
                 &mut std::io::Cursor::new(&mut buffer),
-                image::ImageFormat::Jpeg, //   ImageOutputFormat::Jpeg(85),
+                image::ImageFormat::Jpeg,
             )
             .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
 
-        let thumb_node_id = Uuid::now_v7();
-        self.storage
-            .upload_image(
-                &thumb_node_id,
-                Bytes::from(buffer),
-                "thumbnail.jpg",
-            )
+        // Извлекаем имя файла из original_path
+        // Формат: images/{node_id}/{hash}.{ext}
+        let filename = original_path
+            .split('/')
+            .last()
+            .ok_or_else(|| AppError::internal("Invalid original path"))?;
+
+        self.storage.upload_image_type(
+            node_id,
+            Bytes::from(buffer),
+            filename,
+            true  // is_thumbnail = true
+        )
             .await
+    }
+
+    fn get_thumbnail_path(&self, original_path: &str) -> Option<String> {
+        // Преобразуем images/{node_id}/{hash}.{ext} -> thumbnails/{node_id}/{hash}.{ext}
+        if original_path.starts_with("images/") {
+            Some(original_path.replacen("images/", "thumbnails/", 1))
+        } else {
+            None
+        }
+    }
+
+    async fn object_exists(&self, path: &str) -> Result<bool> {
+        self.storage.object_exists(path).await
+    }
+
+    pub async fn get_or_create_thumbnail(
+        &self,
+        node_id: &Uuid,
+        original_path: &str,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<StorageResult> {
+        // Получаем путь к thumbnail
+        let thumbnail_path = self.get_thumbnail_path(original_path)
+            .ok_or_else(|| AppError::internal("Invalid original path format"))?;
+
+        // Проверяем, существует ли thumbnail
+        if self.object_exists(&thumbnail_path).await? {
+            // Thumbnail существует - возвращаем его метаданные
+            let data = self.storage.download_image(&thumbnail_path).await?;
+            let hash = self.storage.compute_hash(&data);
+
+            let extension = std::path::Path::new(&thumbnail_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("jpg");
+
+            let mime_type = mime_guess::from_path(&thumbnail_path)
+                .first_or_octet_stream()
+                .to_string();
+
+            let public_url = format!(
+                "{}/{}",
+                self.storage.public_url_base.trim_end_matches('/'),
+                thumbnail_path
+            );
+
+            Ok(StorageResult {
+                storage_path: thumbnail_path,
+                public_url,
+                size: data.len() as u64,
+                mime_type,
+                hash,
+            })
+        } else {
+            // Thumbnail не существует - создаем его
+            self.create_thumbnail(node_id, original_path, max_width, max_height).await
+        }
     }
 
     /// Validate image
@@ -577,21 +701,21 @@ mod tests {
         let s3_path = "test.file";
         let test = b"I'm going to S3!";
 
-        // Загрузка файла
+        // Upload file
         let response_data = storage.bucket.put_object(s3_path, test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         println!("{:#?}", response_data.headers());
 
-        // Получение файла через SDK
+        // Get file via SDK
         let response_data = storage.bucket.get_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
         assert_eq!(test, response_data.as_slice());
 
-        // Получение части файла
+        // Get file range
         let response_data = storage.bucket.get_object_range(s3_path, 1, Some(10)).await.unwrap();
         assert_eq!(response_data.status_code(), 206);
 
-        // Head запрос
+        // Head request
         let (head_object_result, code) = storage.bucket.head_object(s3_path).await.unwrap();
         assert_eq!(code, 200);
         assert_eq!(
@@ -599,11 +723,11 @@ mod tests {
             "application/octet-stream".to_owned()
         );
 
-        // Генерация временной URL (presigned URL)
+        // Generate presigned URL
         let presigned_url = storage.bucket.presign_get(s3_path, 300, None).await.unwrap();
         println!("Presigned URL: {}", presigned_url);
 
-        // Проверка доступности временной URL через HTTP-запрос
+        // Verify presigned URL via HTTP request
         let client = reqwest::Client::new();
         let presigned_response = client.get(&presigned_url).send().await.unwrap();
         assert_eq!(presigned_response.status(), 200);
@@ -611,7 +735,7 @@ mod tests {
         assert_eq!(test, presigned_body.as_ref());
         println!("✓ Presigned URL works correctly");
 
-        // Генерация публичной URL (если бакет публичный)
+        // Generate public URL (if bucket is public)
         let public_url = format!(
             "{}/{}/{}",
             storage.bucket.url(),
@@ -620,8 +744,8 @@ mod tests {
         );
         println!("Public URL: {}", public_url);
 
-        // Попытка доступа к публичной URL
-        // Примечание: это работает только если бакет настроен как публичный
+        // Try to access public URL
+        // Note: this only works if bucket is configured as public
         let public_response = client.get(&public_url).send().await;
         match public_response {
             Ok(resp) => {
@@ -638,23 +762,23 @@ mod tests {
             }
         }
 
-        // Тест на истечение временной URL (опционально)
-        // Генерируем URL с коротким временем жизни
+        // Test presigned URL expiration (optional)
+        // Generate URL with short lifetime
         let short_presigned_url = storage.bucket.presign_get(s3_path, 1, None).await.unwrap();
         println!("Short-lived presigned URL: {}", short_presigned_url);
 
-        // Ждем истечения
+        // Wait for expiration
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let expired_response = client.get(&short_presigned_url).send().await.unwrap();
         assert_ne!(expired_response.status(), 200, "Expired URL should not return 200");
         println!("✓ Presigned URL correctly expires");
 
-        // Удаление файла
+        // Delete file
         let response_data = storage.bucket.delete_object(s3_path).await.unwrap();
         assert_eq!(response_data.status_code(), 204);
 
-        // Проверка, что после удаления URL больше не работают
+        // Verify that URLs no longer work after deletion
         let deleted_response = client.get(&presigned_url).send().await.unwrap();
         assert_eq!(deleted_response.status(), 404);
         println!("✓ URLs return 404 after object deletion");
@@ -670,11 +794,11 @@ mod tests {
         let s3_path = "test_presigned_upload.file";
         let test_data = b"Uploaded via presigned URL!";
 
-        // Генерация presigned URL для загрузки
+        // Generate presigned URL for upload
         let presigned_put_url = storage.bucket.presign_put(s3_path, 300, None, None).await.unwrap();
         println!("Presigned PUT URL: {}", presigned_put_url);
 
-        // Загрузка через presigned URL
+        // Upload via presigned URL
         let client = reqwest::Client::new();
         let upload_response = client
             .put(&presigned_put_url)
@@ -686,12 +810,12 @@ mod tests {
         assert_eq!(upload_response.status(), 200);
         println!("✓ Upload via presigned PUT URL successful");
 
-        // Проверка, что файл действительно загрузился
+        // Verify that file was actually uploaded
         let response_data = storage.bucket.get_object(s3_path).await.unwrap();
         assert_eq!(test_data, response_data.as_slice());
         println!("✓ File uploaded correctly");
 
-        // Очистка
+        // Cleanup
         storage.bucket.delete_object(s3_path).await.unwrap();
     }
 
@@ -705,16 +829,13 @@ mod tests {
         let s3_path = "test_custom_headers.file";
         let test_data = b"Test with custom headers";
 
-        // Загрузка с custom headers
-        let mut custom_headers = std::collections::HashMap::new();
-        custom_headers.insert("Content-Type".to_string(), "text/plain".to_string());
-
+        // Upload with custom headers
         storage.bucket.put_object_with_content_type(s3_path, test_data, "text/plain").await.unwrap();
 
-        // Генерация presigned URL
+        // Generate presigned URL
         let presigned_url = storage.bucket.presign_get(s3_path, 3000, None).await.unwrap();
 
-        // Проверка через HTTP
+        // Verify via HTTP
         let client = reqwest::Client::new();
         let response = client.get(&presigned_url).send().await.unwrap();
 
@@ -725,9 +846,10 @@ mod tests {
         );
         println!("✓ Custom headers preserved correctly");
 
-        // Очистка
-        //storage.bucket.delete_object(s3_path).await.unwrap();
+        // Cleanup
+        storage.bucket.delete_object(s3_path).await.unwrap();
     }
+
     #[tokio::test]
     async fn test_presigned_url_through_proxy() {
         dotenv::from_path(".env.test").ok();
@@ -738,7 +860,7 @@ mod tests {
         let test_data = b"Test data";
 
         let response = storage.bucket.put_object(s3_path, test_data).await.unwrap();
-        println!("Put response code:{}", response.status_code());
+        println!("Put response code: {}", response.status_code());
         assert_eq!(response.status_code(), 200);
 
         let presigned_url = storage.bucket
@@ -760,8 +882,9 @@ mod tests {
 
         assert_eq!(response.status(), 200);
 
-       // storage.bucket.delete_object(s3_path).await.unwrap();
+        storage.bucket.delete_object(s3_path).await.unwrap();
     }
+
     #[tokio::test]
     async fn test_create() {
         dotenv::from_path(".env.test").ok();
@@ -769,7 +892,6 @@ mod tests {
         let bucket_name = &config.bucket;
         let _bucket = create_public_bucket(&config, bucket_name).await.unwrap();
     }
-
 
     #[tokio::test]
     async fn test_upload_image() {
@@ -783,13 +905,14 @@ mod tests {
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";
 
-        // Upload the image
+        // Upload the image (not a thumbnail)
         let result = storage
-            //.bucket
-            .upload_image(&node_id, image_bytes, filename)
+            .upload_image_type(&node_id, image_bytes, filename, false)
             .await
             .expect("Failed to upload image");
-        println!("{:#?}",&result);
+
+        println!("{:#?}", &result);
+
         // Verify the upload result
         assert_eq!(result.size, 527174); // Expected size of noise_1.jpg
         assert_eq!(result.mime_type, "image/jpeg");
@@ -799,11 +922,63 @@ mod tests {
         assert_eq!(result.hash.len(), 64); // SHA256 hash length
 
         // Verify the file exists
-        let exists = storage.exists(&result.storage_path).await.unwrap();
+        let exists = storage.object_exists(&result.storage_path).await.unwrap();
         assert!(exists);
 
-        // Clean up - delete the uploaded file
-        storage.delete_image(&result.storage_path).await.unwrap();
+        // Cleanup - delete the uploaded file
+        storage.bucket.delete_object(&result.storage_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_upload_thumbnail() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        // Read the test image file
+        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_bytes = Bytes::from(image_data);
+        let node_id = Uuid::now_v7();
+        let filename = "noise_1.jpg";
+
+        // Upload as thumbnail (public)
+        let result = storage
+            .upload_image_type(&node_id, image_bytes, filename, true)
+            .await
+            .expect("Failed to upload thumbnail");
+
+        println!("{:#?}", &result);
+
+        // Verify the upload result
+        assert_eq!(result.mime_type, "image/jpeg");
+        assert!(result.storage_path.starts_with(&format!("thumbnails/{}", node_id)));
+        assert!(result.public_url.contains(&format!("thumbnails/{}", node_id)));
+        assert!(!result.hash.is_empty());
+
+        // Verify the file exists
+        let exists = storage.object_exists(&result.storage_path).await.unwrap();
+        assert!(exists);
+
+        // Verify that thumbnail is publicly accessible
+        let client = reqwest::Client::new();
+        let public_response = client.get(&result.public_url).send().await;
+
+        match public_response {
+            Ok(resp) => {
+                if resp.status() == 200 {
+                    println!("✓ Thumbnail is publicly accessible");
+                } else {
+                    println!("⚠ Thumbnail URL returned status: {}", resp.status());
+                }
+            }
+            Err(e) => {
+                println!("⚠ Thumbnail public access failed: {}", e);
+            }
+        }
+
+        // Cleanup
+        storage.bucket.delete_object(&result.storage_path).await.unwrap();
     }
 
     #[tokio::test]
@@ -820,16 +995,17 @@ mod tests {
 
         // Upload as PNG
         let result = storage
-            .upload_image(&node_id, image_bytes, "test.png")
+            .upload_image_type(&node_id, image_bytes, "test.png", false)
             .await
             .expect("Failed to upload image as PNG");
 
         assert_eq!(result.mime_type, "image/png");
         assert!(result.storage_path.ends_with(".png"));
 
-        // Clean up
-        storage.delete_image(&result.storage_path).await.unwrap();
+        // Cleanup
+        storage.bucket.delete_object(&result.storage_path).await.unwrap();
     }
+
     #[tokio::test]
     async fn test_create_thumbnail() {
         dotenv::from_path(".env.test").ok();
@@ -844,32 +1020,188 @@ mod tests {
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";
 
-        // Upload the original image
+        // Upload the original image (private)
         let upload_result = storage
-            .upload_image(&node_id, image_bytes, filename)
+            .upload_image_type(&node_id, image_bytes, filename, false)
             .await
             .expect("Failed to upload original image");
 
-        // Create thumbnail
+        println!("Original image: {:#?}", upload_result);
+
+        // Create thumbnail from the original
         let thumbnail_result = image_processor
             .create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
             .await
             .expect("Failed to create thumbnail");
 
+        println!("Thumbnail: {:#?}", thumbnail_result);
+
         // Verify thumbnail properties
         assert_eq!(thumbnail_result.mime_type, "image/jpeg");
-        assert!(thumbnail_result.storage_path.starts_with("images/"));
-        assert!(thumbnail_result.storage_path.contains(".jpg"));
+        assert!(thumbnail_result.storage_path.starts_with("thumbnails/"));
+        assert!(thumbnail_result.storage_path.contains(&node_id.to_string()));
+
+        // Extract filename from original path and verify it's used in thumbnail
+        let original_filename = upload_result.storage_path
+            .split('/')
+            .last()
+            .unwrap();
+        assert!(thumbnail_result.storage_path.ends_with(original_filename));
+
         assert!(thumbnail_result.size > 0);
         assert!(!thumbnail_result.hash.is_empty());
         assert_eq!(thumbnail_result.hash.len(), 64); // SHA256 hash length
 
         // Verify the thumbnail exists
-        let exists = storage.exists(&thumbnail_result.storage_path).await.unwrap();
+        let exists = storage.object_exists(&thumbnail_result.storage_path).await.unwrap();
         assert!(exists);
 
-        // Clean up - delete both original and thumbnail
-        storage.delete_image(&upload_result.storage_path).await.unwrap();
-        storage.delete_image(&thumbnail_result.storage_path).await.unwrap();
+        // Cleanup - delete both original and thumbnail
+        storage.bucket.delete_object(&upload_result.storage_path).await.unwrap();
+        storage.bucket.delete_object(&thumbnail_result.storage_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_or_create_thumbnail() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+        let image_processor = crate::storage::ImageProcessor::new(storage.clone());
+
+        // Upload original image
+        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_bytes = Bytes::from(image_data);
+        let node_id = Uuid::now_v7();
+        let filename = "noise_1.jpg";
+
+        let upload_result = storage
+            .upload_image_type(&node_id, image_bytes, filename, false)
+            .await
+            .expect("Failed to upload original image");
+
+        println!("Original image: {:#?}", upload_result);
+
+        // First call - should create thumbnail
+        let thumbnail_result_1 = image_processor
+            .get_or_create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
+            .await
+            .expect("Failed to get or create thumbnail");
+
+        println!("First call (created): {:#?}", thumbnail_result_1);
+
+        // Verify thumbnail was created
+        assert!(thumbnail_result_1.storage_path.starts_with("thumbnails/"));
+        let thumbnail_path = thumbnail_result_1.storage_path.clone();
+
+        // Second call - should return existing thumbnail without recreation
+        let thumbnail_result_2 = image_processor
+            .get_or_create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
+            .await
+            .expect("Failed to get existing thumbnail");
+
+        println!("Second call (retrieved): {:#?}", thumbnail_result_2);
+
+        // Verify same thumbnail is returned
+        assert_eq!(thumbnail_result_1.storage_path, thumbnail_result_2.storage_path);
+        assert_eq!(thumbnail_result_1.hash, thumbnail_result_2.hash);
+
+        // Verify thumbnail exists
+        let exists = storage.object_exists(&thumbnail_path).await.unwrap();
+        assert!(exists);
+
+        // Cleanup
+        storage.bucket.delete_object(&upload_result.storage_path).await.unwrap();
+        storage.bucket.delete_object(&thumbnail_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_thumbnail_path_conversion() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+        let image_processor = crate::storage::ImageProcessor::new(storage.clone());
+
+        let node_id = Uuid::now_v7();
+        let hash = "abc123def456";
+        let original_path = format!("images/{}/{}.jpg", node_id, hash);
+
+        // Test path conversion
+        let thumbnail_path = image_processor
+            .get_thumbnail_path(&original_path)
+            .expect("Failed to convert path");
+
+        let expected_path = format!("thumbnails/{}/{}.jpg", node_id, hash);
+        assert_eq!(thumbnail_path, expected_path);
+
+        println!("✓ Path conversion works correctly");
+        println!("  Original:  {}", original_path);
+        println!("  Thumbnail: {}", thumbnail_path);
+    }
+
+    #[tokio::test]
+    async fn test_object_exists() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        let s3_path = "test_exists.file";
+        let test_data = b"Test data for existence check";
+
+        // File should not exist initially
+        let exists_before = storage.object_exists(s3_path).await.unwrap();
+        assert!(!exists_before);
+
+        // Upload file
+        storage.bucket.put_object(s3_path, test_data).await.unwrap();
+
+        // File should exist now
+        let exists_after = storage.object_exists(s3_path).await.unwrap();
+        assert!(exists_after);
+
+        // Cleanup
+        storage.bucket.delete_object(s3_path).await.unwrap();
+
+        // File should not exist after deletion
+        let exists_deleted = storage.object_exists(s3_path).await.unwrap();
+        assert!(!exists_deleted);
+
+        println!("✓ Object existence check works correctly");
+    }
+
+    #[tokio::test]
+    async fn test_download_image() {
+        dotenv::from_path(".env.test").ok();
+
+        let config = S3Config::from_env().unwrap();
+        let storage = crate::init::setup_storage(&config).unwrap();
+
+        // Upload test image
+        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let original_bytes = Bytes::from(image_data.clone());
+        let node_id = Uuid::now_v7();
+        let filename = "noise_1.jpg";
+
+        let upload_result = storage
+            .upload_image_type(&node_id, original_bytes, filename, false)
+            .await
+            .expect("Failed to upload image");
+
+        // Download the image
+        let downloaded_bytes = storage
+            .download_image(&upload_result.storage_path)
+            .await
+            .expect("Failed to download image");
+
+        // Verify downloaded data matches original
+        assert_eq!(downloaded_bytes.len(), image_data.len());
+        assert_eq!(downloaded_bytes.as_ref(), image_data.as_slice());
+
+        println!("✓ Image download works correctly");
+
+        // Cleanup
+        storage.bucket.delete_object(&upload_result.storage_path).await.unwrap();
     }
 }
