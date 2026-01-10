@@ -130,21 +130,16 @@ impl StorageService {
             .and_then(|e| e.to_str())
             .unwrap_or("jpg");
         let image_type = if is_thumbnail {"thumbnails"} else {"images"};
-
         let storage_path = format!("{}/{}/{}.{}", image_type, node_id, hash, extension);
-
         let mime_type = mime_guess::from_path(filename)
             .first_or_octet_stream()
             .to_string();
 
-        // Upload with rust-s3
         if is_thumbnail {
             let mut headers = HeaderMap::new();
-            // set Public accss
             headers.insert(HeaderName::from_static("x-amz-acl"),
                            "public-read".parse().unwrap());
-
-            let _responce_data = self.bucket
+            let _response_data = self.bucket
                 .put_object_with_content_type_and_headers(
                     &storage_path,
                     &image_data,
@@ -155,8 +150,7 @@ impl StorageService {
                 .map_err(|e| {
                     AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
                 })?;
-        }
-        else {
+        } else {
             self.bucket
                 .put_object(&storage_path, &image_data)
                 .await
@@ -165,11 +159,14 @@ impl StorageService {
                 })?;
         }
 
-        let public_url = format!(
-            "{}/{}",
-            self.public_url_base.trim_end_matches('/'),
-            storage_path
-        );
+        // Generate presigned URL for both thumbnails and images
+        // This ensures consistent access pattern
+        let public_url = self.bucket
+            .presign_get(&storage_path, 86400, None) // 24 hours validity
+            .await
+            .map_err(|e| {
+                AppError::new(ErrorCode::StorageError, format!("Failed to generate presigned URL: {}", e))
+            })?;
 
         Ok(StorageResult {
             storage_path,
@@ -297,13 +294,17 @@ impl StorageService {
     }
     pub async fn object_exists(&self, path: &str) -> Result<bool> {
         match self.bucket.head_object(path).await {
-            Ok(_) => Ok(true),
+            Ok((_, code)) => {
+                // Check the HTTP status code
+                Ok(code == 200)
+            }
             Err(e) => {
-                // Проверяем, это ошибка "не найден" или что-то другое
+                // Any error means file doesn't exist (404, NoSuchKey, etc.)
                 let err_str = e.to_string();
-                if err_str.contains("404") || err_str.contains("NoSuchKey") {
+                if err_str.contains("404") || err_str.contains("NoSuchKey") || err_str.contains("Not Found") {
                     Ok(false)
                 } else {
+                    // Real error, not just "file doesn't exist"
                     Err(AppError::new(
                         ErrorCode::StorageError,
                         format!("S3 head_object failed: {}", e),
@@ -363,10 +364,12 @@ impl ImageProcessor {
         max_width: u32,
         max_height: u32,
     ) -> Result<StorageResult> {
+        // Download original image
         let data = self.storage.download_image(original_path).await?;
         let img = image::load_from_memory(&data)
             .map_err(|e| AppError::internal(format!("Invalid image: {}", e)))?;
 
+        // Create thumbnail
         let thumbnail = img.thumbnail(max_width, max_height);
 
         let mut buffer = Vec::new();
@@ -377,20 +380,62 @@ impl ImageProcessor {
             )
             .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
 
-        // Извлекаем имя файла из original_path
-        // Формат: images/{node_id}/{hash}.{ext}
+        // Convert to Bytes once
+        let buffer_bytes = Bytes::from(buffer);
+
+        // Extract filename from original_path
         let filename = original_path
             .split('/')
             .last()
             .ok_or_else(|| AppError::internal("Invalid original path"))?;
 
-        self.storage.upload_image_type(
-            node_id,
-            Bytes::from(buffer),
-            filename,
-            true  // is_thumbnail = true
-        )
+        // Get the original hash from filename
+        let extension = std::path::Path::new(filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("jpg");
+
+        let original_hash = filename
+            .strip_suffix(&format!(".{}", extension))
+            .ok_or_else(|| AppError::internal("Invalid filename format"))?;
+
+        // Build the thumbnail path with original hash
+        let storage_path = format!("thumbnails/{}/{}.{}", node_id, original_hash, extension);
+        let mime_type = "image/jpeg".to_string();
+
+        // Upload directly with the exact path we want
+        let mut headers = HeaderMap::new();
+        headers.insert(HeaderName::from_static("x-amz-acl"),
+                       "public-read".parse().unwrap());
+
+        self.storage.bucket
+            .put_object_with_content_type_and_headers(
+                &storage_path,
+                &buffer_bytes,
+                &mime_type,
+                Some(headers)
+            )
             .await
+            .map_err(|e| {
+                AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
+            })?;
+
+        let public_url = self.storage.bucket
+            .presign_get(&storage_path, 86400, None)
+            .await
+            .map_err(|e| {
+                AppError::new(ErrorCode::StorageError, format!("Failed to generate presigned URL: {}", e))
+            })?;
+
+        let thumbnail_hash = self.storage.compute_hash(&buffer_bytes);
+
+        Ok(StorageResult {
+            storage_path,
+            public_url,
+            size: buffer_bytes.len() as u64,
+            mime_type,
+            hash: thumbnail_hash,
+        })
     }
 
     fn get_thumbnail_path(&self, original_path: &str) -> Option<String> {
@@ -413,16 +458,11 @@ impl ImageProcessor {
         max_width: u32,
         max_height: u32,
     ) -> Result<StorageResult> {
-        // Получаем путь к thumbnail
         let thumbnail_path = self.get_thumbnail_path(original_path)
             .ok_or_else(|| AppError::internal("Invalid original path format"))?;
 
-        // Проверяем, существует ли thumbnail
         if self.object_exists(&thumbnail_path).await? {
-            // Thumbnail существует - возвращаем его метаданные
-            let data = self.storage.download_image(&thumbnail_path).await?;
-            let hash = self.storage.compute_hash(&data);
-
+            // Thumbnail exists - return its metadata
 /*            let extension = std::path::Path::new(&thumbnail_path)
                 .extension()
                 .and_then(|e| e.to_str())
@@ -432,21 +472,34 @@ impl ImageProcessor {
                 .first_or_octet_stream()
                 .to_string();
 
+            // Generate fresh presigned URL or use public URL
             let public_url = format!(
                 "{}/{}",
-                self.storage.public_url_base.trim_end_matches('/'),
+                self.storage.bucket.url(),
                 thumbnail_path
             );
+
+            // Get file size from S3 metadata
+            let (head_result, _) = self.storage.bucket.head_object(&thumbnail_path).await
+                .map_err(|e| {
+                    AppError::new(ErrorCode::StorageError, format!("Failed to get thumbnail metadata: {}", e))
+                })?;
+
+            let size = head_result.content_length.unwrap_or(0) as u64;
+
+            // Download to compute hash (optional - can be slow)
+            let data = self.storage.download_image(&thumbnail_path).await?;
+            let hash = self.storage.compute_hash(&data);
 
             Ok(StorageResult {
                 storage_path: thumbnail_path,
                 public_url,
-                size: data.len() as u64,
+                size,
                 mime_type,
                 hash,
             })
         } else {
-            // Thumbnail не существует - создаем его
+            // Thumbnail doesn't exist - create it
             self.create_thumbnail(node_id, original_path, max_width, max_height).await
         }
     }
@@ -702,7 +755,7 @@ mod tests {
         // Upload file
         let response_data = storage.bucket.put_object(s3_path, test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
-        println!("{:#?}", response_data.headers());
+        //println!("{:#?}", response_data.headers());
 
         // Get file via SDK
         let response_data = storage.bucket.get_object(s3_path).await.unwrap();
@@ -1145,25 +1198,32 @@ mod tests {
         let config = S3Config::from_env().unwrap();
         let storage = crate::init::setup_storage(&config).unwrap();
 
-        let s3_path = "test_exists.file";
+        // Use unique filename to avoid conflicts between test runs
+        let test_id = Uuid::now_v7();
+        let s3_path = format!("test_exists_{}.file", test_id);
         let test_data = b"Test data for existence check";
 
+        // Ensure file doesn't exist from previous runs (cleanup first)
+        let _ = storage.bucket.delete_object(&s3_path).await;
+
         // File should not exist initially
-        let exists_before = storage.object_exists(s3_path).await.unwrap();
+        let result = storage.object_exists(&s3_path).await;
+        println!("{:?}",result);
+        let exists_before = result.unwrap();
         assert!(!exists_before);
 
         // Upload file
-        storage.bucket.put_object(s3_path, test_data).await.unwrap();
+        storage.bucket.put_object(&s3_path, test_data).await.unwrap();
 
         // File should exist now
-        let exists_after = storage.object_exists(s3_path).await.unwrap();
+        let exists_after = storage.object_exists(&s3_path).await.unwrap();
         assert!(exists_after);
 
         // Cleanup
-        storage.bucket.delete_object(s3_path).await.unwrap();
+        storage.bucket.delete_object(&s3_path).await.unwrap();
 
         // File should not exist after deletion
-        let exists_deleted = storage.object_exists(s3_path).await.unwrap();
+        let exists_deleted = storage.object_exists(&s3_path).await.unwrap();
         assert!(!exists_deleted);
 
         println!("✓ Object existence check works correctly");
