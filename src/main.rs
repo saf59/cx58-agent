@@ -14,7 +14,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             axum::routing::post(chat_stream_handler),
         )
         .route(
-            "/api/agent/tree",
+            "/api/agent/tree/{user_id}",
             axum::routing::get(get_tree_handler),
         )
         .route(
