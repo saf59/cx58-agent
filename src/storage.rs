@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use crate::agents::master_agent::MasterAgent;
 use crate::db::NodeType;
 use crate::error::*;
@@ -19,7 +18,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use axum::http::HeaderMap;
 use reqwest::header::HeaderName;
-use s3::bucket_ops::CannedBucketAcl;
 use uuid::Uuid;
 
 // ============================================================================
@@ -425,11 +423,11 @@ impl ImageProcessor {
             let data = self.storage.download_image(&thumbnail_path).await?;
             let hash = self.storage.compute_hash(&data);
 
-            let extension = std::path::Path::new(&thumbnail_path)
+/*            let extension = std::path::Path::new(&thumbnail_path)
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("jpg");
-
+*/
             let mime_type = mime_guess::from_path(&thumbnail_path)
                 .first_or_octet_stream()
                 .to_string();
