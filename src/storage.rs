@@ -1,14 +1,19 @@
+use std::collections::HashMap;
 use crate::agents::master_agent::MasterAgent;
 use crate::db::NodeType;
 use crate::error::*;
 use crate::init::S3Config;
 use crate::models::*;
+use axum::body::Body;
+use axum::http::{HeaderMap, HeaderValue};
+use axum::response::{IntoResponse, Redirect};
 use axum::{
     extract::{Multipart, Path, State},
     http::StatusCode,
     Json,
 };
 use bytes::Bytes;
+use reqwest::header::HeaderName;
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
@@ -16,8 +21,6 @@ use s3::BucketConfiguration;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
-use axum::http::HeaderMap;
-use reqwest::header::HeaderName;
 use uuid::Uuid;
 
 // ============================================================================
@@ -247,21 +250,174 @@ impl StorageService {
         Ok(paths)
     }
 
-    /// Generate presigned URL (for downloads)
     pub async fn generate_presigned_url(
         &self,
         storage_path: &str,
         expires_in_secs: u32,
     ) -> Result<String> {
+        use std::collections::HashMap;
+
+        let mime_type = mime_guess::from_path(storage_path)
+            .first_or_octet_stream()
+            .to_string();
+        println!("🔍 MIME type: {}", mime_type);
+
+        let mut custom_queries = HashMap::new();
+        custom_queries.insert("response-content-disposition".to_string(), "inline".to_string());
+        custom_queries.insert("response-content-type".to_string(), mime_type);
+
+        println!("🔍 Custom queries: {:?}", custom_queries);
+
         let url = self
             .bucket
-            .presign_get(storage_path, expires_in_secs, None)
+            .presign_get(storage_path, expires_in_secs, Some(custom_queries))
             .await
             .map_err(|e| AppError::internal(format!("Presigned URL failed: {}", e)))?;
 
+        println!("🔍 Generated URL: {}", url);
+
         Ok(url)
     }
+    fn get_thumbnail_path(&self, original_path: &str) -> Option<String> {
+        // Преобразуем images/{node_id}/{hash}.{ext} -> thumbnails/{node_id}/{hash}.{ext}
+        if original_path.starts_with("images/") {
+            Some(original_path.replacen("images/", "thumbnails/", 1))
+        } else {
+            None
+        }
+    }
+    pub async fn get_or_create_thumbnail(
+        &self,
+        node_id: &Uuid,
+        original_path: &str,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<StorageResult> {
+        let thumbnail_path = self.get_thumbnail_path(original_path)
+            .ok_or_else(|| AppError::internal("Invalid original path format"))?;
 
+        if self.object_exists(&thumbnail_path).await? {
+            // Thumbnail exists - return its metadata
+            /*            let extension = std::path::Path::new(&thumbnail_path)
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("jpg");
+            */
+            let mime_type = mime_guess::from_path(&thumbnail_path)
+                .first_or_octet_stream()
+                .to_string();
+
+            // Generate fresh presigned URL or use public URL
+            let public_url = format!(
+                "{}/{}",
+                self.bucket.url(),
+                thumbnail_path
+            );
+
+            // Get file size from S3 metadata
+            let (head_result, _) = self.bucket.head_object(&thumbnail_path).await
+                .map_err(|e| {
+                    AppError::new(ErrorCode::StorageError, format!("Failed to get thumbnail metadata: {}", e))
+                })?;
+
+            let size = head_result.content_length.unwrap_or(0) as u64;
+
+            // Download to compute hash (optional - can be slow)
+            let data = self.download_image(&thumbnail_path).await?;
+            let hash = self.compute_hash(&data);
+
+            Ok(StorageResult {
+                storage_path: thumbnail_path,
+                public_url,
+                size,
+                mime_type,
+                hash,
+            })
+        } else {
+            // Thumbnail doesn't exist - create it
+            self.create_thumbnail(node_id, original_path, max_width, max_height).await
+        }
+    }
+    pub async fn create_thumbnail(
+        &self,
+        node_id: &Uuid,
+        original_path: &str,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<StorageResult> {
+        // Download original image
+        let data = self.download_image(original_path).await?;
+        let img = image::load_from_memory(&data)
+            .map_err(|e| AppError::internal(format!("Invalid image: {}", e)))?;
+
+        // Create thumbnail
+        let thumbnail = img.thumbnail(max_width, max_height);
+
+        let mut buffer = Vec::new();
+        thumbnail
+            .write_to(
+                &mut std::io::Cursor::new(&mut buffer),
+                image::ImageFormat::Jpeg,
+            )
+            .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
+
+        // Convert to Bytes once
+        let buffer_bytes = Bytes::from(buffer);
+
+        // Extract filename from original_path
+        let filename = original_path
+            .split('/')
+            .next_back()
+            .ok_or_else(|| AppError::internal("Invalid original path"))?;
+
+        // Get the original hash from filename
+        let extension = std::path::Path::new(filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("jpg");
+
+        let original_hash = filename
+            .strip_suffix(&format!(".{}", extension))
+            .ok_or_else(|| AppError::internal("Invalid filename format"))?;
+
+        // Build the thumbnail path with original hash
+        let storage_path = format!("thumbnails/{}/{}.{}", node_id, original_hash, extension);
+        let mime_type = "image/jpeg".to_string();
+
+        // Upload directly with the exact path we want
+        let mut headers = HeaderMap::new();
+        headers.insert(HeaderName::from_static("x-amz-acl"),
+                       "public-read".parse().unwrap());
+
+        self.bucket
+            .put_object_with_content_type_and_headers(
+                &storage_path,
+                &buffer_bytes,
+                &mime_type,
+                Some(headers)
+            )
+            .await
+            .map_err(|e| {
+                AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
+            })?;
+
+        let public_url = self.bucket
+            .presign_get(&storage_path, 86400, None)
+            .await
+            .map_err(|e| {
+                AppError::new(ErrorCode::StorageError, format!("Failed to generate presigned URL: {}", e))
+            })?;
+
+        let thumbnail_hash = self.compute_hash(&buffer_bytes);
+
+        Ok(StorageResult {
+            storage_path,
+            public_url,
+            size: buffer_bytes.len() as u64,
+            mime_type,
+            hash: thumbnail_hash,
+        })
+    }
     /// Copy object within bucket
     pub async fn copy_image(&self, source_path: &str, dest_path: &str) -> Result<()> {
         // Download then upload (rust-s3 doesn't have native copy)
@@ -357,86 +513,7 @@ impl ImageProcessor {
     }
 
     /// Create thumbnail - with original
-    pub async fn create_thumbnail(
-        &self,
-        node_id: &Uuid,
-        original_path: &str,
-        max_width: u32,
-        max_height: u32,
-    ) -> Result<StorageResult> {
-        // Download original image
-        let data = self.storage.download_image(original_path).await?;
-        let img = image::load_from_memory(&data)
-            .map_err(|e| AppError::internal(format!("Invalid image: {}", e)))?;
 
-        // Create thumbnail
-        let thumbnail = img.thumbnail(max_width, max_height);
-
-        let mut buffer = Vec::new();
-        thumbnail
-            .write_to(
-                &mut std::io::Cursor::new(&mut buffer),
-                image::ImageFormat::Jpeg,
-            )
-            .map_err(|e| AppError::internal(format!("Encode failed: {}", e)))?;
-
-        // Convert to Bytes once
-        let buffer_bytes = Bytes::from(buffer);
-
-        // Extract filename from original_path
-        let filename = original_path
-            .split('/')
-            .next_back()
-            .ok_or_else(|| AppError::internal("Invalid original path"))?;
-
-        // Get the original hash from filename
-        let extension = std::path::Path::new(filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("jpg");
-
-        let original_hash = filename
-            .strip_suffix(&format!(".{}", extension))
-            .ok_or_else(|| AppError::internal("Invalid filename format"))?;
-
-        // Build the thumbnail path with original hash
-        let storage_path = format!("thumbnails/{}/{}.{}", node_id, original_hash, extension);
-        let mime_type = "image/jpeg".to_string();
-
-        // Upload directly with the exact path we want
-        let mut headers = HeaderMap::new();
-        headers.insert(HeaderName::from_static("x-amz-acl"),
-                       "public-read".parse().unwrap());
-
-        self.storage.bucket
-            .put_object_with_content_type_and_headers(
-                &storage_path,
-                &buffer_bytes,
-                &mime_type,
-                Some(headers)
-            )
-            .await
-            .map_err(|e| {
-                AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
-            })?;
-
-        let public_url = self.storage.bucket
-            .presign_get(&storage_path, 86400, None)
-            .await
-            .map_err(|e| {
-                AppError::new(ErrorCode::StorageError, format!("Failed to generate presigned URL: {}", e))
-            })?;
-
-        let thumbnail_hash = self.storage.compute_hash(&buffer_bytes);
-
-        Ok(StorageResult {
-            storage_path,
-            public_url,
-            size: buffer_bytes.len() as u64,
-            mime_type,
-            hash: thumbnail_hash,
-        })
-    }
 
     fn get_thumbnail_path(&self, original_path: &str) -> Option<String> {
         // Преобразуем images/{node_id}/{hash}.{ext} -> thumbnails/{node_id}/{hash}.{ext}
@@ -449,59 +526,6 @@ impl ImageProcessor {
 
     async fn object_exists(&self, path: &str) -> Result<bool> {
         self.storage.object_exists(path).await
-    }
-
-    pub async fn get_or_create_thumbnail(
-        &self,
-        node_id: &Uuid,
-        original_path: &str,
-        max_width: u32,
-        max_height: u32,
-    ) -> Result<StorageResult> {
-        let thumbnail_path = self.get_thumbnail_path(original_path)
-            .ok_or_else(|| AppError::internal("Invalid original path format"))?;
-
-        if self.object_exists(&thumbnail_path).await? {
-            // Thumbnail exists - return its metadata
-/*            let extension = std::path::Path::new(&thumbnail_path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("jpg");
-*/
-            let mime_type = mime_guess::from_path(&thumbnail_path)
-                .first_or_octet_stream()
-                .to_string();
-
-            // Generate fresh presigned URL or use public URL
-            let public_url = format!(
-                "{}/{}",
-                self.storage.bucket.url(),
-                thumbnail_path
-            );
-
-            // Get file size from S3 metadata
-            let (head_result, _) = self.storage.bucket.head_object(&thumbnail_path).await
-                .map_err(|e| {
-                    AppError::new(ErrorCode::StorageError, format!("Failed to get thumbnail metadata: {}", e))
-                })?;
-
-            let size = head_result.content_length.unwrap_or(0) as u64;
-
-            // Download to compute hash (optional - can be slow)
-            let data = self.storage.download_image(&thumbnail_path).await?;
-            let hash = self.storage.compute_hash(&data);
-
-            Ok(StorageResult {
-                storage_path: thumbnail_path,
-                public_url,
-                size,
-                mime_type,
-                hash,
-            })
-        } else {
-            // Thumbnail doesn't exist - create it
-            self.create_thumbnail(node_id, original_path, max_width, max_height).await
-        }
     }
 
     /// Validate image
@@ -746,10 +770,12 @@ pub async fn upload_image_handler(
     }))
 }
 */
+use axum::http::header::{CONTENT_TYPE, CACHE_CONTROL, CONTENT_DISPOSITION};
+
 pub async fn get_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<impl IntoResponse> {
     let node = sqlx::query!(
         r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
         node_id
@@ -757,7 +783,44 @@ pub async fn get_image_handler(
         .fetch_one(&state.db)
         .await?;
 
-    Ok(Json(node.data))
+    let storage_path = node
+        .data
+        .get("storage_path")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::not_found("Storage path"))?;
+
+    let mime_type = node
+        .data
+        .get("mime_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("application/octet-stream");
+
+    // 🔍 ДИАГНОСТИКА
+    println!("MIME type from DB: {:?}", mime_type);
+    println!("Storage path: {}", storage_path);
+
+    let file_data = state.storage.download_image(storage_path).await?;
+
+    println!("File size: {} bytes", file_data.len());
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(mime_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_static("inline"),
+    );
+
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=3600"),
+    );
+
+    Ok((headers, Body::from(file_data)))
 }
 
 pub async fn delete_image_handler(
@@ -1199,7 +1262,7 @@ mod tests {
         println!("Original image: {:#?}", upload_result);
 
         // Create thumbnail from the original
-        let thumbnail_result = image_processor
+        let thumbnail_result = storage
             .create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
             .await
             .expect("Failed to create thumbnail");
@@ -1253,7 +1316,7 @@ mod tests {
         println!("Original image: {:#?}", upload_result);
 
         // First call - should create thumbnail
-        let thumbnail_result_1 = image_processor
+        let thumbnail_result_1 = storage
             .get_or_create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
             .await
             .expect("Failed to get or create thumbnail");
@@ -1265,7 +1328,7 @@ mod tests {
         let thumbnail_path = thumbnail_result_1.storage_path.clone();
 
         // Second call - should return existing thumbnail without recreation
-        let thumbnail_result_2 = image_processor
+        let thumbnail_result_2 = storage
             .get_or_create_thumbnail(&node_id, &upload_result.storage_path, 100, 100)
             .await
             .expect("Failed to get existing thumbnail");

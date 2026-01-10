@@ -7,11 +7,9 @@ use axum::middleware::Next;
 use axum::response::{Response, Sse};
 use crate::models::*;
 use crate::error::*;
-use axum::{
-    extract::{Path, Request, State},
-    Json,
-};
+use axum::{extract::{Path, Request, State}, Extension, Json};
 use std::sync::Arc;
+use axum::extract::Query;
 use axum::response::sse::{Event, KeepAlive};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
@@ -21,7 +19,7 @@ pub use crate::storage::{StorageService, ImageProcessor, ImageUrlResolver};
 use crate::AppState;
 use crate::AgentRequest;
 use crate::agents::StreamEvent;
-use crate::db::{get_tree, TreeNode};
+use crate::db::{get_tree, NodeType, TreeNode};
 
 pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::Result<Response, StatusCode> {
     let user_id = request
@@ -60,14 +58,56 @@ pub async fn auth_middleware(mut request: Request, next: Next) -> std::result::R
     Ok(next.run(request).await)
 }
 
+#[derive(Deserialize)]
+pub struct TreeQuery {
+    #[serde(default)]
+    pub with_leafs: bool,
+}
+
 pub async fn get_tree_handler(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,
+    Query(query): Query<TreeQuery>,
 ) -> Result<Json<Vec<TreeNode>>> {
-    let tree = get_tree(&state.db, &user_id, false).await?;
+    let mut tree = get_tree(&state.db, &user_id, query.with_leafs).await?;
+
+    // Обрабатываем ImageLeaf ноды
+    for node in &mut tree {
+        if matches!(node.node_type, NodeType::ImageLeaf) {
+            if let Some(obj) = node.data.as_object_mut() {
+                // Копируем storage_path в String, чтобы избежать конфликта заимствований
+                let storage_path = obj.get("storage_path")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                if let Some(storage_path) = storage_path {
+                    // Генерируем signed URL для оригинала
+                    match state.storage.generate_presigned_url(&storage_path, 86400).await {
+                        Ok(url) => {
+                            obj.insert("url".to_string(), serde_json::json!(url));
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to generate URL for {}: {}", storage_path, e);
+                        }
+                    }
+
+                    // Получаем или создаем thumbnail (уже с публичным URL)
+                    match state.storage.get_or_create_thumbnail(&node.id, &storage_path, 300, 300).await {
+                        Ok(thumbnail) => {
+                            // thumbnail.url уже публичный, просто вставляем
+                            obj.insert("thumbnail_url".to_string(), serde_json::json!(thumbnail.public_url));
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to create thumbnail for {}: {}", storage_path, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(Json(tree))
 }
-
 /*async fn load_full_tree(
     db: &sqlx::PgPool,
     user_id: &String,
