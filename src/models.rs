@@ -125,3 +125,11 @@ impl HealthStatus {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageLeafResponse {
+    pub node_id: Uuid,
+    pub parent_id: Uuid,
+    pub url: String,
+    pub storage_path: String,
+    pub size: u64,
+}

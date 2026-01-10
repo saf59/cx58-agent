@@ -77,7 +77,7 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     log::info!("S3 storage initialized");
 
     // Test S3
-    match storage.list_user_images(&"mock").await {
+    match storage.list_user_images("mock").await {
         Ok(_) => log::info!("S3 connection verified"),
         Err(e) => log::warn!("⚠️  S3 test: {}", e),
     }

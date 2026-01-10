@@ -386,7 +386,7 @@ impl ImageProcessor {
         // Extract filename from original_path
         let filename = original_path
             .split('/')
-            .last()
+            .next_back()
             .ok_or_else(|| AppError::internal("Invalid original path"))?;
 
         // Get the original hash from filename
@@ -569,64 +569,183 @@ impl ImageUrlResolver {
 
 pub async fn upload_image_handler(
     State(state): State<Arc<AppState>>,
+    Path(parent_id): Path<Uuid>,
     mut multipart: Multipart,
-) -> Result<Json<UploadResponse>> {
-    let node_id = Uuid::now_v7();
+) -> Result<Json<ImageLeafResponse>> {
+    let mut filename = String::new();
+    let mut image_data = Bytes::new();
+    let mut berlin_datetime = String::new();
 
+    // Parse multipart form
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::bad_request(format!("Multipart: {}", e)))?
+        .map_err(|e| AppError::bad_request(format!("Multipart error: {}", e)))?
     {
-        if field.name() == Some("image") {
-            let filename = field
-                .file_name()
-                .ok_or_else(|| AppError::bad_request("Missing filename"))?
-                .to_string();
-
-            let data = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::bad_request(format!("Read: {}", e)))?;
-
-            state.image_processor.validate_image(&data, 10)?;
-
-            let result = state
-                .storage
-                .upload_image(&node_id, data, &filename)
-                .await?;
-
-            sqlx::query!(
-                r#"
-                INSERT INTO tree_nodes (id, parent_id, node_type, data)
-                VALUES ($1, $2, $3, $4)
-                "#,
-                node_id,      // TODO id is auto!!
-                None::<Uuid>, // TODO it must be!
-                NodeType::ImageLeaf as NodeType , //"node_type_enum: ImageLeaf", // NodeType::ImageLeaf
-                serde_json::json!({
-                    "url": result.public_url,
-                    "storage_path": result.storage_path,
-                    "size": result.size,
-                    "mime_type": result.mime_type,
-                    "hash": result.hash,
-                })
-            )
-                .execute(&state.db)
-                .await?;
-
-            return Ok(Json(UploadResponse {
-                node_id,
-                url: result.public_url,
-                storage_path: result.storage_path,
-                size: result.size,
-            }));
+        match field.name() {
+            Some("image") => {
+                filename = field
+                    .file_name()
+                    .ok_or_else(|| AppError::bad_request("Missing filename"))?
+                    .to_string();
+                image_data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Read error: {}", e)))?;
+            }
+            Some("berlin_datetime") => {
+                berlin_datetime = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Text error: {}", e)))?;
+            }
+            _ => {}
         }
     }
 
-    Err(AppError::bad_request("No image field"))
-}
+    // Validate required fields
+    if image_data.is_empty() {
+        return Err(AppError::bad_request("No image provided"));
+    }
+    if berlin_datetime.is_empty() {
+        return Err(AppError::bad_request("Missing berlin_datetime"));
+    }
 
+    // Validate image
+    state.image_processor.validate_image(&image_data, 10)?;
+
+    // Upload to S3
+    let node_id = Uuid::now_v7();
+    let storage_result = state
+        .storage
+        .upload_image(&node_id, image_data, &filename)
+        .await?;
+
+    // Insert into database with parent_id
+    sqlx::query!(
+        r#"
+        INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)
+        VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            timezone('UTC', to_timestamp($5, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+        )
+        "#,
+        node_id,
+        parent_id,
+        NodeType::ImageLeaf as NodeType,
+        serde_json::json!({
+            "url": storage_result.public_url,
+            "storage_path": storage_result.storage_path,
+            "size": storage_result.size,
+            "mime_type": storage_result.mime_type,
+            "hash": storage_result.hash,
+        }),
+        berlin_datetime
+    )
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(ImageLeafResponse {
+        node_id,
+        parent_id,
+        url: storage_result.public_url,
+        storage_path: storage_result.storage_path,
+        size: storage_result.size,
+    }))
+}
+/*pub async fn add_image_leaf_handler(
+    State(state): State<Arc<AppState>>,
+    Path(parent_id): Path<Uuid>,
+    mut multipart: Multipart,
+) -> crate::error::Result<Json<ImageLeafResponse>> {
+    let mut filename = String::new();
+    let mut image_data = Bytes::new();
+    let mut berlin_datetime = String::new();
+
+    // Parse multipart form
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::bad_request(format!("Multipart error: {}", e)))?
+    {
+        match field.name() {
+            Some("image") => {
+                filename = field
+                    .file_name()
+                    .ok_or_else(|| AppError::bad_request("Missing filename"))?
+                    .to_string();
+                image_data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Read error: {}", e)))?;
+            }
+            Some("berlin_datetime") => {
+                berlin_datetime = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Text error: {}", e)))?;
+            }
+            _ => {}
+        }
+    }
+
+    // Validate required fields
+    if image_data.is_empty() {
+        return Err(AppError::bad_request("No image provided"));
+    }
+    if berlin_datetime.is_empty() {
+        return Err(AppError::bad_request("Missing berlin_datetime"));
+    }
+
+    // Validate image
+    state.image_processor.validate_image(&image_data, 10)?;
+
+    // Upload to S3
+    let node_id = Uuid::now_v7();
+    let storage_result = state
+        .storage
+        .upload_image(&node_id, image_data, &filename)
+        .await?;
+
+    // Insert into database directly
+    sqlx::query!(
+        r#"
+        INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)
+        VALUES (
+            $1,
+            $2,
+            $3,
+            $4,
+            timezone('UTC', to_timestamp($5, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+        )
+        "#,
+        node_id,
+        parent_id,
+        NodeType::ImageLeaf as NodeType,
+        serde_json::json!({
+            "url": storage_result.public_url,
+            "storage_path": storage_result.storage_path,
+            "size": storage_result.size,
+            "mime_type": storage_result.mime_type,
+            "hash": storage_result.hash,
+        }),
+        berlin_datetime
+    )
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(ImageLeafResponse {
+        node_id,
+        parent_id,
+        url: storage_result.public_url,
+        storage_path: storage_result.storage_path,
+        size: storage_result.size,
+    }))
+}
+*/
 pub async fn get_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
@@ -1208,7 +1327,6 @@ mod tests {
 
         // File should not exist initially
         let result = storage.object_exists(&s3_path).await;
-        println!("{:?}",result);
         let exists_before = result.unwrap();
         assert!(!exists_before);
 

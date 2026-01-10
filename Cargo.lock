@@ -610,7 +610,6 @@ dependencies = [
  "aho-corasick",
  "async-stream",
  "axum",
- "base64",
  "bytes",
  "chrono",
  "dotenv",
@@ -624,7 +623,6 @@ dependencies = [
  "reqwest",
  "rig-core",
  "rust-s3",
- "schemars",
  "serde",
  "serde_json",
  "sha2",
@@ -633,8 +631,6 @@ dependencies = [
  "strum_macros",
  "thiserror",
  "tokio",
- "tokio-stream",
- "tokio-test",
  "tower-http",
  "unic-langid",
  "uuid",
@@ -3484,19 +3480,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
-dependencies = [
- "async-stream",
- "bytes",
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]

@@ -18,7 +18,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             axum::routing::get(get_tree_handler),
         )
         .route(
-            "/api/images/upload",
+            "/api/images/upload/{parent_id}",
             axum::routing::post(upload_image_handler),
         )
         .route(
