@@ -9,7 +9,7 @@ CREATE TABLE tree_nodes (
     -- JSONB for flexible data storage
     data JSONB NOT NULL,
     -- Materialized path for efficient tree queries
-    path TEXT NOT NULL,
+    path TEXT DEFAULT '',
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     
 );
