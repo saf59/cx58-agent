@@ -1,9 +1,10 @@
 mod common;
 
-use sqlx::PgPool;
-use uuid::Uuid;
 use common::*;
 use cx58_agent::db::get_id_by_name;
+use sqlx::PgPool;
+use uuid::Uuid;
+use crate::common::test_data::{check_files_exist, generate_date, get_object3_images, get_room11_images, get_room211_images, run_sql_script, NodeNames, DATA_DIR};
 
 const FILL_TREE_SQL: &str = include_str!("sql/fill_tree.sql");
 
@@ -108,8 +109,8 @@ async fn insert_leafs_for_node(
             }
             Err(e) => eprintln!("  ✗ {} error: {}", filename, e),
         }
+
     }
 
     Ok(())
 }
-
