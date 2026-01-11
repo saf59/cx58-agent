@@ -1,14 +1,13 @@
 // examples/update_dates.rs
 mod common;
 
-use sqlx::PgPool;
-use cx58_agent::db::update_leaf_datetime;
 use common::*;
+use cx58_agent::db::update_leaf_datetime;
+use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPool::connect(&database_url).await?;
 
     // Get image definitions
@@ -31,17 +30,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut updated_count = 0;
     let mut failed_count = 0;
 
-    for (filename, shift) in all_images {
+    for (src, shift) in all_images {
         let datetime = generate_date(shift, time)?;
-        let url = format!("{}/{}", DATA_DIR, filename);
 
-        match update_leaf_datetime(&pool, &url, &datetime).await {
+        match update_leaf_datetime(&pool, &src, &datetime).await {
             Ok(id) => {
-                println!("  ✓ {} -> {} (id: {})", filename, datetime, id);
+                println!("  ✓ {} -> {} (id: {})", src, datetime, id);
                 updated_count += 1;
             }
             Err(e) => {
-                eprintln!("  ✗ {} failed: {}", filename, e);
+                eprintln!("  ✗ {} failed: {}", src, e);
                 failed_count += 1;
             }
         }

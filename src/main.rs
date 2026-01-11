@@ -29,12 +29,14 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             "/api/images",
             axum::routing::delete(delete_image_handler),
         )
+        .route("/health", axum::routing::get(health_check))
+/*
         .route(
             "/api/images/batch",
             axum::routing::post(batch_upload_handler),
         )
-        .route("/health", axum::routing::get(health_check))
         .layer(middleware::from_fn(auth_middleware))
+*/
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

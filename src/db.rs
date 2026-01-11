@@ -209,7 +209,7 @@ pub async fn update_leaf_datetime(
         r#"
         UPDATE tree_nodes
         SET updated_at = timezone('UTC', to_timestamp($2, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
-        WHERE data->>'url' = $1
+        WHERE data->>'src' = $1
         RETURNING id
         "#,
     )

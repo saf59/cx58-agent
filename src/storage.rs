@@ -660,6 +660,7 @@ pub async fn upload_image_handler(
         NodeType::ImageLeaf as NodeType,
         serde_json::json!({
             "url": storage_result.public_url,
+            "src": filename,
             "storage_path": storage_result.storage_path,
             "size": storage_result.size,
             "mime_type": storage_result.mime_type,
