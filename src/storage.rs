@@ -1230,7 +1230,7 @@ mod tests {
         assert!(thumbnail_result.storage_path.contains(&node_id.to_string()));
 
         // Extract filename from original path and verify it's used in thumbnail
-        let original_filename = upload_result.storage_path.split('/').last().unwrap();
+        let original_filename = upload_result.storage_path.split('/').next_back().unwrap();
         assert!(thumbnail_result.storage_path.ends_with(original_filename));
 
         assert!(thumbnail_result.size > 0);

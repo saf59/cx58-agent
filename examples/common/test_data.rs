@@ -1,3 +1,4 @@
+#![allow(unused)]
 use chrono::{Local, Duration, NaiveTime};
 use sqlx::PgPool;
 use std::path::PathBuf;

@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (src, shift) in all_images {
         let datetime = generate_date(shift, time)?;
 
-        match update_leaf_datetime(&pool, &src, &datetime).await {
+        match update_leaf_datetime(&pool, src, &datetime).await {
             Ok(id) => {
                 println!("  ✓ {} -> {} (id: {})", src, datetime, id);
                 updated_count += 1;

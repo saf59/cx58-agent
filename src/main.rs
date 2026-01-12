@@ -1,10 +1,10 @@
-use axum::{middleware, Router};
+use axum::Router;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
-use cx58_agent::handlers::{auth_middleware, chat_stream_handler, get_tree_handler, health_check};
+use cx58_agent::handlers::{chat_stream_handler, get_tree_handler, health_check};
 use cx58_agent::init::app_init;
-use cx58_agent::storage::{batch_upload_handler, delete_image_handler, get_image_handler, upload_image_handler};
+use cx58_agent::storage::{delete_image_handler, get_image_handler, upload_image_handler};
 use cx58_agent::AppState;
 
 fn create_app_router(state: Arc<AppState>) -> Router {

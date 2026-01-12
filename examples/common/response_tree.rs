@@ -1,4 +1,5 @@
-﻿use serde::{Deserialize, Serialize};
+﻿#![allow(unused)]
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
@@ -97,7 +98,7 @@ pub fn build_tree(nodes: Vec<TreeNode>) -> Vec<Tree> {
     for node in node_map.values() {
         children_map
             .entry(node.parent_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(node.id);
     }
 
@@ -117,7 +118,7 @@ pub fn build_tree(nodes: Vec<TreeNode>) -> Vec<Tree> {
                     .map(|&child_id| build_subtree(child_id, node_map, children_map))
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
 
         let parsed_data = parse_node_data(node.node_type, &node.data);
 

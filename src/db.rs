@@ -311,6 +311,17 @@ impl NodeWithLeaf {
     }
 }
 
+impl std::fmt::Display for NodeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeType::Root => write!(f, "Root"),
+            NodeType::Branch => write!(f, "Branch"),
+            NodeType::ImageLeaf => write!(f, "ImageLeaf"),
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,16 +410,3 @@ mod tests {
     }
 }
 
-// ============================================================================
-// Display Implementations
-// ============================================================================
-
-impl std::fmt::Display for NodeType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NodeType::Root => write!(f, "Root"),
-            NodeType::Branch => write!(f, "Branch"),
-            NodeType::ImageLeaf => write!(f, "ImageLeaf"),
-        }
-    }
-}
