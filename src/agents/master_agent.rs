@@ -142,7 +142,10 @@ pub struct MasterAgent {
     client: ollama::Client,
     request_manager: Arc<RequestManager>,
 }
-
+/// Parameter parsing calls other models.
+/// Butler only.
+/// Parameters are parsed rigidly.
+/// Further replacement with a smart model with tool selection.
 impl MasterAgent {
     pub fn new(ai_url: &str) -> Self {
         let client = ollama::Client::builder()

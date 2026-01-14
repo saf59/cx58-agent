@@ -12,6 +12,9 @@ pub struct ChatAgent {
     event_tx: mpsc::Sender<StreamEvent>,
 }
 
+/// Interacts directly with the ollama text model.
+// RAG will be added later.
+// Must have  context that say "I'm only targeting the cx58".
 impl ChatAgent {
     pub fn new(
         client: ollama::Client,

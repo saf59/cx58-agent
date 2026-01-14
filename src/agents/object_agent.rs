@@ -10,7 +10,10 @@ pub struct ObjectAgent {
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
-
+/// It is not real AI agent at all.
+/// Just parser of parameters, get and return tree. ( with_tree=false )
+/// Input for querying a tree without leaves
+/// Used to list objects that have changed over a given period
 impl ObjectAgent {
     pub fn new(
         client: ollama::Client,

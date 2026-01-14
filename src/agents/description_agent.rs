@@ -11,7 +11,10 @@ pub struct DescriptionAgent {
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
-
+/// Retrieves a description of a media file.
+/// If there is no description, retrieves the media file
+/// and calls the modal model to create the description.
+/// Stores the description in a separate table.
 impl DescriptionAgent {
     pub fn new(
         client: ollama::Client,

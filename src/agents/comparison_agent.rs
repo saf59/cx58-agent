@@ -11,7 +11,12 @@ pub struct ComparisonAgent {
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
-
+/// Loads two media file descriptions
+/// Compares them
+/// Sends the raw result to the chat
+/// Requires JSON format as input
+/// On the chat side, the format is parsed into hardcoded format
+/// Then it is converted to fixed HTML
 impl ComparisonAgent {
     pub fn new(
         client: ollama::Client,

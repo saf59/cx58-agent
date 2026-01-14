@@ -11,7 +11,10 @@ pub struct DocumentAgent {
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
-
+/// Retrieves and manages document objects based on user requests.
+/// Supports parameters for filtering and limiting results.
+/// Used to request 1-2 or several specific leafs/photos for a period.
+/// Result: 1 owner with leaves
 impl DocumentAgent {
     pub fn new(
         client: ollama::Client,
