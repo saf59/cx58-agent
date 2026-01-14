@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let user_id = "shpirkov@gmail.com";
 
     // with_leafs = false
-    let url = format!("{}/api/agent/tree/{}", base_url, user_id);
+    let url = format!("{}/agent/tree/{}", base_url, user_id);
     println!("Test 1: without leafs");
     println!("URL: {}\n", url);
 

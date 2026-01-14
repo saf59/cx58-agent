@@ -10,29 +10,29 @@ use cx58_agent::AppState;
 fn create_app_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route(
-            "/api/agent/chat",
+            "/agent/chat",
             axum::routing::post(chat_stream_handler),
         )
         .route(
-            "/api/agent/tree/{user_id}",
+            "/agent/tree/{user_id}",
             axum::routing::get(get_tree_handler),
         )
         .route(
-            "/api/images/upload/{parent_id}",
+            "/agent/images/upload/{parent_id}",
             axum::routing::post(upload_image_handler),
         )
         .route(
-            "/api/images",
+            "/agent/images",
             axum::routing::get(get_image_handler),
         )
         .route(
-            "/api/images",
+            "/agent/images",
             axum::routing::delete(delete_image_handler),
         )
-        .route("/health", axum::routing::get(health_check))
+        .route("/agent/health", axum::routing::get(health_check))
 /*
         .route(
-            "/api/images/batch",
+            "/agent/images/batch",
             axum::routing::post(batch_upload_handler),
         )
         .layer(middleware::from_fn(auth_middleware))
@@ -62,9 +62,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Server started!");
     log::info!("http://{}", addr);
-    log::info!("Agent: http://{}/api/agent/chat", addr);
-    log::info!("Upload: http://{}/api/images/upload", addr);
-    log::info!("Health: http://{}/health", addr);
+    log::info!("Agent: http://{}/agent/chat", addr);
+    log::info!("Upload: http://{}/agent/images/upload", addr);
+    log::info!("Health: http://{}/agent/health", addr);
     log::info!("S3: {}", config.s3.bucket);
     log::info!("Region: {}", config.s3.region);
     if let Some(ep) = &config.s3.endpoint {

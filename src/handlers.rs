@@ -150,7 +150,7 @@ pub struct CancelErrorResponse {
 
 /// Handler for streaming chat responses via SSE
 ///
-/// POST /api/chat/stream
+/// POST /agent/chat/stream
 /// Body: AgentRequest JSON
 ///
 /// Returns: Server-Sent Events stream with StreamEvent data
@@ -227,7 +227,7 @@ pub async fn chat_stream_handler(
 
 /// Handler for cancelling an active request
 ///
-/// DELETE /api/chat/cancel/:request_id
+/// DELETE /agent/chat/cancel/:request_id
 ///
 /// Returns: JSON with cancellation status
 pub async fn chat_stream_cancel(

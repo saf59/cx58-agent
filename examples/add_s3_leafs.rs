@@ -96,7 +96,7 @@ async fn insert_leafs_for_node(
                 .file_name(filename.to_string()))
             .text("berlin_datetime", berlin_datetime);
 
-        let url = format!("{}/api/images/upload/{}", base_url, node_id);
+        let url = format!("{}/agent/images/upload/{}", base_url, node_id);
 
         match client.post(&url).multipart(form).send().await {
             Ok(response) => {
