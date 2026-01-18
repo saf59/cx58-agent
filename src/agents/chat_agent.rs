@@ -53,7 +53,7 @@ impl ChatAgent {
         let chunk_size = 20;
         for chunk in response.chars().collect::<Vec<_>>().chunks(chunk_size) {
             let chunk_str: String = chunk.iter().collect();
-            
+            log::info!("Sending text chunk:{} {}", &self.request_id, chunk_str);
             self.send_event(StreamEvent::TextChunk {
                 request_id: self.request_id.clone(),
                 chunk: chunk_str,
@@ -61,7 +61,7 @@ impl ChatAgent {
             .await;
 
             // Small delay for streaming effect
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
         }
 
         Ok(response)

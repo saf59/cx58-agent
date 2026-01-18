@@ -68,8 +68,11 @@ impl RequestManager {
 
     pub async fn register(&self, request_id: String) -> CancellationToken {
         let token = CancellationToken::new();
-        let mut requests = self.active_requests.write().await;
-        requests.insert(request_id, token.clone());
+        log::info!("Register request: {}", request_id);
+        {
+            let mut requests = self.active_requests.write().await;
+            requests.insert(request_id, token.clone());
+        }
         token
     }
 
@@ -96,38 +99,43 @@ impl RequestManager {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentRequest {
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat_id: Option<String>,
+    pub user_id: String,
+    pub chat_id: String,
+    pub language: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub object_id: Option<String>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    //pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<String>,
+    pub prev_leaf: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
+    pub next_leaf: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
 }
 #[derive(Debug, Clone)]
 pub struct AgentContext {
     pub request_id: String,
-    pub user_id: Option<String>,
-    pub chat_id: Option<String>,
-    pub object_id: Option<String>,
+    pub user_id: String,
+    pub chat_id: String,
     pub language: String,
+    pub object_id: Option<String>,
+    pub prev_leaf: Option<String>,
+    pub next_leaf: Option<String>,
     pub metadata: serde_json::Value,
     pub cancellation_token: CancellationToken,
 }
 
 impl AgentContext {
-    pub fn from_request(req: AgentRequest, cancellation_token: CancellationToken) -> Self {
+    pub fn from_request(request_id: String, req: AgentRequest, cancellation_token: CancellationToken) -> Self {
         Self {
-            request_id: Uuid::now_v7().to_string(),
+            request_id,
             user_id: req.user_id,
             chat_id: req.chat_id,
+            language: req.language,
             object_id: req.object_id,
-            language: req.language.unwrap_or_else(|| "en".to_string()),
+            prev_leaf: req.prev_leaf,
+            next_leaf: req.next_leaf,
             metadata: req.metadata.unwrap_or(serde_json::json!({})),
             cancellation_token,
         }
@@ -170,9 +178,9 @@ impl MasterAgent {
         let request_manager = self.request_manager.clone();
 
         tokio::spawn(async move {
-            let cancellation_token = request_manager.register(Uuid::now_v7().to_string()).await;
-            let context = AgentContext::from_request(request.clone(), cancellation_token.clone());
-            let request_id = context.request_id.clone();
+            let request_id  = Uuid::now_v7().to_string();
+            let cancellation_token = request_manager.register(request_id.clone()).await;
+            let context = AgentContext::from_request(request_id.clone(), request.clone(), cancellation_token.clone());
 
             // Send start event
             let _ = tx
@@ -311,18 +319,19 @@ impl MasterAgent {
 mod tests {
     use crate::init::app_init;
     use super::*;
-    const URL:&str = "http://localhost:8080";
+    const URL:&str = "http://localhost:3050";
     #[tokio::test]
     async fn test_object_task() {
         let agent = MasterAgent::new(URL);
         
         let request = AgentRequest {
             message: "show me the last 5 objects".to_string(),
-            user_id: Some("user_123".to_string()),
-            chat_id: None,
+            user_id: "user_123".to_string(),
+            chat_id: "chat_123".to_string(),
+            language: "en".to_string(),
             object_id: None,
-            language: Some("en".to_string()),
-            session_id: None,
+            prev_leaf: None,
+            next_leaf: None,
             metadata: None,
         };
         dotenv::dotenv().ok();
@@ -358,14 +367,15 @@ mod tests {
     #[tokio::test]
     async fn test_chat_task() {
         let agent = MasterAgent::new(URL);
-        
+
         let request = AgentRequest {
-            message: "hello, how are you?".to_string(),
-            user_id: Some("user_456".to_string()),
-            chat_id: Some("chat_789".to_string()),
+            message: "show me the last 5 objects".to_string(),
+            user_id: "user_123".to_string(),
+            chat_id: "chat_123".to_string(),
+            language: "en".to_string(),
             object_id: None,
-            language: Some("en".to_string()),
-            session_id: None,
+            prev_leaf: None,
+            next_leaf: None,
             metadata: None,
         };
         dotenv::dotenv().ok();
@@ -393,11 +403,12 @@ mod tests {
         
         let request = AgentRequest {
             message: "compare the last 2 documents".to_string(),
-            user_id: Some("user_789".to_string()),
-            chat_id: None,
+            user_id: "user_123".to_string(),
+            chat_id: "chat_123".to_string(),
+            language: "en".to_string(),
             object_id: None,
-            language: Some("en".to_string()),
-            session_id: None,
+            prev_leaf: None,
+            next_leaf: None,
             metadata: None,
         };
         dotenv::dotenv().ok();

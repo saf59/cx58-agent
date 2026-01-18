@@ -36,7 +36,7 @@ pub struct AiConfig {
 impl AiConfig {
     pub fn from_env() -> std::result::Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
-            url: std::env::var("DATABASE_URL")
+            url: std::env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             text_model: std::env::var("TEXT_MODEL").unwrap_or_else(|_| "llava".to_string()),
             vision_model: std::env::var("VISION_MODEL")

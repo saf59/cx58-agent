@@ -231,21 +231,24 @@ pub async fn chat_stream_handler(
 ///
 /// Returns: JSON with cancellation status
 pub async fn chat_stream_cancel(
-    State(state): State<AppState>,
+    State(state): State<Arc<AppState>>,
     Path(request_id): Path<String>,
 ) -> std::result::Result<Json<CancelResponse>, (StatusCode, Json<CancelErrorResponse>)> {
     // Attempt to cancel the request
+    log::info!("Attempt to stop request: {}", request_id);
     let cancelled = state.master_agent.cancel_request(&request_id).await;
 
     if cancelled {
+        log::info!("Request cancelled successfully");
         Ok(Json(CancelResponse {
             success: true,
             request_id: request_id.clone(),
             message: format!("Request {} cancelled successfully", request_id),
         }))
     } else {
+        log::info!("Cancel request not found or already completed!");
         Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::FAILED_DEPENDENCY,
             Json(CancelErrorResponse {
                 error: "NOT_FOUND".to_string(),
                 message: format!("Request {} not found or already completed", request_id),
