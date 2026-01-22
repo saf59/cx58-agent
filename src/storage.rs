@@ -32,6 +32,7 @@ pub struct AiConfig {
     pub text_model: String,
     pub vision_model: String,
     pub chat_model: String,
+    pub agent_secret: String
 }
 impl AiConfig {
     pub fn from_env() -> std::result::Result<Self, Box<dyn std::error::Error>> {
@@ -42,6 +43,7 @@ impl AiConfig {
             vision_model: std::env::var("VISION_MODEL")
                 .unwrap_or_else(|_| "llama3.2-vision".to_string()),
             chat_model: std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llava".to_string()),
+            agent_secret: std::env::var("AGENT_SECRET").unwrap_or_else(|_| "None".to_string()),
         })
     }
 }

@@ -1,46 +1,33 @@
-use axum::Router;
+use std::net::SocketAddr;
+use axum::{middleware, Router};
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 
 use cx58_agent::handlers::{chat_stream_cancel, chat_stream_handler, get_tree_handler, health_check};
 use cx58_agent::init::app_init;
 use cx58_agent::storage::{delete_image_handler, get_image_handler, upload_image_handler};
 use cx58_agent::AppState;
+use tower_http::trace::TraceLayer;
+use cx58_agent::hmac::{rate_limit_middleware, verify_signature, RateLimiter};
 
 fn create_app_router(state: Arc<AppState>) -> Router {
+    let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));
+
     Router::new()
-        .route(
-            "/agent/chat",
-            axum::routing::post(chat_stream_handler),
-        )
-        .route(
-            "/agent/chat/cancel/{request_id}",
-            axum::routing::delete(chat_stream_cancel),
-        )
-        .route(
-            "/agent/tree/{user_id}",
-            axum::routing::get(get_tree_handler),
-        )
-        .route(
-            "/agent/images/upload/{parent_id}",
-            axum::routing::post(upload_image_handler),
-        )
-        .route(
-            "/agent/images",
-            axum::routing::get(get_image_handler),
-        )
-        .route(
-            "/agent/images",
-            axum::routing::delete(delete_image_handler),
-        )
+        // public routes
+        .route("/agent/chat/cancel/{request_id}", axum::routing::delete(chat_stream_cancel))
+        .route("/agent/tree/{user_id}", axum::routing::get(get_tree_handler))
+        .route("/agent/images/upload/{parent_id}", axum::routing::post(upload_image_handler))
+        .route("/agent/images", axum::routing::get(get_image_handler))
+        .route("/agent/images", axum::routing::delete(delete_image_handler))
         .route("/agent/health", axum::routing::get(health_check))
-/*
-        .route(
-            "/agent/images/batch",
-            axum::routing::post(batch_upload_handler),
+        // protected routes
+        .route("/agent/chat", axum::routing::post(chat_stream_handler)
+            .layer(middleware::from_fn_with_state(state.clone(), verify_signature))
         )
-        .layer(middleware::from_fn(auth_middleware))
-*/
+        .layer(middleware::from_fn_with_state(rate_limiter.clone(), rate_limit_middleware))
+        .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -50,6 +37,13 @@ fn create_app_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+/*
+        .route(
+            "/agent/images/batch",
+            axum::routing::post(batch_upload_handler),
+        )
+        .layer(middleware::from_fn(auth_middleware))
+*/
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -76,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     log::info!("CDN: {}", config.s3.public_url_base);
 
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 

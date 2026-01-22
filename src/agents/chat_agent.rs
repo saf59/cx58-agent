@@ -46,12 +46,13 @@ impl ChatAgent {
                 context.language
             ))
             .build();
-
+        context.cancellation_token.check().await?;
         let response = agent.prompt(prompt).await?;
-
+        context.cancellation_token.check().await?;
         // Send response in chunks for streaming effect
         let chunk_size = 20;
         for chunk in response.chars().collect::<Vec<_>>().chunks(chunk_size) {
+            context.cancellation_token.check().await?;
             let chunk_str: String = chunk.iter().collect();
             log::info!("Sending text chunk:{} {}", &self.request_id, chunk_str);
             self.send_event(StreamEvent::TextChunk {
