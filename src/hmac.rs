@@ -87,9 +87,9 @@ pub async fn verify_signature(
         .and_then(|v| v.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    // Проверка временного окна
+    // Check timestamp freshness (within 1 minute)
     let now = chrono::Utc::now().timestamp();
-    if (now - timestamp).abs() > 300 {
+    if (now - timestamp).abs() > 60 {
         tracing::warn!("Timestamp out of range");
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -98,21 +98,20 @@ pub async fn verify_signature(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Декодируем hex подпись
     let provided_signature_bytes = hex::decode(provided_signature)
         .map_err(|e| {
             tracing::warn!("Invalid signature format: {}", e);
             StatusCode::UNAUTHORIZED
         })?;
 
-    // Создаём HMAC
+    // Create HMAC
     let mut mac = HmacSha256::new_from_slice(state.ai_config.agent_secret.as_bytes())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     mac.update(timestamp.to_string().as_bytes());
     mac.update(&bytes);
 
-    // ✅ Используем встроенную constant-time верификацию
+    // Using of embed constant-time verification to prevent timing attacks
     mac.verify_slice(&provided_signature_bytes)
         .map_err(|_| {
             tracing::warn!("HMAC verification failed");
@@ -124,59 +123,3 @@ pub async fn verify_signature(
     let req = Request::from_parts(parts, Body::from(bytes));
     Ok(next.run(req).await)
 }
-/*
-async fn public_handler() -> &'static str {
-    "Public endpoint - no auth required"
-}
-
-async fn protected_handler() -> &'static str {
-    "Protected endpoint - HMAC verified"
-}
-
-#[tokio::main]
-async fn main() {
-    // Инициализация логирования
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
-    // Создание rate limiter: 100 запросов в минуту
-    let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));
-
-    // Защищённые routes с HMAC
-    let protected_routes = Router::new()
-        .route("/data", post(protected_handler))
-        .route("/process", post(protected_handler))
-        .route("/users", get(protected_handler))
-        .layer(middleware::from_fn(verify_signature));
-
-    // Основное приложение
-    let app = Router::new()
-        .route("/health", get(public_handler))
-        .nest("/api", protected_routes)
-        .layer(middleware::from_fn_with_state(
-            rate_limiter.clone(),
-            rate_limit_middleware,
-        ))
-        .layer(TraceLayer::new_for_http())
-        .with_state(rate_limiter);
-
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080")
-        .await
-        .unwrap();
-
-    tracing::info!("Server listening on 0.0.0.0:8080");
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-        .await
-        .unwrap();
-}
-
- */
