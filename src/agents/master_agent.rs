@@ -1,3 +1,4 @@
+use std::any::Any;
 use rig::providers::ollama;
 use rig::client::Nothing;
 use serde::{Deserialize, Serialize};
@@ -256,6 +257,15 @@ impl MasterAgent {
         // Detect task
         let detector = TaskDetector::new();
         let task = detector.detect_task(&prompt_context, &request.message)?;
+
+        context.cancellation_token.check().await?;
+
+        let _ = event_tx
+            .send(StreamEvent::CoordinatorThinking {
+                request_id: context.request_id.clone(),
+                message: format!("Processing '{:?}' in progress...",task),
+            })
+            .await;
 
         context.cancellation_token.check().await?;
 
