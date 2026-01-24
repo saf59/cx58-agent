@@ -1,4 +1,3 @@
-use std::any::Any;
 use rig::providers::ollama;
 use rig::client::Nothing;
 use serde::{Deserialize, Serialize};

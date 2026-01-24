@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use rig::providers::ollama;
-use rig::completion::Prompt;
 use tokio::sync::mpsc;
 use serde_json::json;
-use rig::prelude::CompletionClient;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use crate::agents::filter_objects::get_filtered_tree;
+use crate::db::{get_tree};
+
 pub struct ObjectAgent {
+    #[allow(unused)]
     client: ollama::Client,
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
@@ -34,70 +36,29 @@ impl ObjectAgent {
     pub async fn execute(
         &self,
         state:Arc<AppState>,
-        prompt: &str,
-        _context: &AgentContext,
+        _prompt: &str,
+        context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // Send initial text chunk
-        self.send_event(StreamEvent::TextChunk {
-            request_id: self.request_id.clone(),
-            chunk: "Processing object request...\n".to_string(),
-        })
-        .await;
 
-        // Build agent prompt
-        let agent_prompt = format!(
-            "You are an object retrieval assistant. User request: {}\nParameters: last={}, all={}, period={:?}, amount={:?}",
-            prompt, parameters.last, parameters.all, parameters.period, parameters.amount
-        );
-
-        let agent = self
-            .client
-            .agent(&state.ai_config.text_model)
-            .preamble("You are an object management system. Return structured object data in JSON format.")
-            .build();
-
-        let response = agent.prompt(&agent_prompt).await?;
-
-        // Send text description
-        self.send_event(StreamEvent::TextChunk {
-            request_id: self.request_id.clone(),
-            chunk: format!("Found objects:\n{}\n", response),
-        })
-        .await;
-
-        // Send structured data
-        let object_data = json!({
-            "objects": [
-                {
-                    "id": "obj_001",
-                    "name": "Sample Object 1",
-                    "type": "document",
-                    "created": "2024-12-20T10:00:00Z",
-                    "status": "active"
-                },
-                {
-                    "id": "obj_002",
-                    "name": "Sample Object 2",
-                    "type": "record",
-                    "created": "2024-12-22T14:30:00Z",
-                    "status": "pending"
-                }
-            ],
-            "total": 2,
-            "parameters": {
-                "last": parameters.last,
-                "all": parameters.all,
-                "period": format!("{:?}", parameters.period),
-                "amount": parameters.amount
-            }
-        });
-
+        let tree = get_tree(&state.db, &context.user_id, true).await?;
+        let filtered = get_filtered_tree(tree, parameters).await?;
+        if filtered.is_empty() {
+            self.send_event(StreamEvent::TextChunk {
+                request_id: self.request_id.clone(),
+                chunk: "No objects found matching the criteria.\n".to_string(),
+            })
+            .await;
+            return Ok("No objects found.".to_string());
+        }
+        let json_data = json!(filtered);
         self.send_event(StreamEvent::ObjectChunk {
             request_id: self.request_id.clone(),
-            data: object_data,
+            data: json_data,
         })
-        .await;
+            .await;
+
+        let response = "Object retrieval completed.".to_string();
 
         Ok(response)
     }

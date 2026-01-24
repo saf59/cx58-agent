@@ -1,3 +1,4 @@
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -93,6 +94,7 @@ pub struct ImageDescription {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
+    pub timestamp: String,
     pub status: String,
     pub version: String,
     pub services: ServiceHealth,
@@ -109,6 +111,7 @@ pub struct ServiceHealth {
 impl HealthStatus {
     pub fn healthy() -> Self {
         Self {
+            timestamp: Local::now().naive_utc().to_string(),
             status: "healthy".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             services: ServiceHealth {
