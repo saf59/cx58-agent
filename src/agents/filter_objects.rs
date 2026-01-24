@@ -35,7 +35,7 @@ pub async fn get_filtered_tree(
     if all && parameters.period.is_none() {
         return Ok(tree
             .into_iter()
-            .filter(|node| node.node_type == NodeType::Branch)
+            .filter(|node| node.node_type != NodeType::ImageLeaf)
             .collect());
     }
 
@@ -83,7 +83,7 @@ fn filter_by_period(
     Ok(tree
         .into_iter()
         .filter(|node| {
-            valid_ids.contains(&node.id) && node.node_type == NodeType::Branch
+            valid_ids.contains(&node.id) && node.node_type != NodeType::ImageLeaf
         })
         .collect())
 }
@@ -238,8 +238,8 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 3, "Should return 3 Branch nodes");
-        assert!(result.iter().all(|n| n.node_type == NodeType::Branch));
+        assert_eq!(result.len(), 4, "Should return 4 Branch nodes");
+        assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
         
         // Verify specific branches
         let names: Vec<_> = result.iter().filter_map(|n| n.name.as_deref()).collect();
@@ -318,8 +318,8 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 3, "Should return all 3 Branch nodes - all leaves within last month");
-        assert!(result.iter().all(|n| n.node_type == NodeType::Branch));
+        assert_eq!(result.len(), 4, "Should return all 4 Branch nodes - all leaves within last month");
+        assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
     }
 
     #[tokio::test]
@@ -342,8 +342,8 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 3, "Should return all 3 Branch nodes");
-        assert!(result.iter().all(|n| n.node_type == NodeType::Branch));
+        assert_eq!(result.len(), 4, "Should return all 4 Branch nodes");
+        assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
     }
 
     #[tokio::test]
@@ -366,7 +366,7 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 3, "Should return all 3 Branch nodes - all leaves are recent enough");
+        assert_eq!(result.len(), 4, "Should return all 4 Branch nodes - all leaves are recent enough");
     }
 
     #[tokio::test]
@@ -382,9 +382,7 @@ mod tests {
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
         
-        assert!(!result.iter().any(|n| n.node_type == NodeType::Root), 
-                "Result should not contain Root nodes");
-        assert!(!result.iter().any(|n| n.node_type == NodeType::ImageLeaf), 
+        assert!(!result.iter().any(|n| n.node_type == NodeType::ImageLeaf),
                 "Result should not contain ImageLeaf nodes");
     }
 }
