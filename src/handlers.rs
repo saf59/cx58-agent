@@ -5,64 +5,22 @@ use axum::extract::Query;
 // Middleware
 // ============================================================================
 use axum::http::StatusCode;
-use axum::middleware::Next;
 use axum::response::sse::{Event, KeepAlive};
-use axum::response::{Response, Sse};
+use axum::response::Sse;
 use axum::{
+    extract::{Path, State},
     Json,
-    extract::{Path, Request, State},
 };
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
-use uuid::Uuid;
 
+use crate::agents::StreamEvent;
+use crate::db::{get_tree, NodeType, TreeNode};
+pub use crate::storage::{ImageProcessor, ImageUrlResolver, StorageService};
 use crate::AgentRequest;
 use crate::AppState;
-use crate::agents::StreamEvent;
-use crate::db::{NodeType, TreeNode, get_tree};
-pub use crate::storage::{ImageProcessor, ImageUrlResolver, StorageService};
-
-pub async fn auth_middleware(
-    mut request: Request,
-    next: Next,
-) -> std::result::Result<Response, StatusCode> {
-    let user_id = request
-        .headers()
-        .get("X-User-ID")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok())
-        .ok_or(StatusCode::UNAUTHORIZED);
-
-    let session_id = request
-        .headers()
-        .get("X-Session-ID")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .ok_or(StatusCode::UNAUTHORIZED);
-
-    let language = request
-        .headers()
-        .get("X-Language")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "en".to_string());
-
-    let chat_id = request
-        .headers()
-        .get("X-Chat-ID")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok())
-        .unwrap_or_else(Uuid::now_v7);
-
-    request.extensions_mut().insert(user_id);
-    request.extensions_mut().insert(session_id);
-    request.extensions_mut().insert(language);
-    request.extensions_mut().insert(chat_id);
-
-    Ok(next.run(request).await)
-}
 
 #[derive(Deserialize)]
 pub struct TreeQuery {

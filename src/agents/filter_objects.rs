@@ -6,7 +6,7 @@ use crate::db::{NodeType, TreeNode};
 use crate::TaskParameters;
 
 impl Period {
-    fn to_days(self) -> i64 {
+    pub(crate) fn to_days(self) -> i64 {
         match self {
             Period::Day => 1,
             Period::Week => 7,

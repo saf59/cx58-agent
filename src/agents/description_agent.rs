@@ -34,7 +34,7 @@ impl DescriptionAgent {
 
     pub async fn execute(
         &self,
-        state:Arc<AppState>,
+        state: Arc<AppState>,
         prompt: &str,
         _context: &AgentContext,
         parameters: &TaskParameters,
@@ -44,7 +44,7 @@ impl DescriptionAgent {
             request_id: self.request_id.clone(),
             chunk: "Generating description...\n".to_string(),
         })
-        .await;
+            .await;
 
         // Build agent prompt
         let agent_prompt = format!(
@@ -65,7 +65,7 @@ impl DescriptionAgent {
             request_id: self.request_id.clone(),
             chunk: format!("Description:\n{}\n", response),
         })
-        .await;
+            .await;
 
         // Send structured data
         let description_data = json!({
@@ -104,7 +104,7 @@ impl DescriptionAgent {
             request_id: self.request_id.clone(),
             data: description_data,
         })
-        .await;
+            .await;
 
         Ok(response)
     }
