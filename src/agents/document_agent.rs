@@ -5,7 +5,8 @@ use tokio::sync::mpsc;
 use serde_json::json;
 use uuid::Uuid;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
-use crate::db::get_node_with_leafs;
+use crate::db::{get_node_with_leafs, NodeType};
+use crate::storage::set_storage_url;
 
 pub struct DocumentAgent {
     #[allow(unused)]
@@ -47,7 +48,7 @@ impl DocumentAgent {
             .expect("Object ID is required for DescriptionAgent");
         let node_id = Uuid::parse_str(node_id).expect("Invalid UUID format for Object ID");
         let limit = if parameters.all { 100 } else { 2 };
-        let data = if let Some(period) = &parameters.period {
+        let mut data = if let Some(period) = &parameters.period {
             let from = Utc::now().naive_utc();
             let amount = parameters.amount.unwrap_or(1);
             let days = period.to_days() * amount as i64;
@@ -63,6 +64,15 @@ impl DocumentAgent {
             })
             .await;
             return Ok("No documents found.".to_string());
+        }
+        // Process ImageLeaf nodes
+        for node in &mut data {
+            if matches!(node.node_type, NodeType::ImageLeaf)
+                && let Some(obj) = node.data.as_object_mut()
+            {
+                let node_id = &node.id;
+                set_storage_url(state.clone(), obj, node_id).await;
+            }
         }
         let json_data = json!(data);
         self.send_event(StreamEvent::DocumentChunk {

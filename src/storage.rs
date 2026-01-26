@@ -21,6 +21,8 @@ use s3::region::Region;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
+use log::info;
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 // ============================================================================
@@ -1420,5 +1422,49 @@ mod tests {
             .delete_object(&upload_result.storage_path)
             .await
             .unwrap();
+    }
+}
+
+pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>, node_id: &Uuid) {
+    // Copy storage_path to String to avoid borrowing conflicts
+    let storage_path = obj
+        .get("storage_path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    info!("storage_path: {:?}", storage_path);
+    if let Some(storage_path) = storage_path {
+        // Generate signed URL for original image
+        match state
+            .storage
+            .generate_presigned_url(&storage_path, 86400)
+            .await
+        {
+            Ok(url) => {
+                info!("Ok utl: {:?}", &url);
+                obj.insert("url".to_string(), serde_json::json!(url));
+            }
+            Err(e) => {
+                eprintln!("Failed to generate URL for {}: {}", storage_path, e);
+            }
+        }
+
+        // Get or create thumbnail (already with public URL)
+        match state
+            .storage
+            .get_or_create_thumbnail(node_id, &storage_path, 300, 300)
+            .await
+        {
+            Ok(thumbnail) => {
+                info!("Ok thumbnail: {:?}", &thumbnail);
+                // thumbnail.url is already public - just insert it
+                obj.insert(
+                    "thumbnail_url".to_string(),
+                    serde_json::json!(thumbnail.public_url),
+                );
+            }
+            Err(e) => {
+                eprintln!("Failed to create thumbnail for {}: {}", storage_path, e);
+            }
+        }
     }
 }

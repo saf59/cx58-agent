@@ -15,12 +15,12 @@ use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
-
 use crate::agents::StreamEvent;
 use crate::db::{get_tree, NodeType, TreeNode};
 pub use crate::storage::{ImageProcessor, ImageUrlResolver, StorageService};
 use crate::AgentRequest;
 use crate::AppState;
+use crate::storage::set_storage_url;
 
 #[derive(Deserialize)]
 pub struct TreeQuery {
@@ -40,50 +40,14 @@ pub async fn get_tree_handler(
         if matches!(node.node_type, NodeType::ImageLeaf)
             && let Some(obj) = node.data.as_object_mut()
         {
-            // Copy storage_path to String to avoid borrowing conflicts
-            let storage_path = obj
-                .get("storage_path")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-
-            if let Some(storage_path) = storage_path {
-                // Generate signed URL for original image
-                match state
-                    .storage
-                    .generate_presigned_url(&storage_path, 86400)
-                    .await
-                {
-                    Ok(url) => {
-                        obj.insert("url".to_string(), serde_json::json!(url));
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to generate URL for {}: {}", storage_path, e);
-                    }
-                }
-
-                // Get or create thumbnail (already with public URL)
-                match state
-                    .storage
-                    .get_or_create_thumbnail(&node.id, &storage_path, 300, 300)
-                    .await
-                {
-                    Ok(thumbnail) => {
-                        // thumbnail.url is already public - just insert it
-                        obj.insert(
-                            "thumbnail_url".to_string(),
-                            serde_json::json!(thumbnail.public_url),
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to create thumbnail for {}: {}", storage_path, e);
-                    }
-                }
-            }
+            let node_id = &node.id;
+            set_storage_url(state.clone(), obj, node_id).await;
         }
     }
 
     Ok(Json(tree))
 }
+
 
 /// ============================================================================
 // RESPONSE TYPES
