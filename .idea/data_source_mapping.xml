@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="DataSourcePerFileMappings">
-    <file url="file://$PROJECT_DIR$/.idea/queries/Query.sql" value="10ddc8c1-cf43-4456-9a50-e91243654950" />
-    <file url="file://$PROJECT_DIR$/examples/sql/fill_tree.sql" value="10ddc8c1-cf43-4456-9a50-e91243654950" />
-    <file url="file://$PROJECT_DIR$/migrations/20251227210952_create.sql" value="10ddc8c1-cf43-4456-9a50-e91243654950" />
-    <file url="file://$PROJECT_DIR$/migrations/20251228164426_create_ui_functions.sql" value="10ddc8c1-cf43-4456-9a50-e91243654950" />
-  </component>
-</project>

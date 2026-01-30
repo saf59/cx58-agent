@@ -7,6 +7,7 @@ pub mod handlers;
 pub mod init;
 pub mod db;
 pub mod hmac;
+pub mod db_description;
 
 pub use crate::agents::master_agent::MasterAgent;
 pub use crate::storage::{AiConfig, AppState};

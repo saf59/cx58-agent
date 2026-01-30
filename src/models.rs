@@ -83,16 +83,6 @@ pub struct ImageMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageDescription {
-    pub id: Uuid,
-    pub node_id: Uuid,
-    pub model_name: String,
-    pub prompt: String,
-    pub description: String,
-    pub confidence: Option<f32>,
-    pub created_at: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub timestamp: String,
     pub status: String,
