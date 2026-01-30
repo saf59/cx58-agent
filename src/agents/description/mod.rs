@@ -1,2 +1,4 @@
 pub mod description_agent;
-pub mod description_helper;
+mod description_helper;
+mod description_json;
+mod description_build;
