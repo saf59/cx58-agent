@@ -10,6 +10,7 @@ pub mod chat_agent;
 pub mod lang;
 pub mod filter_objects;
 pub mod description;
+pub mod tera;
 
 // Re-export main types for convenience
 pub use events::StreamEvent;
