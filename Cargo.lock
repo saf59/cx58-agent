@@ -648,6 +648,7 @@ dependencies = [
  "dotenv",
  "env_logger",
  "fluent-bundle",
+ "fluent-syntax",
  "futures",
  "hex",
  "hmac",
