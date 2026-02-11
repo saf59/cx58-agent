@@ -35,17 +35,16 @@
 //! - `FormatAndReturn`: Format worker results and return to user
 //! - `Reject`: Politely decline out-of-scope requests
 
-use rig::providers::ollama;
-use rig::completion::Prompt;
-use anyhow::Result;
-use tera::Context;
-use rig::client::CompletionClient;
-use std::sync::Arc;
-use uuid::Uuid;
-use crate::helper::client;
 use super::types::*;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
+use anyhow::Result;
+use rig::client::CompletionClient;
+use rig::completion::Prompt;
+use rig::providers::ollama;
+use std::sync::Arc;
+use tera::Context;
+use uuid::Uuid;
 
 /// # Orchestrator - Coordination Agent
 ///
@@ -78,7 +77,7 @@ use crate::templating::TemplateManager;
 /// - `template_manager`: Manages prompt templates using Tera
 pub struct Orchestrator {
     /// Ollama client for LLM-based decision making
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     
     /// Model identifier (e.g., "llama3.2", "mistral")
     model: String,
@@ -121,17 +120,13 @@ impl Orchestrator {
     /// );
     /// ```
     pub fn new(
-        _api_base: String,
+        client: Arc<ollama::Client>,
         model: String,
         lang_manager: Arc<LocalizationManager>,
         template_manager: Arc<TemplateManager>,
     ) -> Self {
         tracing::info!("Creating Orchestrator");
-        
-        // Determine if using local or remote Ollama instance
-        let is_local = std::env::var("OLLAMA_LOCAL").unwrap_or( "false".to_string()) == "true";
-        let client = client(is_local);
-        
+
         Self {
             client,
             model,

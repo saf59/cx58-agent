@@ -80,12 +80,13 @@
 //! - caching layers (ObjectTree, ReportList, Image Description).
 //!   No caching mechanism is implemented here.
 
-use tokio::sync::mpsc;
 use anyhow::Result;
+use rig::providers::ollama;
 use std::sync::Arc;
 use std::time::Instant;
-use uuid::Uuid;
 use tera::Context;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use super::{
     intent_router::IntentRouter,
@@ -94,9 +95,9 @@ use super::{
     types::*,
 };
 
-use crate::{AppState, AgentRequest};
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
+use crate::{AgentRequest, AppState};
 
 /// # MasterAgent
 ///
@@ -139,7 +140,7 @@ pub struct MasterAgent {
 
 impl MasterAgent {
     pub fn new(
-        api_base: String,
+        client: Arc<ollama::Client>,
         text_model: String,
         chat_model: String,
         lang_manager: Arc<LocalizationManager>,
@@ -147,19 +148,19 @@ impl MasterAgent {
     ) -> Self {
         Self {
             intent_router: Arc::new(IntentRouter::new(
-                api_base.clone(),
+                client.clone(),
                 chat_model.clone(),
                 lang_manager.clone(),
                 template_manager.clone(),
             )),
             orchestrator: Arc::new(Orchestrator::new(
-                api_base.clone(),
+                client.clone(),
                 text_model.clone(),
                 lang_manager.clone(),
                 template_manager.clone(),
             )),
             formatter: Arc::new(ResponseFormatter::new(
-                api_base,
+                client.clone(),
                 text_model,
                 lang_manager.clone(),
                 template_manager.clone(),

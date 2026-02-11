@@ -1,12 +1,11 @@
-#![allow(unused)]
 use cx58_agent::agents::response_formatter::ResponseFormatter;
 use cx58_agent::localization::LocalizationManager;
 use cx58_agent::templating::TemplateManager;
 use std::sync::Arc;
+use cx58_agent::helper::client;
 
 pub struct FormatterTestContext {
     pub formatter: ResponseFormatter,
-    pub lang_manager: Arc<LocalizationManager>,
 }
 
 impl FormatterTestContext {
@@ -19,9 +18,11 @@ impl FormatterTestContext {
         let api_base = std::env::var("OLLAMA_API_BASE")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         let model = std::env::var("OLLAMA_MODEL").unwrap_or("qwen3:14b".to_string());
+        let is_local = std::env::var("OLLAMA_LOCAL").unwrap_or( "false".to_string()) == "true";
+        let client = Arc::new(client(is_local));
 
         let formatter = ResponseFormatter::new(
-            api_base,
+            client,
             model,
             lang_manager.clone(),
             template_manager,
@@ -29,7 +30,7 @@ impl FormatterTestContext {
         
         Self {
             formatter,
-            lang_manager,
+     //       lang_manager,
         }
     }
     

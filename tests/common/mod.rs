@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use cx58_agent::agents::intent_router::IntentRouter;
 use cx58_agent::agents::types::*;
+use cx58_agent::helper::client;
 use cx58_agent::localization::LocalizationManager;
 use cx58_agent::templating::TemplateManager;
 
@@ -11,8 +12,6 @@ pub mod orchestrator_test_helpers;
 
 pub struct TestContext {
     pub intent_router: IntentRouter,
-    #[allow(dead_code)]
-    pub lang_manager: Arc<LocalizationManager>,
 }
 
 impl TestContext {
@@ -28,9 +27,11 @@ impl TestContext {
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         //let model =    "functiongemma:latest".to_string();
         let model = std::env::var("OLLAMA_MODEL").unwrap_or("qwen3:14b".to_string());
+        let is_local = std::env::var("OLLAMA_LOCAL").unwrap_or( "false".to_string()) == "true";
+        let client = Arc::new(client(is_local));
 
         let intent_router = IntentRouter::new(
-            api_base,
+            client,
             model,
             lang_manager.clone(),
             template_manager,
@@ -38,7 +39,7 @@ impl TestContext {
 
         Self {
             intent_router,
-            lang_manager,
+      //      lang_manager,
         }
     }
 

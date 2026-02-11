@@ -12,16 +12,16 @@
 // Input Flow: Text Input → Intent Router → Route Classification → Specialized Workers
 // This component sits at the entry point of the agent system.
 
-use rig::completion::Prompt; // Ollama uses OpenAI-compatible API
-use anyhow::Result;
-use tera::Context;
-use std::sync::Arc;
-use rig::client::CompletionClient;
-use rig::providers::ollama;
-use crate::helper::client;
+use rig::completion::Prompt;
 use super::types::*;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
+// Ollama uses OpenAI-compatible API
+use anyhow::Result;
+use rig::client::CompletionClient;
+use rig::providers::ollama;
+use std::sync::Arc;
+use tera::Context;
 
 // TODO: According to plan.md Section 1 "Intent Classification Strategy", the router should
 // implement multi-level routing with scope checking first, then intent classification.
@@ -39,7 +39,7 @@ use crate::templating::TemplateManager;
 // pre-filtering or confidence scoring.
 
 pub struct IntentRouter {
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     model: String,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
@@ -66,13 +66,11 @@ impl IntentRouter {
     /// to appropriate workers. This constructor should potentially initialize
     /// additional components for context validation and conversation memory.
     pub fn new(
-        _api_base: String,
+        client: Arc<ollama::Client>,
         model: String,
         lang_manager: Arc<LocalizationManager>,
         template_manager: Arc<TemplateManager>,
     ) -> Self {
-        let is_local = std::env::var("OLLAMA_LOCAL").unwrap_or( "false".to_string()) == "true";
-        let client = client(is_local);
 
         // TODO: According to plan.md "Context Management Strategy", initialize:
         // - Context validator for required fields (user_id, chat_id, language)

@@ -1,17 +1,15 @@
-
-use rig::providers::ollama;
-use rig::completion::Prompt;
-use anyhow::Result;
-use tera::Context;
-use std::sync::Arc;
-use rig::client::CompletionClient;
-use crate::helper::client;
 use super::types::*;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
+use anyhow::Result;
+use rig::client::CompletionClient;
+use rig::completion::Prompt;
+use rig::providers::ollama;
+use std::sync::Arc;
+use tera::Context;
 
 pub struct ResponseFormatter {
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     model: String,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
@@ -19,23 +17,12 @@ pub struct ResponseFormatter {
 
 impl ResponseFormatter {
     pub fn new(
-        api_base: String,
+        client: Arc<ollama::Client>,
         model: String,
         lang_manager: Arc<LocalizationManager>,
         template_manager: Arc<TemplateManager>,
     ) -> Self {
-        let ollama_api_url = if api_base.ends_with("/v1") {
-            api_base
-        } else if api_base.ends_with('/') {
-            format!("{}v1", api_base)
-        } else {
-            format!("{}/v1", api_base)
-        };
-        
-        tracing::info!("Creating Response Formatter with Ollama API: {}", ollama_api_url);
-        let is_local = std::env::var("OLLAMA_LOCAL").unwrap_or( "false".to_string()) == "true";
-        let client = client(is_local);
-        
+
         Self {
             client,
             model,

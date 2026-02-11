@@ -1,13 +1,13 @@
-#![allow(unused)]
 use cx58_agent::agents::orchestrator::Orchestrator;
 use cx58_agent::agents::types::*;
 use cx58_agent::localization::LocalizationManager;
 use cx58_agent::templating::TemplateManager;
 use std::sync::Arc;
+use cx58_agent::helper::client;
 
 pub struct OrchestratorTestContext {
     pub orchestrator: Orchestrator,
-    pub lang_manager: Arc<LocalizationManager>,
+    //pub lang_manager: Arc<LocalizationManager>,
 }
 
 impl OrchestratorTestContext {
@@ -20,9 +20,11 @@ impl OrchestratorTestContext {
         let api_base = std::env::var("OLLAMA_API_BASE")
             .unwrap_or_else(|_| "http://localhost:11434".to_string());
         let model = std::env::var("OLLAMA_MODEL").unwrap_or("qwen3:14b".to_string());
+        let is_local = std::env::var("OLLAMA_LOCAL").unwrap_or( "false".to_string()) == "true";
+        let client = Arc::new(client(is_local));
 
         let orchestrator = Orchestrator::new(
-            api_base,
+            client,
             model,
             lang_manager.clone(),
             template_manager,
@@ -30,7 +32,7 @@ impl OrchestratorTestContext {
         
         Self {
             orchestrator,
-            lang_manager,
+      //      lang_manager,
         }
     }
     

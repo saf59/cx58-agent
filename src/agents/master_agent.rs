@@ -1,146 +1,11 @@
-use rig::providers::ollama;
-use rig::client::Nothing;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-use uuid::Uuid;
+use crate::agents::cancellation::RequestManager;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, Task, TaskDetector};
-use crate::StreamEvent;
-use crate::AppState;
-
-// ============================================================================
-// CANCELLATION TOKEN
-// ============================================================================
-
-#[derive(Clone, Debug)]
-pub struct CancellationToken {
-    cancelled: Arc<RwLock<bool>>,
-}
-impl Default for CancellationToken {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-impl CancellationToken {
-    pub fn new() -> Self {
-        Self {
-            cancelled: Arc::new(RwLock::new(false)),
-        }
-    }
-
-    pub async fn cancel(&self) {
-        let mut cancelled = self.cancelled.write().await;
-        *cancelled = true;
-    }
-
-    pub async fn is_cancelled(&self) -> bool {
-        *self.cancelled.read().await
-    }
-
-    pub async fn check(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.is_cancelled().await {
-            Err("Operation cancelled".into())
-        } else {
-            Ok(())
-        }
-    }
-}
-
-// ============================================================================
-// REQUEST MANAGER
-// ============================================================================
-
-pub struct RequestManager {
-    active_requests: Arc<RwLock<HashMap<String, CancellationToken>>>,
-}
-impl Default for RequestManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-impl RequestManager {
-    pub fn new() -> Self {
-        Self {
-            active_requests: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    pub async fn register(&self, request_id: String) -> CancellationToken {
-        let token = CancellationToken::new();
-        log::info!("Register request: {}", request_id);
-        {
-            let mut requests = self.active_requests.write().await;
-            requests.insert(request_id, token.clone());
-        }
-        token
-    }
-
-    pub async fn cancel(&self, request_id: &str) -> bool {
-        let requests = self.active_requests.read().await;
-        if let Some(token) = requests.get(request_id) {
-            token.cancel().await;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub async fn unregister(&self, request_id: &str) {
-        let mut requests = self.active_requests.write().await;
-        requests.remove(request_id);
-    }
-}
-
-// ============================================================================
-// REQUEST STRUCTURES
-// ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AgentRequest {
-    pub message: String,
-    pub user_id: String,
-    pub chat_id: String,
-    pub language: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub object_id: Option<String>,
-    //#[serde(skip_serializing_if = "Option::is_none")]
-    //pub session_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev_leaf: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_leaf: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<serde_json::Value>,
-}
-#[derive(Debug, Clone)]
-pub struct AgentContext {
-    pub request_id: String,
-    pub user_id: String,
-    pub chat_id: String,
-    pub language: String,
-    pub object_id: Option<String>,
-    pub prev_leaf: Option<String>,
-    pub next_leaf: Option<String>,
-    pub metadata: serde_json::Value,
-    pub cancellation_token: CancellationToken,
-}
-
-impl AgentContext {
-    pub fn from_request(request_id: String, req: AgentRequest, cancellation_token: CancellationToken) -> Self {
-        Self {
-            request_id,
-            user_id: req.user_id,
-            chat_id: req.chat_id,
-            language: req.language,
-            object_id: req.object_id,
-            prev_leaf: req.prev_leaf,
-            next_leaf: req.next_leaf,
-            metadata: req.metadata.unwrap_or(serde_json::json!({})),
-            cancellation_token,
-        }
-    }
-}
+use crate::{AgentContext, AgentRequest, AppState, StreamEvent};
+use rig::client::Nothing;
+use rig::providers::ollama;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 // ============================================================================
 // MASTER AGENT
@@ -326,23 +191,14 @@ impl MasterAgent {
 
 #[cfg(test)]
 mod tests {
-    use crate::init::app_init;
     use super::*;
+    use crate::init::app_init;
     const URL:&str = "http://localhost:3050";
     #[tokio::test]
     async fn test_object_task() {
         let agent = MasterAgent::new(URL);
-        
-        let request = AgentRequest {
-            message: "show me the last 5 objects".to_string(),
-            user_id: "user_123".to_string(),
-            chat_id: "chat_123".to_string(),
-            language: "en".to_string(),
-            object_id: None,
-            prev_leaf: None,
-            next_leaf: None,
-            metadata: None,
-        };
+
+        let request = sample_agent_request();
         dotenv::dotenv().ok();
         let (_config, state) = app_init().await.unwrap();
 
@@ -373,10 +229,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_chat_task() {
-        let agent = MasterAgent::new(URL);
-
+    fn sample_agent_request() -> AgentRequest {
         let request = AgentRequest {
             message: "show me the last 5 objects".to_string(),
             user_id: "user_123".to_string(),
@@ -387,6 +240,14 @@ mod tests {
             next_leaf: None,
             metadata: None,
         };
+        request
+    }
+
+    #[tokio::test]
+    async fn test_chat_task() {
+        let agent = MasterAgent::new(URL);
+
+        let request = sample_agent_request();
         dotenv::dotenv().ok();
         let (_config, state) = app_init().await.unwrap();
 

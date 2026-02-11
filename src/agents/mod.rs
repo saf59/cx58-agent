@@ -15,15 +15,20 @@ pub mod master_agent_update;
 pub mod orchestrator;
 pub mod response_formatter;
 pub mod types;
-// Re-export main types for convenience
-pub use types::*;
-pub use events::StreamEvent;
+pub mod cancellation;
+pub mod agent_context;
+
 pub use crate::localization::LocalizationManager;
+pub use agent_context::AgentContext;
+pub use cancellation::{CancellationToken, RequestManager};
+pub use chat_agent::ChatAgent;
+pub use comparison_agent::ComparisonAgent;
+pub use description::description_agent::DescriptionAgent;
+pub use document_agent::DocumentAgent;
+pub use events::StreamEvent;
+pub use master_agent::MasterAgent;
+pub use object_agent::ObjectAgent;
 pub use prompt_context::{ContextParser, ParserError, Period, PromptContext, PromptKey};
 pub use task_detector::{Task, TaskDetector, TaskParameters};
-pub use object_agent::ObjectAgent;
-pub use document_agent::DocumentAgent;
-pub use description::description_agent::DescriptionAgent;
-pub use comparison_agent::ComparisonAgent;
-pub use chat_agent::ChatAgent;
-pub use master_agent::{AgentContext, AgentRequest, CancellationToken, MasterAgent, RequestManager};
+// Re-export main types for convenience
+pub use types::*;
