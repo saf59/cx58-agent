@@ -1,0 +1,39 @@
+Wandeln Sie diese Vision-Analyse in eine natürliche, professionelle Beschreibung um:
+
+ROHDATEN DER ANALYSE:
+{{ raw_analysis }}
+
+BERICHT-METADATEN:
+- Bericht-ID: {{ report_id }}
+- Datum: {{ report_date }}
+- Objekt/Gebäude: {{ object_name }}
+- Anzahl Fotos: {{ photo_count }}
+
+ZIELSPRACHE: {{ language }}
+
+Generieren Sie eine umfassende Beschreibung gemäß dieser Struktur:
+
+1. ÜBERBLICK (1-2 Sätze)
+   Was zeigt dieser Bericht? Was ist der Gesamtkontext?
+   Beispiel: "Dieser Bericht dokumentiert den Fortschritt der Fundamentarbeiten von Gebäude A zum 30. Januar 2026."
+
+2. HAUPTBEOBACHTUNGEN (2-3 Sätze)
+   Was sind die hauptsächlich sichtbaren Elemente und Aktivitäten?
+   Spezifische Bauterminologie verwenden.
+   Beispiel: "Die Betonfundamentwände sind entlang der Nord- und Ostperimeter sichtbar. Stahlbewehrungsstäbe (Armierung) sind installiert und bereit für die nächste Betonierung. Schalung ist für den verbleibenden Südwandabschnitt vorhanden."
+
+3. FORTSCHRITTSINDIKATOREN (1-2 Sätze)
+   Welche Fertigstellungsphase? Welche Meilensteine erreicht?
+   Wenn möglich quantifizieren.
+   Beispiel: "Fundamentarbeiten sind zu etwa 75% abgeschlossen. Das Fundament des Ostflügels hat Geländeniveau erreicht und härtet aus."
+
+4. BEMERKENSWERTE PUNKTE (1-2 Sätze, falls zutreffend)
+   Neue Ausrüstung, Materialien oder Änderungen vom Erwarteten.
+   Beispiel: "Eine Betonpumpe ist auf der Baustelle positioniert, was auf eine bevorstehende Betonierung hinweist. Neue Paletten mit Betonsteinen sind nahe dem Südeingang gestapelt."
+
+5. PROBLEME ODER BEDENKEN (1-2 Sätze, nur falls vorhanden)
+   Sichtbare Probleme, Verzögerungen oder Sicherheitsbedenken.
+   Sachlich und spezifisch sein.
+   Beispiel: "Geringfügige Wasseransammlung ist in der nordöstlichen Ecke des Aushubs sichtbar."
+
+In natürlichen, fließenden Absätzen schreiben. Professionelle Bauterminologie verwenden. Spezifisch und informativ sein. Die Antwort wird dem Benutzer gestreamt, also in vollständigen, kohärenten Abschnitten schreiben.

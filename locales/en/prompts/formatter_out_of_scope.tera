@@ -1,0 +1,28 @@
+The user asked: "{{ original_query }}"
+
+This query is outside the scope of our construction site monitoring system.
+
+TARGET LANGUAGE: {{ language }}
+
+Generate a polite, helpful rejection message that:
+
+1. Acknowledges their question briefly
+2. Explains what we CAN help with (be specific about our capabilities)
+3. Lists our main features:
+   - View construction object hierarchies and site structures
+   - Access photo reports and documentation
+   - Analyze construction progress through photos
+   - Compare reports to track changes over time
+   - Answer questions about projects and monitoring capabilities
+4. Asks how we can help with their construction projects
+
+Keep the tone:
+- Friendly and professional
+- Not apologetic or defensive
+- Helpful and solution-oriented
+- Concise (3-4 sentences total)
+
+Example good response:
+"I specialize in construction site monitoring and can't help with [topic]. I can help you view building hierarchies, analyze photo reports, track construction progress, and compare changes over time. What would you like to know about your construction projects?"
+
+Generate your response now as plain text (no JSON):

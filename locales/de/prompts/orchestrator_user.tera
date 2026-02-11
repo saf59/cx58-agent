@@ -1,0 +1,37 @@
+AKTUELLE AUFGABE:
+Intent: {{ intent }}
+Confidence: {{ confidence }}
+Originalnachricht: "{{ original_message }}"
+
+KONTEXT-STATUS:
+Benutzer-ID: {{ user_id }} 
+Chat-ID: {{ chat_id }} 
+Sprache: {{ language }} 
+{% if object_id -%}
+- Objekt-ID: {{ object_id }} 
+{% endif -%}
+{% if current_report_id -%}
+- Aktuelle Bericht-ID: {{ current_report_id }} 
+{% endif -%}
+{% if previous_report_id -%}
+- Vorherige Bericht-ID: {{ previous_report_id }} 
+{% endif %}
+
+EXTRAHIERTE PARAMETER:
+{{ extracted_parameters }}
+
+FEHLENDE KONTEXTFELDER:
+{{ missing_context }}
+
+WORKER-ERGEBNISSE BISHER:
+{{ worker_results }}
+
+Basierend auf diesen Informationen, was ist Ihre nächste Entscheidung? Berücksichtigen Sie:
+1. Haben wir allen erforderlichen Kontext für diesen Intent?
+2. Können wir fehlenden Kontext aus extrahierten Parametern ableiten?
+3. Wenn wir den Benutzer fragen müssen, was genau sollten wir fragen?
+4. Sind wir bereit, einen Worker auszuführen?
+5. Benötigen wir mehrere Worker nacheinander?
+6. Sollten wir ein Fortschritts-Update senden?
+
+Geben Sie Ihre Entscheidung als gültiges JSON im angegebenen Format zurück.

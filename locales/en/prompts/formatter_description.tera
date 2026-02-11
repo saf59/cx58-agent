@@ -1,0 +1,39 @@
+Convert this vision analysis into a natural, professional description:
+
+RAW ANALYSIS DATA:
+{{ raw_analysis }}
+
+REPORT METADATA:
+- Report ID: {{ report_id }}
+- Date: {{ report_date }}
+- Object/Building: {{ object_name }}
+- Number of photos: {{ photo_count }}
+
+TARGET LANGUAGE: {{ language }}
+
+Generate a comprehensive description following this structure:
+
+1. OVERVIEW (1-2 sentences)
+   What does this report show? What is the overall context?
+   Example: "This report documents the progress on Building A's foundation work as of January 30, 2026."
+
+2. KEY OBSERVATIONS (2-3 sentences)
+   What are the main visible elements and activities?
+   Use specific construction terminology.
+   Example: "The concrete foundation walls are visible along the north and east perimeters. Steel reinforcement bars (rebar) are installed and ready for the next concrete pour. Formwork is in place for the remaining south wall section."
+
+3. PROGRESS INDICATORS (1-2 sentences)
+   What stage of completion? What milestones achieved?
+   Quantify when possible.
+   Example: "Foundation work is approximately 75% complete. The east wing foundation has reached grade level and is curing."
+
+4. NOTABLE ITEMS (1-2 sentences, if applicable)
+   New equipment, materials, or changes from expected.
+   Example: "A concrete pump truck is positioned on site, indicating an upcoming pour. New pallets of concrete blocks are stacked near the south entrance."
+
+5. ISSUES OR CONCERNS (1-2 sentences, only if present)
+   Any visible problems, delays, or safety concerns.
+   Be factual and specific.
+   Example: "Minor water pooling is visible in the northeast corner excavation."
+
+Write in natural, flowing paragraphs. Use professional construction terminology. Be specific and informative. The response will be streamed to the user, so write in complete, coherent sections.

@@ -1,0 +1,73 @@
+Vergleichen Sie diese zwei Bauberichte und identifizieren Sie Hauptunterschiede:
+
+BERICHT 1:
+- Bericht-ID: {{ report_id_1 }}
+- Datum: {{ report_date_1 }}
+- Beschreibung:
+{{ report_1_description }}
+
+BERICHT 2:
+- Bericht-ID: {{ report_id_2 }}
+- Datum: {{ report_date_2 }}
+- Beschreibung:
+{{ report_2_description }}
+
+ZEIT ZWISCHEN BERICHTEN: {{ time_difference }}
+ZIELSPRACHE: {{ language }}
+
+Analysieren Sie die Unterschiede und generieren Sie einen Vergleich gemäß dieser Struktur:
+
+1. ZUSAMMENFASSUNG (1-2 Sätze)
+   Überblick auf hohem Niveau, was sich zwischen den zwei Berichten geändert hat.
+   Beispiel: "Bedeutender Fortschritt wurde über den 7-Tage-Zeitraum erzielt, mit Fundamentarbeiten, die von 65% auf 80% Fertigstellung vorankamen und Beginn der Erdgeschoss-Bodenplattenarbeiten."
+
+2. KATEGORISIERTE UNTERSCHIEDE
+   Änderungen nach Typ gruppieren. Für jede Kategorie mit Änderungen spezifische Unterschiede auflisten.
+   
+   Zu berücksichtigende Kategorien:
+   - STRUKTURELL: Gebäudeelemente, Rahmen, Fundamente, Wände, Böden
+   - MATERIALIEN: Neue gelieferte Materialien, verbrauchte/verwendete Materialien
+   - FORTSCHRITT: Fertigstellungsprozentsätze, erreichte Meilensteine, Arbeitsphasen
+   - AUSRÜSTUNG: Hinzugefügte/entfernte Maschinen, Werkzeugänderungen
+   - UMWELT: Wettereffekte, Baustellenbedingungen, Zugangsänderungen
+   
+   Für jeden Unterschied Schweregrad zuweisen:
+   - Major: Bedeutender struktureller Fortschritt, kritische Meilensteine, große Änderungen
+   - Minor: Inkrementeller Fortschritt, Ausrüstungsänderungen, Materiallieferungen
+   - Cosmetic: Reinigung, kleine Anpassungen, temporäre Elemente
+
+3. QUANTIFIZIERUNG
+   Wo möglich, spezifische Metriken liefern:
+   - Prozentuale Änderungen (z.B., "Fertigstellung stieg von 65% auf 80%")
+   - Zählungen (z.B., "3 neue Stützsäulen installiert")
+   - Maße (z.B., "Fundamenthöhe um 2 Meter gestiegen")
+   - Zeit (z.B., "Arbeit schritt in 7 Tagen um 15% voran")
+
+4. GESAMTBEWERTUNG
+   Mit dem großen Ganzen abschließen:
+   - Ist das Projekt im Plan, voraus oder zurück?
+   - Was sind die nächsten erwarteten Phasen?
+   - Irgendwelche Bedenken oder bemerkenswerte Erfolge?
+
+AUSGABE ALS GÜLTIGES JSON:
+{
+  "summary": "Ihre 1-2 Satz Zusammenfassung hier",
+  "differences": [
+    {
+      "category": "Structural|Materials|Progress|Equipment|Environmental",
+      "description": "Spezifische Beschreibung was sich geändert hat",
+      "severity": "Major|Minor|Cosmetic"
+    }
+  ],
+  "overall_assessment": "Ihr Gesamtfazit hier",
+  "similarity_score": 0.72
+}
+
+similarity_score als Dezimalzahl zwischen 0 und 1 berechnen:
+- 0.9-1.0: Fast identisch, minimale Änderungen
+- 0.7-0.89: Bedeutende Ähnlichkeiten, moderate Änderungen
+- 0.5-0.69: Wesentliche Unterschiede, klarer Fortschritt
+- 0.3-0.49: Große Änderungen, große Transformation
+- 0.0-0.29: Völlig unterschiedlich, massive Überholung
+
+Professionelle Bauterminologie verwenden. Spezifisch und objektiv sein. Wann immer möglich quantifizieren. NUR gültiges JSON zurückgeben.

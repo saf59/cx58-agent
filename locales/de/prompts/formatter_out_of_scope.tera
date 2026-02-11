@@ -1,0 +1,28 @@
+Der Benutzer fragte: "{{ original_query }}"
+
+Diese Anfrage liegt außerhalb des Umfangs unseres Baustellenüberwachungssystems.
+
+ZIELSPRACHE: {{ language }}
+
+Generieren Sie eine höfliche, hilfreiche Ablehnungsnachricht die:
+
+1. Ihre Frage kurz anerkennt
+2. Erklärt, wobei wir helfen KÖNNEN (spezifisch über unsere Fähigkeiten sein)
+3. Unsere Hauptfunktionen auflistet:
+   - Bautobjekt-Hierarchien und Baustellenstrukturen anzeigen
+   - Auf Fotoberichte und Dokumentation zugreifen
+   - Baufortschritt durch Fotos analysieren
+   - Berichte vergleichen um Änderungen über Zeit zu verfolgen
+   - Fragen zu Projekten und Überwachungsfähigkeiten beantworten
+4. Fragt, wie wir bei ihren Bauprojekten helfen können
+
+Ton beibehalten:
+- Freundlich und professionell
+- Nicht entschuldigend oder defensiv
+- Hilfreich und lösungsorientiert
+- Prägnant (3-4 Sätze insgesamt)
+
+Beispiel guter Antwort:
+"Ich bin auf Baustellenüberwachung spezialisiert und kann nicht bei [Thema] helfen. Ich kann Ihnen helfen, Gebäudehierarchien anzuzeigen, Fotoberichte zu analysieren, Baufortschritt zu verfolgen und Änderungen über Zeit zu vergleichen. Was möchten Sie über Ihre Bauprojekte wissen?"
+
+Generieren Sie jetzt Ihre Antwort als Klartext (kein JSON):

@@ -3,11 +3,11 @@ use tera::{Context, Tera};
 use anyhow::Result;
 
 pub struct TemplateManager {
-    lang_manager: Arc<crate::agents::lang::TextManager>,
+    lang_manager: Arc<crate::localization::LocalizationManager>,
 }
 
 impl TemplateManager {
-    pub fn new(lang_manager: Arc<crate::agents::lang::TextManager>) -> Self {
+    pub fn new(lang_manager: Arc<crate::localization::LocalizationManager>) -> Self {
         Self { lang_manager }
     }
 

@@ -1,0 +1,73 @@
+Compare these two construction reports and identify key differences:
+
+REPORT 1:
+- Report ID: {{ report_id_1 }}
+- Date: {{ report_date_1 }}
+- Description:
+{{ report_1_description }}
+
+REPORT 2:
+- Report ID: {{ report_id_2 }}
+- Date: {{ report_date_2 }}
+- Description:
+{{ report_2_description }}
+
+TIME BETWEEN REPORTS: {{ time_difference }}
+TARGET LANGUAGE: {{ language }}
+
+Analyze the differences and generate a comparison following this structure:
+
+1. SUMMARY (1-2 sentences)
+   High-level overview of what changed between the two reports.
+   Example: "Significant progress was made over the 7-day period, with foundation work advancing from 65% to 80% completion and initiation of ground floor slab work."
+
+2. CATEGORIZED DIFFERENCES
+   Group changes by type. For each category with changes, list specific differences.
+   
+   Categories to consider:
+   - STRUCTURAL: Building elements, framework, foundations, walls, floors
+   - MATERIALS: New materials delivered, materials consumed/used
+   - PROGRESS: Completion percentages, milestones reached, work phases
+   - EQUIPMENT: Machinery added/removed, tool changes
+   - ENVIRONMENTAL: Weather effects, site conditions, access changes
+   
+   For each difference, assign severity:
+   - Major: Significant structural progress, critical milestones, major changes
+   - Minor: Incremental progress, equipment changes, material deliveries
+   - Cosmetic: Cleaning, minor adjustments, temporary items
+
+3. QUANTIFICATION
+   Where possible, provide specific metrics:
+   - Percentage changes (e.g., "completion increased from 65% to 80%")
+   - Counts (e.g., "3 new support columns installed")
+   - Measurements (e.g., "foundation height increased by 2 meters")
+   - Time (e.g., "work progressed 15% in 7 days")
+
+4. OVERALL ASSESSMENT
+   Conclude with the big picture:
+   - Is the project on track, ahead, or behind?
+   - What are the next expected phases?
+   - Any concerns or notable achievements?
+
+OUTPUT AS VALID JSON:
+{
+  "summary": "Your 1-2 sentence summary here",
+  "differences": [
+    {
+      "category": "Structural|Materials|Progress|Equipment|Environmental",
+      "description": "Specific description of what changed",
+      "severity": "Major|Minor|Cosmetic"
+    }
+  ],
+  "overall_assessment": "Your overall conclusion here",
+  "similarity_score": 0.72
+}
+
+Calculate similarity_score as a decimal between 0 and 1:
+- 0.9-1.0: Almost identical, minimal changes
+- 0.7-0.89: Significant similarities, moderate changes
+- 0.5-0.69: Substantial differences, clear progress
+- 0.3-0.49: Major changes, large transformation
+- 0.0-0.29: Completely different, massive overhaul
+
+Use professional construction terminology. Be specific and objective. Quantify whenever possible. Return ONLY valid JSON.

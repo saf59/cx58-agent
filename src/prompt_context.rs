@@ -1,9 +1,8 @@
 use aho_corasick::{AhoCorasick, Match, MatchKind};
-use serde::{Deserialize, Serialize};
+use crate::localization::LocalizationManager;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, IntoStaticStr};
 use thiserror::Error;
-use crate::agents::LocalizationManager;
 
 #[derive(Error, Debug)]
 pub enum ParserError {
@@ -20,7 +19,7 @@ pub enum ParserError {
     InvalidPattern(String),
 }
 
-#[derive(Debug, EnumIter, IntoStaticStr, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, EnumIter, IntoStaticStr, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Period {
     Day,
     Week,
@@ -44,9 +43,9 @@ pub enum PromptKey {
 
 #[derive(Debug, Default, PartialEq)]
 pub struct PromptContext {
-    pub keys: Vec<PromptKey>,
-    pub period: Option<Period>,
-    pub amount: Option<usize>,
+    keys: Vec<PromptKey>,
+    period: Option<Period>,
+    amount: Option<usize>,
 }
 
 impl PromptContext {

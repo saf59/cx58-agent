@@ -1,0 +1,25 @@
+CURRENT CONTEXT:
+- User ID: {{ user_id }}
+- Chat ID: {{ chat_id }}
+- Response Language: {{ language }}
+{% if object_id -%}
+- Object ID: {{ object_id }} 
+{% endif -%}
+{% if current_report_id -%}
+- Current Report ID: {{ current_report_id }} 
+{% endif -%}
+{% if previous_report_id -%}
+- Previous Report ID: {{ previous_report_id }}                                                   
+{% endif %}
+
+CONVERSATION HISTORY:
+{{ conversation_history }}
+
+USER MESSAGE:
+"{{ user_message }}"
+
+Analyze this message and classify the intent. 
+Check what context is missing and include it in the "missing_context" field if needed for the classified intent.
+"missing_context" MUST contain a list of all missing properties.
+If no specific object or reports are mentioned, it means you must use values from the CURRENT CONTEXT.
+Return ONLY valid JSON matching the specified format.                                             

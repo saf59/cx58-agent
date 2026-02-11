@@ -1,0 +1,37 @@
+CURRENT TASK:
+Intent: {{ intent }}
+Confidence: {{ confidence }}
+Original Message: "{{ original_message }}"
+
+CONTEXT STATUS:
+User ID: {{ user_id }} 
+Chat ID: {{ chat_id }} 
+Language: {{ language }} 
+{% if object_id -%}
+- Object ID: {{ object_id }} 
+{% endif -%}
+{% if current_report_id -%}
+- Current Report ID: {{ current_report_id }} 
+{% endif -%}
+{% if previous_report_id -%}
+- Previous Report ID: {{ previous_report_id }}                                                   
+{% endif %}
+
+EXTRACTED PARAMETERS:
+{{ extracted_parameters }}
+
+MISSING CONTEXT FIELDS:
+{{ missing_context }}
+
+WORKER RESULTS SO FAR:
+{{ worker_results }}
+
+Based on this information, what is your next decision? Consider:
+1. Do we have all required context for this intent?
+2. Can we infer missing context from extracted parameters?
+3. If we need to ask the user, what specifically should we ask?
+4. Are we ready to execute a worker?
+5. Do we need multiple workers in sequence?
+6. Should we send a progress update?
+
+Return your decision as valid JSON matching the specified format.
