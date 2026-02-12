@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 pub struct DescriptionAgent {
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
@@ -17,7 +17,7 @@ pub struct DescriptionAgent {
 /// Stores the description in a separate table.
 impl DescriptionAgent {
     pub fn new(
-        client: ollama::Client,
+        client: Arc<ollama::Client>,
         request_id: String,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {

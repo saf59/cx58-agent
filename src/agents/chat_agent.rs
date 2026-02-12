@@ -7,7 +7,7 @@ use crate::agents::StreamEvent;
 use crate::{AgentContext, AppState};
 
 pub struct ChatAgent {
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
@@ -17,7 +17,7 @@ pub struct ChatAgent {
 // Must have  context that say "I'm only targeting the cx58".
 impl ChatAgent {
     pub fn new(
-        client: ollama::Client,
+        client: Arc<ollama::Client>,
         request_id: String,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {

@@ -10,7 +10,7 @@ use crate::storage::set_storage_url;
 
 pub struct DocumentAgent {
     #[allow(unused)]
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
@@ -20,7 +20,7 @@ pub struct DocumentAgent {
 /// Result: 1 owner with leaves
 impl DocumentAgent {
     pub fn new(
-        client: ollama::Client,
+        client: Arc<ollama::Client>,
         request_id: String,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {

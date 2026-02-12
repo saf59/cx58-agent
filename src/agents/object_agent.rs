@@ -8,7 +8,7 @@ use crate::db::{get_tree};
 
 pub struct ObjectAgent {
     #[allow(unused)]
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
@@ -18,7 +18,7 @@ pub struct ObjectAgent {
 /// Used to list objects that have changed over a given period
 impl ObjectAgent {
     pub fn new(
-        client: ollama::Client,
+        client: Arc<ollama::Client>,
         request_id: String,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {

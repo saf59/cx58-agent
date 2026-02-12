@@ -1,7 +1,6 @@
 use crate::agents::cancellation::RequestManager;
 use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent, DocumentAgent, ObjectAgent, Task, TaskDetector};
-use crate::{AgentContext, AgentRequest, AppState, StreamEvent};
-use rig::client::Nothing;
+use crate::{AgentContext, AgentRequest, AiConfig, AppState, StreamEvent};
 use rig::providers::ollama;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -12,7 +11,8 @@ use uuid::Uuid;
 // ============================================================================
 
 pub struct MasterAgent {
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
+    config:AiConfig,
     request_manager: Arc<RequestManager>,
 }
 /// Parameter parsing calls other models.
@@ -20,16 +20,8 @@ pub struct MasterAgent {
 /// Parameters are parsed rigidly.
 /// Further replacement with a smart model with tool selection.
 impl MasterAgent {
-    pub fn new(ai_url: &str) -> Self {
-        let client = ollama::Client::builder()
-            .api_key(Nothing)
-            .base_url(ai_url)
-            .build()
-            .unwrap();
-        Self {
-            client,
-            request_manager: Arc::new(RequestManager::new()),
-        }
+    pub fn new(client:Arc<ollama::Client>,config:AiConfig) -> Self {
+        Self { client, config, request_manager: Arc::new(RequestManager::new()) }
     }
 
     pub async fn handle_request_stream(
@@ -99,7 +91,7 @@ impl MasterAgent {
 
     async fn process_request(
         state:Arc<AppState>,
-        client: ollama::Client,
+        client: Arc<ollama::Client>,
         request: AgentRequest,
         context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
@@ -191,12 +183,29 @@ impl MasterAgent {
 
 #[cfg(test)]
 mod tests {
+    use rig::client::Nothing;
     use super::*;
     use crate::init::app_init;
     const URL:&str = "http://localhost:3050";
+
+    fn test_default() -> MasterAgent {
+        let client = Arc::new(ollama::Client::builder()
+            .api_key(Nothing)
+            .base_url(URL)
+            .build()
+            .unwrap());
+        let config = AiConfig {
+            url: URL.to_string(),
+            text_model: "test-text-model".to_string(),
+            vision_model: "test-vision-model".to_string(),
+            chat_model: "test-chat-model".to_string(),
+            agent_secret: "test-secret".to_string(),
+        };
+        MasterAgent::new(client, config)
+    }
     #[tokio::test]
     async fn test_object_task() {
-        let agent = MasterAgent::new(URL);
+        let agent = test_default();
 
         let request = sample_agent_request();
         dotenv::dotenv().ok();
@@ -245,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_chat_task() {
-        let agent = MasterAgent::new(URL);
+        let agent = test_default();
 
         let request = sample_agent_request();
         dotenv::dotenv().ok();
@@ -269,7 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_comparison_task() {
-        let agent = MasterAgent::new(URL);
+        let agent = test_default();
         
         let request = AgentRequest {
             message: "compare the last 2 documents".to_string(),

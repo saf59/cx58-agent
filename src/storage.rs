@@ -28,7 +28,7 @@ use uuid::Uuid;
 // ============================================================================
 // AppState && AiConfig
 // ============================================================================
-#[derive(Clone)]
+#[derive(Clone,Default)]
 pub struct AiConfig {
     pub url: String,
     pub text_model: String,

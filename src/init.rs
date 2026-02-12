@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
+use rig::client::Nothing;
+use rig::providers::ollama;
 use sqlx::postgres::PgPoolOptions;
 use crate::{AiConfig, AppState, MasterAgent};
 use crate::error::AppError;
@@ -90,8 +92,12 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
 
     let image_processor = Arc::new(ImageProcessor::new(storage.clone()));
 
-
-    let master_agent = Arc::new(MasterAgent::new(&ai_config.url));
+    let client = Arc::new(ollama::Client::builder()
+        .api_key(Nothing)
+        .base_url(ai_config.url.clone())
+        .build()
+        .unwrap());
+    let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
 
     // Application state
     let state = Arc::new(AppState {

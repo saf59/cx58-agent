@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 pub struct ComparisonAgent {
-    client: ollama::Client,
+    client: Arc<ollama::Client>,
     request_id: String,
     event_tx: mpsc::Sender<StreamEvent>,
 }
@@ -19,7 +19,7 @@ pub struct ComparisonAgent {
 /// Then it is converted to fixed HTML
 impl ComparisonAgent {
     pub fn new(
-        client: ollama::Client,
+        client: Arc<ollama::Client>,
         request_id: String,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {

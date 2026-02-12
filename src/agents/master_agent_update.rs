@@ -97,7 +97,7 @@ use super::{
 
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
-use crate::{AgentRequest, AppState};
+use crate::{AiConfig, AgentRequest, AppState, RequestManager};
 
 /// # MasterAgent
 ///
@@ -131,9 +131,12 @@ use crate::{AgentRequest, AppState};
 ///   RagQuery worker_type exists but is not fully formatted downstream.
 /// - No Evaluator/Compliance agent layer for quality control.
 pub struct MasterAgent {
-    intent_router: Arc<IntentRouter>,      // ← Оборачиваем в Arc
-    orchestrator: Arc<Orchestrator>,        // ← Оборачиваем в Arc
-    formatter: Arc<ResponseFormatter>,      // ← Оборачиваем в Arc
+    client: Arc<ollama::Client>,
+    config: crate::AiConfig,
+    request_manager: Arc<RequestManager>,
+    intent_router: Arc<IntentRouter>,
+    orchestrator: Arc<Orchestrator>,
+    formatter: Arc<ResponseFormatter>,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
 }
@@ -141,27 +144,30 @@ pub struct MasterAgent {
 impl MasterAgent {
     pub fn new(
         client: Arc<ollama::Client>,
-        text_model: String,
-        chat_model: String,
-        lang_manager: Arc<LocalizationManager>,
-        template_manager: Arc<TemplateManager>,
+        config: AiConfig,
     ) -> Self {
+        let lang_manager = Arc::new(LocalizationManager::new());
+        let template_manager = Arc::new(TemplateManager::new());
+
         Self {
+            client: client.clone(),
+            config: config.clone(),
+            request_manager: Arc::new(RequestManager::new()),
             intent_router: Arc::new(IntentRouter::new(
                 client.clone(),
-                chat_model.clone(),
+                config.chat_model.clone(),
                 lang_manager.clone(),
                 template_manager.clone(),
             )),
             orchestrator: Arc::new(Orchestrator::new(
                 client.clone(),
-                text_model.clone(),
+                config.text_model.clone(),
                 lang_manager.clone(),
                 template_manager.clone(),
             )),
             formatter: Arc::new(ResponseFormatter::new(
                 client.clone(),
-                text_model,
+                config.text_model.clone(),
                 lang_manager.clone(),
                 template_manager.clone(),
             )),
@@ -190,16 +196,16 @@ impl MasterAgent {
         let lang_manager = self.lang_manager.clone();
         let template_manager = self.template_manager.clone();
         let state = state.clone();
-
+        let agent = self.clone();
         tokio::spawn(async move {
-            let agent = MasterAgent {
+/*            let agent = MasterAgent {
                 intent_router,
                 orchestrator,
                 formatter,
                 lang_manager: lang_manager.clone(),
                 template_manager: template_manager.clone(),
             };
-
+*/
             if let Err(e) = agent.process_request(state, request, tx.clone()).await {
                 let mut ctx = Context::new();
                 ctx.insert("error", &e.to_string());
@@ -526,6 +532,9 @@ impl MasterAgent {
 impl Clone for MasterAgent {
     fn clone(&self) -> Self {
         Self {
+            client: self.client.clone(),
+            config: self.config.clone(),
+            request_manager: self.request_manager.clone(),
             intent_router: self.intent_router.clone(),
             orchestrator: self.orchestrator.clone(),
             formatter: self.formatter.clone(),
