@@ -8,7 +8,7 @@ use crate::{AgentContext, AppState};
 
 pub struct ChatAgent {
     client: Arc<ollama::Client>,
-    request_id: String,
+    context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
 }
 
@@ -18,12 +18,12 @@ pub struct ChatAgent {
 impl ChatAgent {
     pub fn new(
         client: Arc<ollama::Client>,
-        request_id: String,
+        context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {
         Self {
             client,
-            request_id,
+            context,
             event_tx,
         }
     }
@@ -35,28 +35,26 @@ impl ChatAgent {
     pub async fn execute(
         &self,
         state:Arc<AppState>,
-        prompt: &str,
-        context: &AgentContext,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let agent = self
             .client
             .agent(&state.ai_config.text_model)
             .preamble(&format!(
                 "You are a friendly chat assistant. Respond naturally in {} language.",
-                context.language
+                self.context.language
             ))
             .build();
-        context.cancellation_token.check().await?;
-        let response = agent.prompt(prompt).await?;
-        context.cancellation_token.check().await?;
+        self.context.cancellation_token.check().await?;
+        let response = agent.prompt(&self.context.message).await?;
+        self.context.cancellation_token.check().await?;
         // Send response in chunks for streaming effect
         let chunk_size = 20;
         for chunk in response.chars().collect::<Vec<_>>().chunks(chunk_size) {
-            context.cancellation_token.check().await?;
+            self.context.cancellation_token.check().await?;
             let chunk_str: String = chunk.iter().collect();
-            log::info!("Sending text chunk:{} {}", &self.request_id, chunk_str);
+            log::info!("Sending text chunk:{} {}", &self.context.request_id, chunk_str);
             self.send_event(StreamEvent::TextChunk {
-                request_id: self.request_id.clone(),
+                request_id: self.context.request_id.clone(),
                 chunk: chunk_str,
             })
             .await;

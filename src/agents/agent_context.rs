@@ -6,6 +6,7 @@ use crate::{AgentRequest, CancellationToken};
 
 #[derive(Debug, Clone)]
 pub struct AgentContext {
+    pub message: String,
     pub request_id: String,
     pub user_id: String,
     pub chat_id: String,
@@ -20,6 +21,7 @@ pub struct AgentContext {
 impl AgentContext {
     pub fn from_request(request_id: String, req: AgentRequest, cancellation_token: CancellationToken) -> Self {
         Self {
+            message: req.message,
             request_id,
             user_id: req.user_id,
             chat_id: req.chat_id,

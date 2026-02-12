@@ -48,7 +48,7 @@ impl MasterAgent {
                 .await;
 
             // Process request
-            let result = Self::process_request(state.clone(), client, request, context, tx.clone()).await;
+            let result = Self::process_request(state.clone(), client, context, tx.clone()).await;
 
             // Send final event
             match result {
@@ -92,7 +92,6 @@ impl MasterAgent {
     async fn process_request(
         state:Arc<AppState>,
         client: Arc<ollama::Client>,
-        request: AgentRequest,
         context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -108,11 +107,11 @@ impl MasterAgent {
 
         // Parse the prompt
         let mut parser = ContextParser::new();
-        let prompt_context = parser.parse(&context.language, &request.message)?;
+        let prompt_context = parser.parse(&context.language, &context.message)?;
 
         // Detect task
         let detector = TaskDetector::new();
-        let task = detector.detect_task(&prompt_context, &request.message)?;
+        let task = detector.detect_task(&prompt_context, &context.message)?;
 
         context.cancellation_token.check().await?;
 
@@ -130,42 +129,42 @@ impl MasterAgent {
             Task::Object { parameters } => {
                 let agent = ObjectAgent::new(
                     client,
-                    context.request_id.clone(),
+                    context.clone(),
                     event_tx.clone(),
                 );
-                agent.execute(state, &request.message, &context, &parameters).await?
+                agent.execute(state, &parameters).await?
             }
             Task::Document { parameters } => {
                 let agent = DocumentAgent::new(
                     client,
-                    context.request_id.clone(),
+                    context.clone(),
                     event_tx.clone(),
                 );
-                agent.execute(state, &request.message, &context, &parameters).await?
+                agent.execute(state, &parameters).await?
             }
             Task::Description { parameters } => {
                 let agent = DescriptionAgent::new(
                     client,
-                    context.request_id.clone(),
+                    context,
                     event_tx.clone(),
                 );
-                agent.execute(state, &request.message, &context, &parameters).await?
+                agent.execute(state, &parameters).await?
             }
             Task::Comparison { parameters } => {
                 let agent = ComparisonAgent::new(
                     client,
-                    context.request_id.clone(),
+                    context.clone(),
                     event_tx.clone(),
                 );
-                agent.execute(state, &request.message, &context, &parameters).await?
+                agent.execute(state, &parameters).await?
             }
             Task::Chat => {
                 let agent = ChatAgent::new(
                     client,
-                    context.request_id.clone(),
+                    context.clone(),
                     event_tx.clone(),
                 );
-                agent.execute(state, &request.message, &context).await?
+                agent.execute(state).await?
             }
         };
 

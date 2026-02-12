@@ -8,7 +8,7 @@ use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 pub struct ComparisonAgent {
     client: Arc<ollama::Client>,
-    request_id: String,
+    context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
 }
 /// Loads two media file descriptions
@@ -20,12 +20,12 @@ pub struct ComparisonAgent {
 impl ComparisonAgent {
     pub fn new(
         client: Arc<ollama::Client>,
-        request_id: String,
+        context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {
         Self {
             client,
-            request_id,
+            context,
             event_tx,
         }
     }
@@ -37,13 +37,11 @@ impl ComparisonAgent {
     pub async fn execute(
         &self,
         state:Arc<AppState>,
-        prompt: &str,
-        _context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Send initial text chunk
         self.send_event(StreamEvent::TextChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             chunk: "Performing comparison analysis...\n".to_string(),
         })
         .await;
@@ -51,7 +49,7 @@ impl ComparisonAgent {
         // Build agent prompt
         let agent_prompt = format!(
             "You are a comparison analyst. Compare items based on: {}\nParameters: last={}, all={}, period={:?}, amount={:?}",
-            prompt, parameters.last, parameters.all, parameters.period, parameters.amount
+            self.context.message, parameters.last, parameters.all, parameters.period, parameters.amount
         );
 
         let agent = self
@@ -64,7 +62,7 @@ impl ComparisonAgent {
 
         // Send text description
         self.send_event(StreamEvent::TextChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             chunk: format!("Comparison results:\n{}\n", response),
         })
         .await;
@@ -123,7 +121,7 @@ impl ComparisonAgent {
         });
 
         self.send_event(StreamEvent::ComparisonChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             data: comparison_data,
         })
         .await;

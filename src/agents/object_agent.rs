@@ -9,7 +9,7 @@ use crate::db::{get_tree};
 pub struct ObjectAgent {
     #[allow(unused)]
     client: Arc<ollama::Client>,
-    request_id: String,
+    context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
 }
 /// It is not real AI agent at all.
@@ -19,12 +19,12 @@ pub struct ObjectAgent {
 impl ObjectAgent {
     pub fn new(
         client: Arc<ollama::Client>,
-        request_id: String,
+        context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {
         Self {
             client,
-            request_id,
+            context,
             event_tx,
         }
     }
@@ -36,16 +36,14 @@ impl ObjectAgent {
     pub async fn execute(
         &self,
         state:Arc<AppState>,
-        _prompt: &str,
-        context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
 
-        let tree = get_tree(&state.db, &context.user_id, true).await?;
+        let tree = get_tree(&state.db, &self.context.user_id, true).await?;
         let filtered = get_filtered_tree(tree, parameters).await?;
         if filtered.is_empty() {
             self.send_event(StreamEvent::TextChunk {
-                request_id: self.request_id.clone(),
+                request_id: self.context.request_id.clone(),
                 chunk: "No objects found matching the criteria.\n".to_string(),
             })
             .await;
@@ -53,7 +51,7 @@ impl ObjectAgent {
         }
         let json_data = json!(filtered);
         self.send_event(StreamEvent::ObjectChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             data: json_data,
         })
             .await;

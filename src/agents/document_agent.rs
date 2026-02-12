@@ -11,7 +11,7 @@ use crate::storage::set_storage_url;
 pub struct DocumentAgent {
     #[allow(unused)]
     client: Arc<ollama::Client>,
-    request_id: String,
+    context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
 }
 /// Retrieves and manages document objects based on user requests.
@@ -21,12 +21,12 @@ pub struct DocumentAgent {
 impl DocumentAgent {
     pub fn new(
         client: Arc<ollama::Client>,
-        request_id: String,
+        context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {
         Self {
             client,
-            request_id,
+            context,
             event_tx,
         }
     }
@@ -38,13 +38,11 @@ impl DocumentAgent {
     pub async fn execute(
         &self,
         state:Arc<AppState>,
-        _prompt: &str,
-        context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
 
         let pool = &state.db;
-        let node_id: &str = context.object_id.as_ref()
+        let node_id: &str = self.context.object_id.as_ref()
             .expect("Object ID is required for DescriptionAgent");
         let node_id = Uuid::parse_str(node_id).expect("Invalid UUID format for Object ID");
         let limit = if parameters.all { 100 } else { 2 };
@@ -59,7 +57,7 @@ impl DocumentAgent {
         };
         if data.is_empty() {
             self.send_event(StreamEvent::TextChunk {
-                request_id: self.request_id.clone(),
+                request_id: self.context.request_id.clone(),
                 chunk: "No documents found matching the criteria.\n".to_string(),
             })
             .await;
@@ -76,7 +74,7 @@ impl DocumentAgent {
         }
         let json_data = json!(data);
         self.send_event(StreamEvent::DocumentChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             data: json_data,
         })
             .await;

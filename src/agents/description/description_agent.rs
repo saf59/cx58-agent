@@ -8,7 +8,7 @@ use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
-    request_id: String,
+    context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
 }
 /// Retrieves a description of a media file.
@@ -18,12 +18,12 @@ pub struct DescriptionAgent {
 impl DescriptionAgent {
     pub fn new(
         client: Arc<ollama::Client>,
-        request_id: String,
+        context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {
         Self {
             client,
-            request_id,
+            context,
             event_tx,
         }
     }
@@ -35,13 +35,11 @@ impl DescriptionAgent {
     pub async fn execute(
         &self,
         state: Arc<AppState>,
-        prompt: &str,
-        _context: &AgentContext,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Send initial text chunk
         self.send_event(StreamEvent::TextChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             chunk: "Generating description...\n".to_string(),
         })
             .await;
@@ -49,7 +47,7 @@ impl DescriptionAgent {
         // Build agent prompt
         let agent_prompt = format!(
             "You are a description generator. Provide detailed description for: {}\nParameters: last={}, all={}, period={:?}, amount={:?}",
-            prompt, parameters.last, parameters.all, parameters.period, parameters.amount
+            self.context.message, parameters.last, parameters.all, parameters.period, parameters.amount
         );
 
         let agent = self
@@ -62,7 +60,7 @@ impl DescriptionAgent {
 
         // Send text description
         self.send_event(StreamEvent::TextChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             chunk: format!("Description:\n{}\n", response),
         })
             .await;
@@ -101,7 +99,7 @@ impl DescriptionAgent {
         });
 
         self.send_event(StreamEvent::DescriptionChunk {
-            request_id: self.request_id.clone(),
+            request_id: self.context.request_id.clone(),
             data: description_data,
         })
             .await;

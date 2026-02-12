@@ -97,7 +97,7 @@ use super::{
 
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
-use crate::{AiConfig, AgentRequest, AppState, RequestManager};
+use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext};
 
 /// # MasterAgent
 ///
@@ -132,7 +132,7 @@ use crate::{AiConfig, AgentRequest, AppState, RequestManager};
 /// - No Evaluator/Compliance agent layer for quality control.
 pub struct MasterAgent {
     client: Arc<ollama::Client>,
-    config: crate::AiConfig,
+    config: AiConfig,
     request_manager: Arc<RequestManager>,
     intent_router: Arc<IntentRouter>,
     orchestrator: Arc<Orchestrator>,
@@ -189,24 +189,15 @@ impl MasterAgent {
     ) -> mpsc::Receiver<StreamChunk> {
         let (tx, rx) = mpsc::channel(100);
 
-        // Клонируем Arc-ссылки (дешево!)
-        let intent_router = self.intent_router.clone();
-        let orchestrator = self.orchestrator.clone();
-        let formatter = self.formatter.clone();
-        let lang_manager = self.lang_manager.clone();
         let template_manager = self.template_manager.clone();
         let state = state.clone();
         let agent = self.clone();
         tokio::spawn(async move {
-/*            let agent = MasterAgent {
-                intent_router,
-                orchestrator,
-                formatter,
-                lang_manager: lang_manager.clone(),
-                template_manager: template_manager.clone(),
-            };
-*/
-            if let Err(e) = agent.process_request(state, request, tx.clone()).await {
+            let request_id  = Uuid::now_v7().to_string();
+            let cancellation_token = agent.request_manager.register(request_id.clone()).await;
+            let context = AgentContext::from_request(request_id.clone(), request.clone(), cancellation_token.clone());
+
+            if let Err(e) = agent.process_request(state, context, tx.clone()).await {
                 let mut ctx = Context::new();
                 ctx.insert("error", &e.to_string());
 
@@ -227,36 +218,33 @@ impl MasterAgent {
     async fn process_request(
         &self,
         state: Arc<AppState>,
-        request: AgentRequest,
+        context: AgentContext,
         tx: mpsc::Sender<StreamChunk>,
     ) -> Result<()> {
         let start_time = Instant::now();
-        let _request_id = Uuid::now_v7().to_string();
-        
-        // TODO: request_id generated but never propagated to workers or logs.
-        // request tracing for debugging and observability.
-        
-        let lang = Language::from_short(&request.language);
+
+        let lang = Language::from_short(&context.language);
         let lang_code = lang.to_code();
         
         let analyzing_msg = self.lang_manager.get_msg(lang_code, "progress-analyzing");
         tx.send(StreamChunk::Progress {
+            request_id: context.request_id.clone(),
             status: "analyzing".to_string(),
             percent: 10,
             message: analyzing_msg,
         }).await?;
         
-        let context = UserContext {
-            user_id: request.user_id.clone(),
-            chat_id: request.chat_id.clone(),
+        let user_context = UserContext {
+            user_id: context.user_id.clone(),
+            chat_id: context.chat_id.clone(),
             language: lang.clone(),
-            object_id: request.object_id.clone(),
-            current_report_id: request.next_leaf.clone(),
-            previous_report_id: request.prev_leaf.clone(),
+            object_id: context.object_id.clone(),
+            current_report_id: context.next_leaf.clone(),
+            previous_report_id: context.prev_leaf.clone(),
         };
         
         let classification = self.intent_router
-            .classify(&request.message, &context, &[])
+            .classify(&context.message, &user_context, &[])
             .await?;
         
         // TODO (Ambiguity Gap):
@@ -265,10 +253,10 @@ impl MasterAgent {
         
         if matches!(classification.intent, Intent::OutOfScope) {
             let message = self.formatter
-                .format_out_of_scope(&context.language, &request.message)
+                .format_out_of_scope(&user_context.language, &context.message)
                 .await?;
             
-            self.send_text_chunks(&tx, &message, &context.language).await?;
+            self.send_text_chunks(&tx, &message, &user_context.language).await?;
             
             tx.send(StreamChunk::Complete {
                 total_time_ms: start_time.elapsed().as_millis() as u64,
@@ -279,20 +267,21 @@ impl MasterAgent {
         
         let validation_msg = self.lang_manager.get_msg(lang_code, "progress-context-validation");
         tx.send(StreamChunk::Progress {
+            request_id: context.request_id.clone(),
             status: "context_validation".to_string(),
             percent: 30,
             message: validation_msg,
         }).await?;
         
         let mut worker_results = Vec::new();
-        let current_context = context.clone();
+        let current_context = user_context.clone();
         
         loop {
             let decision = self.orchestrator
                 .decide_next_step(
                     &classification,
                     &current_context,
-                    &request.message,
+                    &context.message,
                     &worker_results,
                 )
                 .await?;
@@ -309,6 +298,7 @@ impl MasterAgent {
                         .unwrap_or_else(|_| format!("Executing {:?}...", worker_req.worker_type));
                     
                     tx.send(StreamChunk::Progress {
+                        request_id: context.request_id.clone(),
                         status: "executing_worker".to_string(),
                         percent: 50,
                         message: executing_msg,
@@ -341,6 +331,7 @@ impl MasterAgent {
                 
                 OrchestratorDecision::SendProgress { status, percent, message } => {
                     tx.send(StreamChunk::Progress {
+                        request_id: context.request_id.clone(),
                         status,
                         percent,
                         message,
@@ -350,6 +341,7 @@ impl MasterAgent {
                 OrchestratorDecision::FormatAndReturn { worker_results: decision_results } => {
                     let formatting_msg = self.lang_manager.get_msg(lang_code, "progress-formatting");
                     tx.send(StreamChunk::Progress {
+                        request_id: context.request_id.clone(),
                         status: "formatting".to_string(),
                         percent: 80,
                         message: formatting_msg,

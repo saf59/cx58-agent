@@ -150,6 +150,7 @@ pub enum WorkerParameters {
 #[serde(tag = "chunk_type", content = "data")]
 pub enum StreamChunk {
     Progress {
+        request_id: String,
         status: String,
         percent: u8,
         message: String,
