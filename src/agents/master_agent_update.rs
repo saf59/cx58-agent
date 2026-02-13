@@ -97,7 +97,7 @@ use super::{
 
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
-use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext};
+use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext, StreamEvent};
 
 /// # MasterAgent
 ///
@@ -186,7 +186,7 @@ impl MasterAgent {
         &self,
         state: Arc<AppState>,
         request: AgentRequest,
-    ) -> mpsc::Receiver<StreamChunk> {
+    ) -> mpsc::Receiver<StreamEvent> {
         let (tx, rx) = mpsc::channel(100);
 
         let template_manager = self.template_manager.clone();
@@ -196,8 +196,15 @@ impl MasterAgent {
             let request_id  = Uuid::now_v7().to_string();
             let cancellation_token = agent.request_manager.register(request_id.clone()).await;
             let context = AgentContext::from_request(request_id.clone(), request.clone(), cancellation_token.clone());
+            // Send start event
+            let _ = tx
+                .send(StreamEvent::Started {
+                    request_id: request_id.clone(),
+                    timestamp: chrono::Utc::now().timestamp(),
+                })
+                .await;
 
-            if let Err(e) = agent.process_request(state, context, tx.clone()).await {
+            if let Err(e) = agent.process_request(state, context.clone(), tx.clone()).await {
                 let mut ctx = Context::new();
                 ctx.insert("error", &e.to_string());
 
@@ -205,9 +212,10 @@ impl MasterAgent {
                     .render("en", "error-agent", ctx)
                     .unwrap_or_else(|_| format!("Agent error: {}", e));
 
-                let _ = tx.send(StreamChunk::Error {
-                    message: error_msg,
-                    code: "AGENT_ERROR".to_string(),
+                let _ = tx.send(StreamEvent::Error {
+                    request_id: context.request_id.clone(),
+                    error: error_msg,
+                    // code: "AGENT_ERROR".to_string(),
                 }).await;
             }
         });
@@ -219,7 +227,7 @@ impl MasterAgent {
         &self,
         state: Arc<AppState>,
         context: AgentContext,
-        tx: mpsc::Sender<StreamChunk>,
+        tx: mpsc::Sender<StreamEvent>,
     ) -> Result<()> {
         let start_time = Instant::now();
 
@@ -227,7 +235,7 @@ impl MasterAgent {
         let lang_code = lang.to_code();
         
         let analyzing_msg = self.lang_manager.get_msg(lang_code, "progress-analyzing");
-        tx.send(StreamChunk::Progress {
+        tx.send(StreamEvent::Progress {
             request_id: context.request_id.clone(),
             status: "analyzing".to_string(),
             percent: 10,
@@ -256,9 +264,10 @@ impl MasterAgent {
                 .format_out_of_scope(&user_context.language, &context.message)
                 .await?;
             
-            self.send_text_chunks(&tx, &message, &user_context.language).await?;
+            self.send_text_chunks(&tx, &message, &context.request_id, &user_context.language).await?;
             
-            tx.send(StreamChunk::Complete {
+            tx.send(StreamEvent::Completed {
+                request_id: context.request_id.clone(),
                 total_time_ms: start_time.elapsed().as_millis() as u64,
             }).await?;
             
@@ -266,7 +275,7 @@ impl MasterAgent {
         }
         
         let validation_msg = self.lang_manager.get_msg(lang_code, "progress-context-validation");
-        tx.send(StreamChunk::Progress {
+        tx.send(StreamEvent::Progress {
             request_id: context.request_id.clone(),
             status: "context_validation".to_string(),
             percent: 30,
@@ -297,7 +306,7 @@ impl MasterAgent {
                         .render(lang_code, "progress-executing-worker", ctx)
                         .unwrap_or_else(|_| format!("Executing {:?}...", worker_req.worker_type));
                     
-                    tx.send(StreamChunk::Progress {
+                    tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
                         status: "executing_worker".to_string(),
                         percent: 50,
@@ -318,19 +327,20 @@ impl MasterAgent {
                     } else {
                         prompt
                     };
-                    tx.send(StreamChunk::TextChunk {
-                        content: prompt_with_suggestions,
-                        language: current_context.language.as_str().to_string(),
+                    tx.send(StreamEvent::TextChunk {
+                        request_id: context.request_id.clone(),
+                        chunk: prompt_with_suggestions,
                     }).await?;
                     
-                    tx.send(StreamChunk::Complete {
+                    tx.send(StreamEvent::Completed {
+                        request_id: context.request_id.clone(),
                         total_time_ms: start_time.elapsed().as_millis() as u64,
                     }).await?;
                     return Ok(());
                 }
                 
                 OrchestratorDecision::SendProgress { status, percent, message } => {
-                    tx.send(StreamChunk::Progress {
+                    tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
                         status,
                         percent,
@@ -340,7 +350,7 @@ impl MasterAgent {
                 
                 OrchestratorDecision::FormatAndReturn { worker_results: decision_results } => {
                     let formatting_msg = self.lang_manager.get_msg(lang_code, "progress-formatting");
-                    tx.send(StreamChunk::Progress {
+                    tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
                         status: "formatting".to_string(),
                         percent: 80,
@@ -351,6 +361,7 @@ impl MasterAgent {
                         &tx,
                         &classification.intent,
                         &decision_results,
+                        &context,
                         &current_context,
                     ).await?;
 
@@ -358,16 +369,17 @@ impl MasterAgent {
                 }
                 
                 OrchestratorDecision::Reject { reason: _, message } => {
-                    tx.send(StreamChunk::TextChunk {
-                        content: message,
-                        language: current_context.language.as_str().to_string(),
+                    tx.send(StreamEvent::TextChunk {
+                        request_id: context.request_id.clone(),
+                        chunk: message,
                     }).await?;
                     break;
                 }
             }
         }
         
-        tx.send(StreamChunk::Complete {
+        tx.send(StreamEvent::Completed {
+            request_id: context.request_id.clone(),
             total_time_ms: start_time.elapsed().as_millis() as u64,
         }).await?;
         
@@ -427,19 +439,20 @@ impl MasterAgent {
     
     async fn format_and_stream_response(
         &self,
-        tx: &mpsc::Sender<StreamChunk>,
+        tx: &mpsc::Sender<StreamEvent>,
         intent: &Intent,
         worker_results: &[WorkerResponse],
-        context: &UserContext,
+        context: &AgentContext,
+        user_context: &UserContext,
     ) -> Result<()> {
         match intent {
             Intent::DescribeReport => {
                 if let Some(result) = worker_results.first() {
                     let description = self.formatter
-                        .format_description(&result.data, &context.language, "report-id")
+                        .format_description(&result.data, &user_context.language, "report-id")
                         .await?;
                     
-                    self.send_text_chunks(tx, &description, &context.language).await?;
+                    self.send_text_chunks(tx, &description, &context.request_id, &user_context.language).await?;
                 }
             }
             
@@ -449,13 +462,14 @@ impl MasterAgent {
                         .format_comparison(
                             &worker_results[0].data.to_string(),
                             &worker_results[1].data.to_string(),
-                            &context.language,
+                            &user_context.language,
                             "report-1",
                             "report-2",
                         )
                         .await?;
                     
-                    tx.send(StreamChunk::Comparison {
+                    tx.send(StreamEvent::Comparison {
+                        request_id: context.request_id.clone(),
                         data: comparison,
                     }).await?;
                 }
@@ -463,7 +477,8 @@ impl MasterAgent {
             
             Intent::GetObjectTree => {
                 if let Some(result) = worker_results.first() {
-                    tx.send(StreamChunk::ObjectTree {
+                    tx.send(StreamEvent::ObjectTree {
+                        request_id: context.request_id.clone(),
                         data: result.data.clone(),
                     }).await?;
                 }
@@ -476,8 +491,9 @@ impl MasterAgent {
                         .cloned()
                         .unwrap_or_default();
                     
-                    tx.send(StreamChunk::ReportList {
-                        data: reports,
+                    tx.send(StreamEvent::ReportList {
+                        request_id: context.request_id.clone(),
+                        data: reports.into(),
                     }).await?;
                 }
             }
@@ -495,8 +511,9 @@ impl MasterAgent {
     
     async fn send_text_chunks(
         &self,
-        tx: &mpsc::Sender<StreamChunk>,
+        tx: &mpsc::Sender<StreamEvent>,
         text: &str,
+        request_id: &str,
         language: &Language,
     ) -> Result<()> {
         // TODO:
@@ -508,9 +525,9 @@ impl MasterAgent {
         
         for sentence in sentences {
             if !sentence.trim().is_empty() {
-                tx.send(StreamChunk::TextChunk {
-                    content: format!("{}. ", sentence.trim()),
-                    language: language.as_str().to_string(),
+                tx.send(StreamEvent::TextChunk {
+                    request_id: request_id.to_string(),
+                    chunk: format!("{}. ", sentence.trim()),
                 }).await?;
                 
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;

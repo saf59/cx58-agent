@@ -73,7 +73,7 @@ impl DocumentAgent {
             }
         }
         let json_data = json!(data);
-        self.send_event(StreamEvent::DocumentChunk {
+        self.send_event(StreamEvent::ReportList {
             request_id: self.context.request_id.clone(),
             data: json_data,
         })

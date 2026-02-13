@@ -146,9 +146,14 @@ pub enum WorkerParameters {
     },
 }
 // SSE Stream Chunks
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "chunk_type", content = "data")]
-pub enum StreamChunk {
+/*#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data",rename_all = "snake_case")]
+pub enum StreamEvent {
+    // Lifecycle events
+    Started {
+        request_id: String,
+        timestamp: i64,
+    },
     Progress {
         request_id: String,
         status: String,
@@ -156,32 +161,45 @@ pub enum StreamChunk {
         message: String,
     },
     ObjectTree {
-        data: serde_json::Value,
-    },
-    ReportList {
-        data: Vec<serde_json::Value>,
-    },
-    Description {
-        report_id: String,
-        text: String,
-        is_complete: bool,
-    },
-    Comparison {
+        request_id: String,
         data: serde_json::Value,
     },
     TextChunk {
-        content: String,
-        language: String,
+        request_id: String,
+        chunk: String,
+       // language: String,
     },
-    Error {
-        message: String,
-        code: String,
+    ReportList {
+        request_id: String,
+        data: serde_json::Value, // TODO
+        //data: Vec<serde_json::Value>,
     },
-    Complete {
+    Description {
+        request_id: String,
+        data: serde_json::Value,
+        // report_id: String,
+        // text: String,
+        // is_complete: bool,
+    },
+    Comparison {
+        request_id: String,
+        data: serde_json::Value,
+    },
+    Completed {
+        request_id: String,
         total_time_ms: u64,
     },
+    Error {
+        request_id: String,
+        error: String,
+    },
+    // Cancelled events
+    Cancelled {
+        request_id: String,
+        reason: String,
+    },
 }
-
+*/
 // Orchestrator Decision
 #[derive(Debug, Clone)]
 pub enum OrchestratorDecision {

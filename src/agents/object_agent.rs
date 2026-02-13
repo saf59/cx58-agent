@@ -50,7 +50,7 @@ impl ObjectAgent {
             return Ok("No objects found.".to_string());
         }
         let json_data = json!(filtered);
-        self.send_event(StreamEvent::ObjectChunk {
+        self.send_event(StreamEvent::ObjectTree {
             request_id: self.context.request_id.clone(),
             data: json_data,
         })

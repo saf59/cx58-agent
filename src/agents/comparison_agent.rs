@@ -120,7 +120,7 @@ impl ComparisonAgent {
             }
         });
 
-        self.send_event(StreamEvent::ComparisonChunk {
+        self.send_event(StreamEvent::Comparison {
             request_id: self.context.request_id.clone(),
             data: comparison_data,
         })

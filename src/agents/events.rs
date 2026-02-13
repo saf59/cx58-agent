@@ -8,54 +8,50 @@ pub enum StreamEvent {
         request_id: String,
         timestamp: i64,
     },
-
     // Coordinator events
-    CoordinatorThinking {
+    Progress {
         request_id: String,
+        status: String,
+        percent: u8,
         message: String,
     },
-
+    // Specialized chunk events
+    ObjectTree {
+        request_id: String,
+        data: serde_json::Value,
+    },
     // Content generation events
     TextChunk {
         request_id: String,
         chunk: String,
     },
 
-    // Specialized chunk events
-    ObjectChunk {
+    ReportList {
         request_id: String,
         data: serde_json::Value,
     },
 
-    DocumentChunk {
+    Description {
         request_id: String,
         data: serde_json::Value,
     },
 
-    DescriptionChunk {
+    Comparison {
         request_id: String,
         data: serde_json::Value,
     },
-
-    ComparisonChunk {
-        request_id: String,
-        data: serde_json::Value,
-    },
-
     // Completion events
     Completed {
         request_id: String,
-        final_result: String,
-        timestamp: i64,
+        //final_result: String,
+        //timestamp: i64,
+        total_time_ms: u64,
     },
-
     // Error events
     Error {
         request_id: String,
         error: String,
-        recoverable: bool,
     },
-
     // Cancelled events
     Cancelled {
         request_id: String,

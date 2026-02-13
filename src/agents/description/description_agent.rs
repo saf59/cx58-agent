@@ -98,7 +98,7 @@ impl DescriptionAgent {
             }
         });
 
-        self.send_event(StreamEvent::DescriptionChunk {
+        self.send_event(StreamEvent::Description {
             request_id: self.context.request_id.clone(),
             data: description_data,
         })

@@ -114,7 +114,6 @@ pub async fn chat_stream_handler(
                     let error_event = StreamEvent::Error {
                         request_id: "unknown".to_string(),
                         error: format!("Serialization error: {}", e),
-                        recoverable: false,
                     };
 
                     if let Ok(json_data) = serde_json::to_string(&error_event) {

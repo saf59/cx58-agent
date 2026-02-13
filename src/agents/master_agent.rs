@@ -3,6 +3,7 @@ use crate::agents::{ChatAgent, ComparisonAgent, ContextParser, DescriptionAgent,
 use crate::{AgentContext, AgentRequest, AiConfig, AppState, StreamEvent};
 use rig::providers::ollama;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -30,7 +31,7 @@ impl MasterAgent {
         request: AgentRequest
     ) -> mpsc::Receiver<StreamEvent> {
         let (tx, rx) = mpsc::channel(100);
-
+        let start_time = Instant::now();
         let client = self.client.clone();
         let request_manager = self.request_manager.clone();
 
@@ -56,8 +57,8 @@ impl MasterAgent {
                     let _ = tx
                         .send(StreamEvent::Completed {
                             request_id: request_id.clone(),
-                            final_result,
-                            timestamp: chrono::Utc::now().timestamp(),
+                            total_time_ms: start_time.elapsed().as_millis() as u64,
+                            //timestamp: chrono::Utc::now().timestamp(),
                         })
                         .await;
                 }
@@ -76,7 +77,6 @@ impl MasterAgent {
                             .send(StreamEvent::Error {
                                 request_id: request_id.clone(),
                                 error: e.to_string(),
-                                recoverable: false,
                             })
                             .await;
                     }
@@ -97,8 +97,10 @@ impl MasterAgent {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Send coordinator thinking event
         let _ = event_tx
-            .send(StreamEvent::CoordinatorThinking {
+            .send(StreamEvent::Progress {
                 request_id: context.request_id.clone(),
+                status: "in_process".to_string(),
+                percent: 10,
                 message: "Analyzing request and determining task type...".to_string(),
             })
             .await;
@@ -116,8 +118,10 @@ impl MasterAgent {
         context.cancellation_token.check().await?;
 
         let _ = event_tx
-            .send(StreamEvent::CoordinatorThinking {
+            .send(StreamEvent::Progress {
                 request_id: context.request_id.clone(),
+                status: "in_process".to_string(),
+                percent: 10,
                 message: format!("Processing '{:?}' in progress...",task),
             })
             .await;
@@ -215,13 +219,13 @@ mod tests {
         while let Some(event) = rx.recv().await {
             match event {
                 StreamEvent::Started { .. } => println!("✓ Started"),
-                StreamEvent::CoordinatorThinking { message, .. } => {
+                StreamEvent::Progress { message, .. } => {
                     println!("🤔 {}", message);
                 }
                 StreamEvent::TextChunk { chunk, .. } => {
                     print!("{}", chunk);
                 }
-                StreamEvent::ObjectChunk { data, .. } => {
+                StreamEvent::ObjectTree { data, .. } => {
                     println!("\n📦 Object data: {}", serde_json::to_string_pretty(&data).unwrap());
                 }
                 StreamEvent::Completed { .. } => {
@@ -296,7 +300,7 @@ mod tests {
 
         while let Some(event) = rx.recv().await {
             match event {
-                StreamEvent::ComparisonChunk { data, .. } => {
+                StreamEvent::Comparison { data, .. } => {
                     println!("\n🔄 Comparison: {}", serde_json::to_string_pretty(&data).unwrap());
                 }
                 StreamEvent::Completed { .. } => {
