@@ -1,10 +1,11 @@
-use std::sync::Arc;
-use rig::providers::ollama;
+use std::error::Error;
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 use rig::completion::Prompt;
 use rig::prelude::CompletionClient;
-use tokio::sync::mpsc;
+use rig::providers::ollama;
 use serde_json::json;
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub struct ComparisonAgent {
     client: Arc<ollama::Client>,
@@ -36,20 +37,26 @@ impl ComparisonAgent {
 
     pub async fn execute(
         &self,
-        state:Arc<AppState>,
-        parameters: &TaskParameters,
+        state: Arc<AppState>,
+        _parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let report_id_1 = self.context.prev_leaf.clone().unwrap_or_default();
+        let report_id_2 = self.context.next_leaf.clone().unwrap_or_default();
+        self.execute_comparision(&state, &report_id_1, &report_id_2).await?
+    }
+
+    pub async fn execute_comparision(&self, state: &Arc<AppState>, report_id_1: &str, report_id_2: &str) -> Result<Result<String, Box<dyn Error + Send + Sync>>, Box<dyn Error + Send + Sync>> {
         // Send initial text chunk
         self.send_event(StreamEvent::TextChunk {
             request_id: self.context.request_id.clone(),
             chunk: "Performing comparison analysis...\n".to_string(),
         })
-        .await;
+            .await;
 
         // Build agent prompt
         let agent_prompt = format!(
-            "You are a comparison analyst. Compare items based on: {}\nParameters: last={}, all={}, period={:?}, amount={:?}",
-            self.context.message, parameters.last, parameters.all, parameters.period, parameters.amount
+            "You are a comparison analyst. Compare items based on: {}\nParameters: prev={}, next={}",
+            self.context.message, report_id_1, report_id_2
         );
 
         let agent = self
@@ -65,7 +72,7 @@ impl ComparisonAgent {
             request_id: self.context.request_id.clone(),
             chunk: format!("Comparison results:\n{}\n", response),
         })
-        .await;
+            .await;
 
         // Send structured data
         let comparison_data = json!({
@@ -112,20 +119,14 @@ impl ComparisonAgent {
                     "reasoning": "Better value for most use cases"
                 }
             },
-            "parameters": {
-                "last": parameters.last,
-                "all": parameters.all,
-                "period": format!("{:?}", parameters.period),
-                "amount": parameters.amount
-            }
         });
 
         self.send_event(StreamEvent::Comparison {
             request_id: self.context.request_id.clone(),
             data: comparison_data,
         })
-        .await;
+            .await;
 
-        Ok(response)
+        Ok(Ok(response))
     }
 }

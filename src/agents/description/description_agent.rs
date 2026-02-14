@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::sync::Arc;
 use rig::providers::ollama;
 use rig::completion::Prompt;
@@ -37,6 +38,13 @@ impl DescriptionAgent {
         state: Arc<AppState>,
         parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let report_id = self.context.prev_leaf.clone().unwrap_or_default();
+
+        self.execute_by_id(&state, &report_id).await?
+    }
+
+    pub async fn execute_by_id(&self, state: &Arc<AppState>, report_id: &str) -> Result<Result<String, Box<dyn Error + Send + Sync>>, Box<dyn Error + Send + Sync>> {
+
         // Send initial text chunk
         self.send_event(StreamEvent::TextChunk {
             request_id: self.context.request_id.clone(),
@@ -45,10 +53,7 @@ impl DescriptionAgent {
             .await;
 
         // Build agent prompt
-        let agent_prompt = format!(
-            "You are a description generator. Provide detailed description for: {}\nParameters: last={}, all={}, period={:?}, amount={:?}",
-            self.context.message, parameters.last, parameters.all, parameters.period, parameters.amount
-        );
+        let agent_prompt = format!("You are a description generator. Provide detailed description for {:?}", report_id);
 
         let agent = self
             .client
@@ -90,12 +95,6 @@ impl DescriptionAgent {
                     }
                 ]
             },
-            "parameters": {
-                "last": parameters.last,
-                "all": parameters.all,
-                "period": format!("{:?}", parameters.period),
-                "amount": parameters.amount
-            }
         });
 
         self.send_event(StreamEvent::Description {
@@ -104,6 +103,6 @@ impl DescriptionAgent {
         })
             .await;
 
-        Ok(response)
+        Ok(Ok(response))
     }
 }

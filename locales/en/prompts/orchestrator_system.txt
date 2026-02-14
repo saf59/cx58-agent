@@ -84,7 +84,7 @@ For GetReportList worker:
     "task_params": {
       "last": true/false,
       "all": true/false,
-      "period": "Week|Month|Day|Quarter",
+      "period": "Day|Week|Month|Quarter|Year",
       "amount": <number>
     }
   }

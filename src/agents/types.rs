@@ -1,6 +1,7 @@
 // src/agents/types.rs
 
 use serde::{Deserialize, Serialize};
+use strum_macros::{EnumIter, IntoStaticStr};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassificationResult {
@@ -81,7 +82,7 @@ where
             "Week" => Ok(Some(Period::Week)),
             "Month" => Ok(Some(Period::Month)),
             "Quarter" => Ok(Some(Period::Quarter)),
-            _ => Err(serde::de::Error::unknown_variant(&s, &["Day", "Week", "Month", "Quarter"])),
+            _ => Err(serde::de::Error::unknown_variant(&s, &["Day", "Week", "Month", "Quarter", "Year"])),
         },
         None => Ok(None),
     }
@@ -96,12 +97,13 @@ pub struct TaskParameters {
     pub amount: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, EnumIter, IntoStaticStr, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Period {
     Day,
     Week,
     Month,
     Quarter,
+    Year,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

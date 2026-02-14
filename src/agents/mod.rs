@@ -28,7 +28,7 @@ pub use document_agent::DocumentAgent;
 pub use events::StreamEvent;
 pub use master_agent::MasterAgent;
 pub use object_agent::ObjectAgent;
-pub use prompt_context::{ContextParser, ParserError, Period, PromptContext, PromptKey};
-pub use task_detector::{Task, TaskDetector, TaskParameters};
+pub use prompt_context::{ContextParser, ParserError, PromptContext, PromptKey};
+pub use task_detector::{Task, TaskDetector, };
 // Re-export main types for convenience
 pub use types::*;

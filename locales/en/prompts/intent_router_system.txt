@@ -43,7 +43,7 @@ From user query, extract parameters for filtering and retrieval:
 - all: boolean (user wants complete list without filters)
   Triggers: "all", "every", "complete", "entire", "full list"
   
-- period: Day | Week | Month | Quarter (time period for filtering)
+- period: Day | Week | Month | Quarter | Year (time period for filtering)
   Day: "today", "yesterday", "daily"
   Week: "last week", "this week", "weekly", "past 7 days"
   Month: "this month", "last month", "monthly", "past 30 days"
@@ -101,7 +101,7 @@ Return ONLY a valid JSON object (no markdown code blocks, no explanation):
     "task_params": {
       "last": true,
       "all": false,
-      "period": "Week|Month|Day|Quarter",
+      "period": "Day|Week|Month|Quarter|Year",
       "amount": 5
     },
     "object_identifier": "Building A",

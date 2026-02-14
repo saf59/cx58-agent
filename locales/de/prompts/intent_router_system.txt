@@ -43,7 +43,7 @@ Aus der Benutzeranfrage Parameter für Filterung und Abruf extrahieren:
 - all: boolean (Benutzer möchte komplette Liste ohne Filter)
   Auslöser: "alle", "jede", "komplett", "gesamt", "vollständige Liste"
   
-- period: Day | Week | Month | Quarter (Zeitraum für Filterung)
+- period: Day | Week | Month | Quarter | Year (Zeitraum für Filterung)
   Day: "heute", "gestern", "täglich"
   Week: "letzte Woche", "diese Woche", "wöchentlich", "letzte 7 Tage"
   Month: "dieser Monat", "letzter Monat", "monatlich", "letzte 30 Tage"
@@ -99,7 +99,7 @@ Geben Sie NUR ein gültiges JSON-Objekt zurück (keine Markdown-Codeblöcke, kei
     "task_params": {
       "last": true,
       "all": false,
-      "period": "Week|Month|Day|Quarter",
+      "period": "Day|Week|Month|Quarter|Year",
       "amount": 5
     },
     "object_identifier": "Gebäude A",

@@ -50,6 +50,7 @@ impl ObjectAgent {
             return Ok("No objects found.".to_string());
         }
         let json_data = json!(filtered);
+        tracing::info!("Retrieved object tree for user {}: {:?}", self.context.user_id, json_data);
         self.send_event(StreamEvent::ObjectTree {
             request_id: self.context.request_id.clone(),
             data: json_data,
