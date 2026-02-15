@@ -2,7 +2,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use rig::providers::ollama;
 use tokio::sync::mpsc;
-use serde_json::json;
+use serde_json::{json, Value};
 use uuid::Uuid;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 use crate::db::{get_node_with_leafs, NodeType};
@@ -39,7 +39,7 @@ impl DocumentAgent {
         &self,
         state:Arc<AppState>,
         parameters: &TaskParameters,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
 
         let pool = &state.db;
         let node_id: &str = self.context.object_id.as_ref()
@@ -61,7 +61,7 @@ impl DocumentAgent {
                 chunk: "No documents found matching the criteria.\n".to_string(),
             })
             .await;
-            return Ok("No documents found.".to_string());
+            return Ok("".into());
         }
         // Process ImageLeaf nodes
         for node in &mut data {
@@ -73,12 +73,6 @@ impl DocumentAgent {
             }
         }
         let json_data = json!(data);
-        self.send_event(StreamEvent::ReportList {
-            request_id: self.context.request_id.clone(),
-            data: json_data,
-        })
-            .await;
-        let response = "Document retrieval completed.".to_string();
-        Ok(response)
+        Ok(json_data)
     }
 }

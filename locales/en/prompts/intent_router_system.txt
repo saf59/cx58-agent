@@ -52,6 +52,8 @@ From user query, extract parameters for filtering and retrieval:
 - amount: number (specific quantity requested)
   Examples: "last 5 reports", "top 10 objects", "3 most recent"
 
+- If the period or amount parameter is unknown, ALWAYS set them to null. DO NOT use empty strings or default values ​​like 0.
+
 TIME REFERENCE EXAMPLES:
 - "last week" → period: Week, last: true
 - "all objects" → all: true, last: false

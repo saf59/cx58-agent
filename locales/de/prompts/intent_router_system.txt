@@ -52,6 +52,8 @@ Aus der Benutzeranfrage Parameter für Filterung und Abruf extrahieren:
 - amount: Zahl (spezifische Anzahl angefordert)
   Beispiele: "letzte 5 Berichte", "top 10 Objekte", "3 aktuellste"
 
+- Wenn der Zeitraum oder der Betrag unbekannt ist, setzen Sie ihn IMMER auf null. Verwenden Sie KEINE leeren Zeichenketten oder Standardwerte wie 0.
+
 ZEITREFERENZ-BEISPIELE:
 - "letzte Woche" → period: Week, last: true
 - "alle Objekte" → all: true, last: false

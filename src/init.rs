@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rig::client::Nothing;
 use rig::providers::ollama;
 use sqlx::postgres::PgPoolOptions;
-use crate::{AiConfig, AppState, MasterAgent};
+use crate::{AiConfig, AppState};
 use crate::agents::master_agent_update::MasterAgentNew;
 use crate::error::AppError;
 use crate::handlers::{ImageProcessor, ImageUrlResolver, StorageService};
@@ -56,33 +56,33 @@ impl Config {
 }
 pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     let config = Config::from_env()?;
-    log::info!("Configuration loaded");
+    tracing::info!("Configuration loaded");
     let ai_config = AiConfig::from_env()?;
-    log::info!("Ai Configuration loaded");
+    tracing::info!("Ai Configuration loaded");
 
     // Database
-    log::info!("Connecting to PostgreSQL...");
+    tracing::info!("Connecting to PostgreSQL...");
     let db = setup_database(&config).await?;
-    log::info!("PostgreSQL connected");
+    tracing::info!("PostgreSQL connected");
 
-    log::info!("Running migrations...");
+    tracing::info!("Running migrations...");
     sqlx::migrate!("./migrations").run(&db).await?;
-    log::info!("Migrations completed");
+    tracing::info!("Migrations completed");
 
     /*    // Redis
-        log::info!("Connecting to Redis...");
+        tracing::info!("Connecting to Redis...");
         let redis = setup_redis(&config).await?;
-        log::info!("Redis connected");
+        tracing::info!("Redis connected");
     */
     // S3 Storage
-    log::info!("Initializing S3 with rust-s3...");
+    tracing::info!("Initializing S3 with rust-s3...");
     let storage = setup_storage(&config.s3)?;
-    log::info!("S3 storage initialized");
+    tracing::info!("S3 storage initialized");
 
     // Test S3
     match storage.list_user_images("mock").await {
-        Ok(_) => log::info!("S3 connection verified"),
-        Err(e) => log::warn!("⚠️  S3 test: {}", e),
+        Ok(_) => tracing::info!("S3 connection verified"),
+        Err(e) => tracing::warn!("⚠️  S3 test: {}", e),
     }
 
     // Resolvers and processors

@@ -2,7 +2,7 @@
 pub mod events;
 pub mod prompt_context;
 pub mod task_detector;
-pub mod master_agent;
+//pub mod master_agent;
 pub mod object_agent;
 pub mod document_agent;
 pub mod comparison_agent;
@@ -26,7 +26,7 @@ pub use comparison_agent::ComparisonAgent;
 pub use description::description_agent::DescriptionAgent;
 pub use document_agent::DocumentAgent;
 pub use events::StreamEvent;
-pub use master_agent::MasterAgent;
+//pub use master_agent::MasterAgent;
 pub use object_agent::ObjectAgent;
 pub use prompt_context::{ContextParser, ParserError, PromptContext, PromptKey};
 pub use task_detector::{Task, TaskDetector, };

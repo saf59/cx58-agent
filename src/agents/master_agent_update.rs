@@ -41,12 +41,7 @@
 //! // Progress updates
 //! {"chunk_type": "progress", "data": {"status": "analyzing", "percent": 10, "message": "Analyzing query..."}}
 //!
-//! // Data chunks (intent-specific)
-//! {"chunk_type": "object_tree", "data": {"objects": [...]}}
-//! {"chunk_type": "report_list", "data": [{"id": "1", "date": "2024-01-01"}]}
-//! {"chunk_type": "description", "data": {"report_id": "...", "text": "...", "is_complete": true}}
-//! {"chunk_type": "comparison", "data": {"differences": [...]}}
-//! {"chunk_type": "text_chunk", "data": {"content": "...", "language": "en"}}
+//! // Data chunks serde:Value
 //!
 //! // Completion
 //! {"chunk_type": "complete", "data": {"total_time_ms": 3500}}
@@ -70,15 +65,6 @@
 //! - Tera template fallback used for error messages
 //! - Request lifecycle terminates on first error
 //!
-//! ## Thread Safety
-//!
-//! - Uses `Arc` for shared state (LocalizationManager, TemplateManager)
-//! - SSE channel created per request (100 buffer capacity)
-//! - `Clone` implementation creates new agent instances (production should use Arc)
-//!
-//! TODO (Performance Alignment):
-//! - caching layers (ObjectTree, ReportList, Image Description).
-//!   No caching mechanism is implemented here.
 
 use anyhow::Result;
 use rig::providers::ollama;
@@ -175,11 +161,6 @@ impl MasterAgentNew {
     }
 
     /// Handles an agent request and returns an SSE stream of responses.
-    ///
-    /// TODO (Scalability):
-    /// - streaming progress percentages aligned to workflow phases.
-    ///   Current percentages are static (10, 30, 50, 80).
-    /// - No backpressure monitoring on channel capacity.
     pub async fn handle_request_stream(
         &self,
         state: Arc<AppState>,
@@ -286,6 +267,8 @@ impl MasterAgentNew {
         let current_context = user_context.clone();
 
         loop {
+            context.cancellation_token.check().await?;
+
             let decision = self.orchestrator
                 .decide_next_step(
                     &classification,
@@ -410,10 +393,10 @@ impl MasterAgentNew {
                 );
 
                 let result = agent.execute(state, &task_params).await?;
-                serde_json::json!({ "result": result })
+                result
             }
 
-            WorkerParameters::GetReportList { object_id, task_params } => {
+            WorkerParameters::GetReportList { object_id: _, task_params } => {
                 let agent = DocumentAgent::new(
                     self.client.clone(),
                     context.clone(),
@@ -424,8 +407,7 @@ impl MasterAgentNew {
                     .execute(state, &task_params)
                     //.execute_with_object(state, &object_id, &task_params)
                     .await?;
-
-                serde_json::json!({ "result": result })
+                result
             }
 
             WorkerParameters::DescribeReport { report_id } => {
@@ -456,7 +438,7 @@ impl MasterAgentNew {
                 serde_json::json!({ "comparison": result })
             }
 
-            WorkerParameters::RagQuery { query } => {
+            WorkerParameters::RagQuery { query: _ } => {
                 let agent = ChatAgent::new(
                     self.client.clone(),
                     context.clone(),
@@ -480,57 +462,6 @@ impl MasterAgentNew {
         })
    }
 
-/// TODO (Worker Gap):
-/// - Current implementation is stubbed with mock JSON.
-/// - No retry logic implemented despite documentation claim.
-async fn execute_worker(
-    &self,
-    _state: &Arc<AppState>,
-    request: WorkerRequest,
-) -> Result<WorkerResponse> {
-    // TODO: Implement retry logic when actual workers are added
-    let start = Instant::now();
-    tracing::info!("Executing worker: {:?} for request_id: {}", request.worker_type, request.context.request_id);
-    let data = match request.worker_type {
-        WorkerType::GetObjectTree => {
-            serde_json::json!({
-                    "objects": []
-                })
-        }
-        WorkerType::GetReportList => {
-            serde_json::json!({
-                    "reports": []
-                })
-        }
-        WorkerType::DescribeReport => {
-            serde_json::json!({
-                    "description": "Sample description"
-                })
-        }
-        WorkerType::CompareReports => {
-            serde_json::json!({
-                    "differences": []
-                })
-        }
-        WorkerType::RagQuery => {
-            serde_json::json!({
-                    "answer": "Sample answer"
-                })
-        }
-    };
-
-    Ok(WorkerResponse {
-        worker_type: request.worker_type,
-        status: WorkerStatus::Success,
-        data,
-        metadata: WorkerMetadata {
-            execution_time_ms: start.elapsed().as_millis() as u64,
-            data_source: "database".to_string(),
-            cache_hit: false,
-        },
-    })
-}
-
 async fn format_and_stream_response(
     &self,
     tx: &mpsc::Sender<StreamEvent>,
@@ -545,7 +476,6 @@ async fn format_and_stream_response(
                 let description = self.formatter
                     .format_description(&result.data, &user_context.language, "report-id")
                     .await?;
-
                 self.send_text_chunks(tx, &description, &context.request_id, &user_context.language).await?;
             }
         }
@@ -580,14 +510,9 @@ async fn format_and_stream_response(
 
         Intent::GetReportList => {
             if let Some(result) = worker_results.first() {
-                let reports = result.data["reports"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default();
-
                 tx.send(StreamEvent::ReportList {
                     request_id: context.request_id.clone(),
-                    data: reports.into(),
+                    data: result.data.clone(),
                 }).await?;
             }
         }
@@ -608,8 +533,9 @@ async fn send_text_chunks(
     tx: &mpsc::Sender<StreamEvent>,
     text: &str,
     request_id: &str,
-    language: &Language,
+    _language: &Language,
 ) -> Result<()> {
+
     // TODO:
     // chunk streaming by semantic units.
     // Current implementation splits by ". " which is naive

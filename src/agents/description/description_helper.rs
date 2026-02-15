@@ -1,6 +1,6 @@
+use crate::db_description::{create_description, get_description, upsert_description, CreateImageDescription, ImageDescription};
 use sqlx::PgPool;
 use uuid::Uuid;
-use crate::db_description::{create_description, get_description, upsert_description, CreateImageDescription, ImageDescription};
 
 /// Get or create an image description for a node
 ///
@@ -97,7 +97,7 @@ pub async fn get_or_create_description_upsert(
 
 // Placeholder for the actual describe_image function
 async fn describe_image(
-    node_id: &Uuid,
+    _node_id: &Uuid,
 ) -> Result<ImageDescription, Box<dyn std::error::Error + Send + Sync>> {
     // TODO: Implement actual image description logic
     unimplemented!("describe_image should be implemented with actual AI/ML model")
@@ -105,7 +105,7 @@ async fn describe_image(
 
 // Alternative placeholder if describe_image returns just a string
 async fn describe_image_simple(
-    node_id: &Uuid,
+    _node_id: &Uuid,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // TODO: Implement actual image description logic
     unimplemented!("describe_image_simple should be implemented with actual AI/ML model")

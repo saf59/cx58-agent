@@ -344,9 +344,9 @@ impl<T, E: Into<AppError>> ErrorContext<T> for std::result::Result<T, E> {
 
 pub fn log_error(error: &AppError) {
     if error.code.is_server_error() {
-        log::error!("{}", error);
+        tracing::error!("{}", error);
     } else {
-        log::warn!("{}", error);
+        tracing::warn!("{}", error);
     }
 }
 

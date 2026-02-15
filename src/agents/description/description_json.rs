@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
-use uuid::Uuid;
 use crate::db_description::ImageDescription;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value as JsonValue, Value};
+use uuid::Uuid;
 
 /// Parsed structure of the description JSON content
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,9 +94,9 @@ pub async fn send_description_via_sse(
     object: &str,
     object_id: &Uuid,
     date: &str,
-    request_id: String,
+    _request_id: String,
     // sender: your SSE sender type
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
     // Build the complete description data
     let description_data = build_description_data(
         &image_desc,
@@ -114,5 +114,5 @@ pub async fn send_description_via_sse(
     //     data: json_data,
     // }).await;
 
-    Ok(())
+    Ok(json_data)
 }

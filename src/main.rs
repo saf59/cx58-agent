@@ -51,7 +51,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    ///env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 /*    let filter = filter::Targets::new()
         .with_default(LevelFilter::INFO)c
         .with_target("rig", filter::LevelFilter::OFF); // Set rig to OFF
@@ -60,26 +60,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter("cx58_agent=info,rig=debug")
         .try_init();
 
-    log::info!("Starting AI Agent Server");
+    ("Starting AI Agent Server");
     let (config, state) = app_init().await?;
-    log::info!("Application state initialized");
+    tracing::info!("Application state initialized");
     let app = create_app_router(state);
 
     // Start server
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    log::info!("Server started!");
-    log::info!("http://{}", addr);
-    log::info!("Agent: http://{}/agent/chat", addr);
-    log::info!("Upload: http://{}/agent/images/upload", addr);
-    log::info!("Health: http://{}/agent/health", addr);
-    log::info!("S3: {}", config.s3.bucket);
-    log::info!("Region: {}", config.s3.region);
+    tracing::info!("Server started!");
+    tracing::info!("http://{}", addr);
+    tracing::info!("Agent: http://{}/agent/chat", addr);
+    tracing::info!("Upload: http://{}/agent/images/upload", addr);
+    tracing::info!("Health: http://{}/agent/health", addr);
+    tracing::info!("S3: {}", config.s3.bucket);
+    tracing::info!("Region: {}", config.s3.region);
     if let Some(ep) = &config.s3.endpoint {
-        log::info!("Endpoint: {}", ep);
+        tracing::info!("Endpoint: {}", ep);
     }
-    log::info!("CDN: {}", config.s3.public_url_base);
+    tracing::info!("CDN: {}", config.s3.public_url_base);
 
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
@@ -108,10 +108,10 @@ async fn shutdown_signal() {
 
     tokio::select! {
         _ = ctrl_c => {
-            log::info!("Received Ctrl+C, shutting down...");
+            tracing::info!("Received Ctrl+C, shutting down...");
         },
         _ = terminate => {
-            log::info!("Received SIGTERM, shutting down...");
+            tracing::info!("Received SIGTERM, shutting down...");
         },
     }
 }

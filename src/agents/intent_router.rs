@@ -136,7 +136,7 @@ impl IntentRouter {
             lang,
         )?;
         
-        println!("User prompt:\n{}", user_prompt);
+        tracing::info!("User prompt:\n{}", user_prompt);
         
         // TODO: According to plan.md Section 5 "Voice Command Handling", add:
         // - Noise filtering for voice input

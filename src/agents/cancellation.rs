@@ -61,7 +61,7 @@ impl RequestManager {
 
     pub async fn register(&self, request_id: String) -> CancellationToken {
         let token = CancellationToken::new();
-        log::info!("Register request: {}", request_id);
+        tracing::info!("Register request: {}", request_id);
         {
             let mut requests = self.active_requests.write().await;
             requests.insert(request_id, token.clone());

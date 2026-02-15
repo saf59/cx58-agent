@@ -96,7 +96,7 @@ impl Tool for ImageFinder {
     }
 
     async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        println!("Find:{:?}",args);
+        tracing::info!("Find:{:?}",args);
         let result = CXImage {
             url: "./data/2025-12-15.jpg".to_string(),
             storage_path: None,

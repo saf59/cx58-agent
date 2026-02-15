@@ -345,9 +345,9 @@ mod tests {
             .await
             .expect("Failed to get tree");
 
-        println!("Tree nodes count: {}", tree.len());
+        tracing::info!("Tree nodes count: {}", tree.len());
         for node in &tree {
-            println!(
+            tracing::info!(
                 "Node: {} ({}), depth: {}, own: {}",
                 node.name.as_ref().unwrap_or(&"<unnamed>".to_string()),
                 node.node_type,
@@ -362,15 +362,15 @@ mod tests {
             .await
             .expect("Failed to get node with leafs");
 
-        println!("\nNode with leafs:");
+        tracing::info!("\nNode with leafs:");
         for node in &nodes_with_leafs {
-            println!(
+            tracing::info!(
                 "Node: {} - {}",
                 node.full_name.as_ref().unwrap_or(&"<unnamed>".to_string()),
                 node.node_type
             );
             if let Some(url) = node.get_image_url() {
-                println!("  Image URL: {}", url);
+                tracing::info!("  Image URL: {}", url);
             }
         }
 
@@ -385,9 +385,9 @@ mod tests {
             .await
             .expect("Failed to get filtered nodes");
 
-        println!("\nFiltered nodes:");
+        tracing::info!("\nFiltered nodes:");
         for node in &nodes_filtered {
-            println!(
+            tracing::info!(
                 "Node: {} at {}",
                 node.full_name.as_ref().unwrap_or(&"<unnamed>".to_string()),
                 node.updated_at
@@ -399,14 +399,14 @@ mod tests {
             .await
             .expect("Failed to insert image leaf");
 
-        println!("\nNew leaf created with ID: {}", new_leaf_id);
+        tracing::info!("\nNew leaf created with ID: {}", new_leaf_id);
 
         // Example 5: Get full name of node
         let full_name = get_full_node_name(&pool, new_leaf_id)
             .await
             .expect("Failed to get full name");
 
-        println!("Full name: {}", full_name.unwrap_or("<none>".to_string()));
+        tracing::info!("Full name: {}", full_name.unwrap_or("<none>".to_string()));
     }
 }
 

@@ -29,7 +29,7 @@ impl TemplateManager {
                     lang_templates.insert(template_id.to_string(), content);
                 }
                 Err(e) => {
-                    eprintln!("Failed to load template {} for {}: {}", filename, lang, e);
+                    tracing::error!("Failed to load template {} for {}: {}", filename, lang, e);
                 }
             }
         }

@@ -22,6 +22,7 @@ GET_OBJECT_TREE:
 GET_REPORT_LIST:
 - Erforderlich: object_id
 - Entscheidung: Wenn object_id fehlt, vom Benutzer anfordern
+- Wenn die Variable WORKER-ERGEBNISSE bereits GetReportList enthält, ist die Aufgabe bereit
 
 DESCRIBE_REPORT:
 - Erforderlich: object_id, current_report_id

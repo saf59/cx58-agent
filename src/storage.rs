@@ -1,4 +1,3 @@
-use crate::agents::master_agent::MasterAgent;
 use crate::db::NodeType;
 use crate::error::*;
 use crate::init::S3Config;
@@ -21,7 +20,6 @@ use s3::region::Region;
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::sync::Arc;
-use log::info;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 use crate::agents::master_agent_update::MasterAgentNew;
@@ -459,7 +457,7 @@ impl StorageService {
             match self.bucket.delete_object(&path).await {
                 Ok(_) => deleted.push(path),
                 Err(e) => {
-                    log::warn!("Failed to delete {}: {}", path, e);
+                    tracing::warn!("Failed to delete {}: {}", path, e);
                 }
             }
         }
@@ -814,7 +812,7 @@ pub async fn create_public_bucket(config: &S3Config, bucket_name: &str) -> Resul
     .await
     .unwrap();
 
-    println!(
+    tracing::info!(
         "✓ Public bucket '{}' created with code {}\n{}",
         bucket_name, &response.response_code, &response.response_text
     );
@@ -843,7 +841,7 @@ mod tests {
         // Upload file
         let response_data = storage.bucket.put_object(s3_path, test).await.unwrap();
         assert_eq!(response_data.status_code(), 200);
-        //println!("{:#?}", response_data.headers());
+        //tracing::info!("{:#?}", response_data.headers());
 
         // Get file via SDK
         let response_data = storage.bucket.get_object(s3_path).await.unwrap();
@@ -872,7 +870,7 @@ mod tests {
             .presign_get(s3_path, 300, None)
             .await
             .unwrap();
-        println!("Presigned URL: {}", presigned_url);
+        tracing::info!("Presigned URL: {}", presigned_url);
 
         // Verify presigned URL via HTTP request
         let client = reqwest::Client::new();
@@ -880,7 +878,7 @@ mod tests {
         assert_eq!(presigned_response.status(), 200);
         let presigned_body = presigned_response.bytes().await.unwrap();
         assert_eq!(test, presigned_body.as_ref());
-        println!("✓ Presigned URL works correctly");
+        tracing::info!("✓ Presigned URL works correctly");
 
         // Generate public URL (if bucket is public)
         let public_url = format!(
@@ -889,7 +887,7 @@ mod tests {
             storage.bucket.name(),
             s3_path
         );
-        println!("Public URL: {}", public_url);
+        tracing::info!("Public URL: {}", public_url);
 
         // Try to access public URL
         // Note: this only works if bucket is configured as public
@@ -899,16 +897,16 @@ mod tests {
                 if resp.status() == 200 {
                     let public_body = resp.bytes().await.unwrap();
                     assert_eq!(test, public_body.as_ref());
-                    println!("✓ Public URL works correctly");
+                    tracing::info!("✓ Public URL works correctly");
                 } else {
-                    println!(
+                    tracing::info!(
                         "⚠ Public URL returned status: {} (bucket might not be public)",
                         resp.status()
                     );
                 }
             }
             Err(e) => {
-                println!(
+                tracing::info!(
                     "⚠ Public URL access failed: {} (bucket might not be public)",
                     e
                 );
@@ -918,7 +916,7 @@ mod tests {
         // Test presigned URL expiration (optional)
         // Generate URL with short lifetime
         let short_presigned_url = storage.bucket.presign_get(s3_path, 1, None).await.unwrap();
-        println!("Short-lived presigned URL: {}", short_presigned_url);
+        tracing::info!("Short-lived presigned URL: {}", short_presigned_url);
 
         // Wait for expiration
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -929,7 +927,7 @@ mod tests {
             200,
             "Expired URL should not return 200"
         );
-        println!("✓ Presigned URL correctly expires");
+        tracing::info!("✓ Presigned URL correctly expires");
 
         // Delete file
         let response_data = storage.bucket.delete_object(s3_path).await.unwrap();
@@ -938,7 +936,7 @@ mod tests {
         // Verify that URLs no longer work after deletion
         let deleted_response = client.get(&presigned_url).send().await.unwrap();
         assert_eq!(deleted_response.status(), 404);
-        println!("✓ URLs return 404 after object deletion");
+        tracing::info!("✓ URLs return 404 after object deletion");
     }
 
     #[tokio::test]
@@ -957,7 +955,7 @@ mod tests {
             .presign_put(s3_path, 300, None, None)
             .await
             .unwrap();
-        println!("Presigned PUT URL: {}", presigned_put_url);
+        tracing::info!("Presigned PUT URL: {}", presigned_put_url);
 
         // Upload via presigned URL
         let client = reqwest::Client::new();
@@ -969,12 +967,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(upload_response.status(), 200);
-        println!("✓ Upload via presigned PUT URL successful");
+        tracing::info!("✓ Upload via presigned PUT URL successful");
 
         // Verify that file was actually uploaded
         let response_data = storage.bucket.get_object(s3_path).await.unwrap();
         assert_eq!(test_data, response_data.as_slice());
-        println!("✓ File uploaded correctly");
+        tracing::info!("✓ File uploaded correctly");
 
         // Cleanup
         storage.bucket.delete_object(s3_path).await.unwrap();
@@ -1013,7 +1011,7 @@ mod tests {
             response.headers().get("content-type").unwrap(),
             "text/plain"
         );
-        println!("✓ Custom headers preserved correctly");
+        tracing::info!("✓ Custom headers preserved correctly");
 
         // Cleanup
         storage.bucket.delete_object(s3_path).await.unwrap();
@@ -1029,7 +1027,7 @@ mod tests {
         let test_data = b"Test data";
 
         let response = storage.bucket.put_object(s3_path, test_data).await.unwrap();
-        println!("Put response code: {}", response.status_code());
+        tracing::info!("Put response code: {}", response.status_code());
         assert_eq!(response.status_code(), 200);
 
         let presigned_url = storage
@@ -1038,16 +1036,16 @@ mod tests {
             .await
             .unwrap();
 
-        println!("Generated presigned URL: {}", presigned_url);
+        tracing::info!("Generated presigned URL: {}", presigned_url);
 
         let client = reqwest::Client::new();
         let response = client.get(&presigned_url).send().await.unwrap();
 
-        println!("Response status: {}", response.status());
-        println!("Response headers: {:?}", response.headers());
+        tracing::info!("Response status: {}", response.status());
+        tracing::info!("Response headers: {:?}", response.headers());
 
         if response.status() == 404 {
-            println!("URL path in request: {:?}", response.url());
+            tracing::info!("URL path in request: {:?}", response.url());
         }
 
         assert_eq!(response.status(), 200);
@@ -1081,7 +1079,7 @@ mod tests {
             .await
             .expect("Failed to upload image");
 
-        println!("{:#?}", &result);
+        tracing::info!("{:#?}", &result);
 
         // Verify the upload result
         assert_eq!(result.size, 527174); // Expected size of noise_1.jpg
@@ -1126,7 +1124,7 @@ mod tests {
             .await
             .expect("Failed to upload thumbnail");
 
-        println!("{:#?}", &result);
+        tracing::info!("{:#?}", &result);
 
         // Verify the upload result
         assert_eq!(result.mime_type, "image/jpeg");
@@ -1153,13 +1151,13 @@ mod tests {
         match public_response {
             Ok(resp) => {
                 if resp.status() == 200 {
-                    println!("✓ Thumbnail is publicly accessible");
+                    tracing::info!("✓ Thumbnail is publicly accessible");
                 } else {
-                    println!("⚠ Thumbnail URL returned status: {}", resp.status());
+                    tracing::info!("⚠ Thumbnail URL returned status: {}", resp.status());
                 }
             }
             Err(e) => {
-                println!("⚠ Thumbnail public access failed: {}", e);
+                tracing::info!("⚠ Thumbnail public access failed: {}", e);
             }
         }
 
@@ -1219,7 +1217,7 @@ mod tests {
             .await
             .expect("Failed to upload original image");
 
-        println!("Original image: {:#?}", upload_result);
+        tracing::info!("Original image: {:#?}", upload_result);
 
         // Create thumbnail from the original
         let thumbnail_result = storage
@@ -1227,7 +1225,7 @@ mod tests {
             .await
             .expect("Failed to create thumbnail");
 
-        println!("Thumbnail: {:#?}", thumbnail_result);
+        tracing::info!("Thumbnail: {:#?}", thumbnail_result);
 
         // Verify thumbnail properties
         assert_eq!(thumbnail_result.mime_type, "image/jpeg");
@@ -1280,7 +1278,7 @@ mod tests {
             .await
             .expect("Failed to upload original image");
 
-        println!("Original image: {:#?}", upload_result);
+        tracing::info!("Original image: {:#?}", upload_result);
 
         // First call - should create thumbnail
         let thumbnail_result_1 = storage
@@ -1288,7 +1286,7 @@ mod tests {
             .await
             .expect("Failed to get or create thumbnail");
 
-        println!("First call (created): {:#?}", thumbnail_result_1);
+        tracing::info!("First call (created): {:#?}", thumbnail_result_1);
 
         // Verify thumbnail was created
         assert!(thumbnail_result_1.storage_path.starts_with("thumbnails/"));
@@ -1300,7 +1298,7 @@ mod tests {
             .await
             .expect("Failed to get existing thumbnail");
 
-        println!("Second call (retrieved): {:#?}", thumbnail_result_2);
+        tracing::info!("Second call (retrieved): {:#?}", thumbnail_result_2);
 
         // Verify same thumbnail is returned
         assert_eq!(
@@ -1341,9 +1339,9 @@ mod tests {
         let expected_path = format!("thumbnails/{}/{}.jpg", node_id, hash);
         assert_eq!(thumbnail_path, expected_path);
 
-        println!("✓ Path conversion works correctly");
-        println!("  Original:  {}", original_path);
-        println!("  Thumbnail: {}", thumbnail_path);
+        tracing::info!("✓ Path conversion works correctly");
+        tracing::info!("  Original:  {}", original_path);
+        tracing::info!("  Thumbnail: {}", thumbnail_path);
     }
 
     #[tokio::test]
@@ -1384,7 +1382,7 @@ mod tests {
         let exists_deleted = storage.object_exists(&s3_path).await.unwrap();
         assert!(!exists_deleted);
 
-        println!("✓ Object existence check works correctly");
+        tracing::info!("✓ Object existence check works correctly");
     }
 
     #[tokio::test]
@@ -1415,7 +1413,7 @@ mod tests {
         assert_eq!(downloaded_bytes.len(), image_data.len());
         assert_eq!(downloaded_bytes.as_ref(), image_data.as_slice());
 
-        println!("✓ Image download works correctly");
+        tracing::info!("✓ Image download works correctly");
 
         // Cleanup
         storage
@@ -1432,7 +1430,7 @@ pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>,
         .get("storage_path")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    info!("storage_path: {:?}", storage_path);
+
     if let Some(storage_path) = storage_path {
         // Generate signed URL for original image
         match state
@@ -1441,11 +1439,11 @@ pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>,
             .await
         {
             Ok(url) => {
-                info!("Ok utl: {:?}", &url);
+                //info!("Ok utl: {:?}", &url);
                 obj.insert("url".to_string(), serde_json::json!(url));
             }
             Err(e) => {
-                eprintln!("Failed to generate URL for {}: {}", storage_path, e);
+                tracing::error!("Failed to generate URL for {}: {}", storage_path, e);
             }
         }
 
@@ -1456,7 +1454,7 @@ pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>,
             .await
         {
             Ok(thumbnail) => {
-                info!("Ok thumbnail: {:?}", &thumbnail);
+                //info!("Ok thumbnail: {:?}", &thumbnail);
                 // thumbnail.url is already public - just insert it
                 obj.insert(
                     "thumbnail_url".to_string(),
@@ -1464,7 +1462,7 @@ pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>,
                 );
             }
             Err(e) => {
-                eprintln!("Failed to create thumbnail for {}: {}", storage_path, e);
+                tracing::error!("Failed to create thumbnail for {}: {}", storage_path, e);
             }
         }
     }

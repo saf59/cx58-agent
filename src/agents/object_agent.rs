@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use rig::providers::ollama;
-use tokio::sync::mpsc;
-use serde_json::json;
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 use crate::agents::filter_objects::get_filtered_tree;
-use crate::db::{get_tree};
+use crate::db::get_tree;
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use rig::providers::ollama;
+use serde_json::json;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub struct ObjectAgent {
     #[allow(unused)]
@@ -37,7 +37,7 @@ impl ObjectAgent {
         &self,
         state:Arc<AppState>,
         parameters: &TaskParameters,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
 
         let tree = get_tree(&state.db, &self.context.user_id, true).await?;
         let filtered = get_filtered_tree(tree, parameters).await?;
@@ -47,18 +47,9 @@ impl ObjectAgent {
                 chunk: "No objects found matching the criteria.\n".to_string(),
             })
             .await;
-            return Ok("No objects found.".to_string());
+            return Ok("".into());
         }
         let json_data = json!(filtered);
-        tracing::info!("Retrieved object tree for user {}: {:?}", self.context.user_id, json_data);
-        self.send_event(StreamEvent::ObjectTree {
-            request_id: self.context.request_id.clone(),
-            data: json_data,
-        })
-            .await;
-
-        let response = "Object retrieval completed.".to_string();
-
-        Ok(response)
+        Ok(json_data)
     }
 }

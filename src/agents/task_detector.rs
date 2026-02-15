@@ -1,7 +1,6 @@
 
 use crate::agents::{ParserError, PromptContext, PromptKey};
 use serde::{Deserialize, Serialize};
-use crate::agents::types::Period;
 use crate::TaskParameters;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,14 +11,6 @@ pub enum Task {
     Comparison { parameters: TaskParameters },
     Chat,
 }
-
-/*#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskParameters {
-    pub last: bool,
-    pub all: bool,
-    pub period: Option<Period>,
-    pub amount: Option<usize>,
-}*/
 
 pub struct TaskDetector;
 

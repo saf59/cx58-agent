@@ -52,7 +52,7 @@ impl ChatAgent {
         for chunk in response.chars().collect::<Vec<_>>().chunks(chunk_size) {
             self.context.cancellation_token.check().await?;
             let chunk_str: String = chunk.iter().collect();
-            log::info!("Sending text chunk:{} {}", &self.context.request_id, chunk_str);
+            tracing::info!("Sending text chunk:{} {}", &self.context.request_id, chunk_str);
             self.send_event(StreamEvent::TextChunk {
                 request_id: self.context.request_id.clone(),
                 chunk: chunk_str,

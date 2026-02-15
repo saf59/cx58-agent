@@ -22,6 +22,7 @@ GET_OBJECT_TREE:
 GET_REPORT_LIST:
 - Required: object_id
 - Decision: If object_id is in missing_context, request it from user
+- If the WORKER RESULS variable already contains GetReportList, the task is ready.
 
 DESCRIBE_REPORT:
 - Required: object_id, current_report_id

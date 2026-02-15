@@ -1,11 +1,11 @@
-use std::error::Error;
-use std::sync::Arc;
-use rig::providers::ollama;
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 use rig::completion::Prompt;
 use rig::prelude::CompletionClient;
-use tokio::sync::mpsc;
+use rig::providers::ollama;
 use serde_json::json;
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use std::error::Error;
+use std::sync::Arc;
+use tokio::sync::mpsc;
 
 pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
@@ -36,7 +36,7 @@ impl DescriptionAgent {
     pub async fn execute(
         &self,
         state: Arc<AppState>,
-        parameters: &TaskParameters,
+        _parameters: &TaskParameters,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let report_id = self.context.prev_leaf.clone().unwrap_or_default();
 
