@@ -59,7 +59,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 # Base64 for Ollama vision
-# base64 = "0.22"
+base64 = "0.22"
 
 # Config
 dotenv = "0.15"

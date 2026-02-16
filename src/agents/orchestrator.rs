@@ -638,18 +638,29 @@ impl Orchestrator {
                     
                     // Vision Analysis Worker: Processes single image from S3
                     "DescribeReport" | "DESCRIBE_REPORT" => {
-                        let report_id = action_data["parameters"]["report_id"]
+                        let current_report_id = action_data["parameters"]["report_id"]
                             .as_str()
                             .ok_or_else(|| anyhow::anyhow!("Missing report_id"))?
                             .to_string();
 
                         // Validate report_id is not empty
-                        if report_id.is_empty() {
+                        if current_report_id.is_empty() {
                             return Err(anyhow::anyhow!(
                                 self.lang_manager.get_msg(lang, "error-empty-report-id")
                             ));
                         }
-                        WorkerParameters::DescribeReport { report_id }
+
+                        // Previous report is optional (for comparing with previous)
+                        let previous_report_id = action_data["parameters"]["previous_report_id"]
+                            .as_str()
+                            .map(|s| s.to_string());
+
+                        let reports = ReportPair {
+                            prev: current_report_id,
+                            next: previous_report_id,
+                        };
+
+                        WorkerParameters::DescribeReport { reports }
                     }
                     
                     // Comparison Worker: Analyzes differences between two reports

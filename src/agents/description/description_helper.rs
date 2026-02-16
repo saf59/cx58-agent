@@ -1,112 +1,111 @@
-use crate::db_description::{create_description, get_description, upsert_description, CreateImageDescription, ImageDescription};
+use crate::db_description::{get_descriptions_by_node, ImageDescription};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-/// Get or create an image description for a node
-///
-/// First attempts to retrieve an existing description from the database.
-/// If not found, generates a new description using describe_image(),
-/// saves it to the database, and returns it.
-pub async fn get_or_create_description(
+/// Get node data (JSON) from database by node_id
+pub async fn resolve_node_data(
     pool: &PgPool,
     node_id: &Uuid,
-    model_name: &str,
-    prompt: &str,
-) -> Result<ImageDescription, Box<dyn std::error::Error + Send + Sync>> {
-    // Try to get existing description from database
-    match get_description(pool, node_id, model_name, prompt).await? {
-        Some(description) => Ok(description),
-        None => {
-            // Description not found, generate a new one
-            let new_description = describe_image(node_id).await?;
+) -> Result<sqlx::types::JsonValue, Box<dyn std::error::Error + Send + Sync>> {
+    let row: (sqlx::types::JsonValue,) = sqlx::query_as(
+        r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
+    )
+    .bind(node_id)
+    .fetch_one(pool)
+    .await?;
 
-            // Prepare data for insertion
-            let create_data = CreateImageDescription {
-                node_id: *node_id,
-                model_name: model_name.to_string(),
-                prompt: prompt.to_string(),
-                description: new_description.description.clone(),
-                confidence: new_description.confidence,
-            };
-
-            // Save to database and return
-            let saved = create_description(pool, &create_data).await?;
-            Ok(saved)
-        }
-    }
+    Ok(row.0)
 }
 
-/// Alternative version if describe_image returns just a string description
-pub async fn get_or_create_description_simple(
+/// Get image URL from node data in database by node_id
+pub async fn resolve_node_url(
     pool: &PgPool,
     node_id: &Uuid,
-    model_name: &str,
-    prompt: &str,
-) -> Result<ImageDescription, Box<dyn std::error::Error + Send + Sync>> {
-    // Try to get existing description from database
-    match get_description(pool, node_id, model_name, prompt).await? {
-        Some(description) => Ok(description),
-        None => {
-            // Description not found, generate a new one
-            let generated_text = describe_image_simple(node_id).await?;
-
-            // Prepare data for insertion
-            let create_data = CreateImageDescription {
-                node_id: *node_id,
-                model_name: model_name.to_string(),
-                prompt: prompt.to_string(),
-                description: generated_text,
-                confidence: None,
-            };
-
-            // Save to database and return
-            let saved = create_description(pool, &create_data).await?;
-            Ok(saved)
-        }
-    }
-}
-
-/// Version using upsert instead of create (safer if concurrent requests possible)
-pub async fn get_or_create_description_upsert(
-    pool: &PgPool,
-    node_id: &Uuid,
-    model_name: &str,
-    prompt: &str,
-) -> Result<ImageDescription, Box<dyn std::error::Error + Send + Sync>> {
-    // Try to get existing description from database
-    if let Some(description) = get_description(pool, node_id, model_name, prompt).await? {
-        return Ok(description);
-    }
-
-    // Description not found, generate a new one
-    let new_description = describe_image(node_id).await?;
-
-    // Prepare data for insertion
-    let create_data = CreateImageDescription {
-        node_id: *node_id,
-        model_name: model_name.to_string(),
-        prompt: prompt.to_string(),
-        description: new_description.description.clone(),
-        confidence: new_description.confidence,
-    };
-
-    // Use upsert to handle potential race conditions
-    let saved = upsert_description(pool, &create_data).await?;
-    Ok(saved)
-}
-
-// Placeholder for the actual describe_image function
-async fn describe_image(
-    _node_id: &Uuid,
-) -> Result<ImageDescription, Box<dyn std::error::Error + Send + Sync>> {
-    // TODO: Implement actual image description logic
-    unimplemented!("describe_image should be implemented with actual AI/ML model")
-}
-
-// Alternative placeholder if describe_image returns just a string
-async fn describe_image_simple(
-    _node_id: &Uuid,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // TODO: Implement actual image description logic
-    unimplemented!("describe_image_simple should be implemented with actual AI/ML model")
+    let data = resolve_node_data(pool, node_id).await?;
+
+    let url = data
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "URL field not found in node data")?;
+
+    Ok(url.to_string())
+}
+
+/// Get image filename/src from node data in database by node_id
+pub async fn resolve_node_filename(
+    pool: &PgPool,
+    node_id: &Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let data = resolve_node_data(pool, node_id).await?;
+
+    let filename = data
+        .get("src")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "src field not found in node data")?;
+
+    Ok(filename.to_string())
+}
+
+/// Get full node name (path) from database by node_id
+pub async fn resolve_node_full_name(
+    pool: &PgPool,
+    node_id: &Uuid,
+) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+    let result: (Option<String>,) = sqlx::query_as(
+        r#"SELECT get_full_node_name($1)"#,
+    )
+    .bind(node_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(result.0)
+}
+
+/// Get the latest description for a node (without filtering by model)
+pub async fn get_latest_description(
+    pool: &PgPool,
+    node_id: &Uuid,
+) -> Result<Option<ImageDescription>, sqlx::Error> {
+    let descriptions = get_descriptions_by_node(pool, node_id).await?;
+
+    Ok(descriptions.first().cloned())
+}
+
+/// Get the latest description for a node matching a specific model
+pub async fn get_description_for_model(
+    pool: &PgPool,
+    node_id: &Uuid,
+    model_name: &str,
+) -> Result<Option<ImageDescription>, sqlx::Error> {
+    let descriptions = get_descriptions_by_node(pool, node_id).await?;
+
+    Ok(descriptions.iter().find(|d| d.model_name == model_name).cloned())
+}
+
+/// Check if a description exists for the given node and model
+pub async fn description_exists(
+    pool: &PgPool,
+    node_id: &Uuid,
+    model_name: &str,
+) -> Result<bool, sqlx::Error> {
+    let result: (i32,) = sqlx::query_as(
+        r#"SELECT COUNT(*) FROM image_descriptions WHERE node_id = $1 AND model_name = $2"#,
+    )
+    .bind(node_id)
+    .bind(model_name)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(result.0 > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn test_resolve_node_data() {
+        // This is a placeholder test - actual database connection needed
+        // #[ignore]
+        // fn requires_db() {}
+    }
 }

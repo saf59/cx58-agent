@@ -129,6 +129,11 @@ pub struct WorkerRequest {
     pub context: WorkerContext,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportPair {
+    pub prev: String,
+    pub next: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 //#[serde(tag = "chunk_type", content = "data")]
 pub enum WorkerParameters {
     GetObjectTree(TaskParameters),
@@ -137,7 +142,7 @@ pub enum WorkerParameters {
         task_params: TaskParameters,
     },
     DescribeReport {
-        report_id: String,
+        reports: ReportPair,
     },
     CompareReports {
         report_id_1: String,

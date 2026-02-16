@@ -24,6 +24,21 @@ pub struct CreateImageDescription {
     pub confidence: Option<f32>,
 }
 
+/// Convert CreateImageDescription to ImageDescription (with dummy id and current timestamp)
+impl From<CreateImageDescription> for ImageDescription {
+    fn from(create: CreateImageDescription) -> Self {
+        ImageDescription {
+            id: Uuid::now_v7(),
+            node_id: create.node_id,
+            model_name: create.model_name,
+            prompt: create.prompt,
+            description: create.description,
+            confidence: create.confidence,
+            created_at: chrono::Utc::now(),
+        }
+    }
+}
+
 /// Get all image descriptions for a specific node
 pub async fn get_descriptions_by_node(
     pool: &PgPool,

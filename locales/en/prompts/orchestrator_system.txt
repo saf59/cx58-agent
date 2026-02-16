@@ -95,7 +95,10 @@ For DescribeReport worker:
 {
   "worker_type": "DescribeReport",
   "parameters": {
-    "report_id": "<resolved report_id>"
+    "reports": {
+      "prev": "<resolved first report id>",}
+      "next": "<resolved second report id or None if not found>"
+    },
   }
 }
 
@@ -123,7 +126,7 @@ Some intents require multiple workers in sequence:
 Example 1: Compare last two reports (no report IDs available)
 1. Execute GetReportList worker (amount: 2, last: true)
 2. Wait for response with report IDs
-3. Execute DescribeReport workers in parallel for both reports
+3. Execute DescribeReport worker
 4. Wait for both descriptions
 5. Execute CompareReports worker with both descriptions
 6. Return for formatting

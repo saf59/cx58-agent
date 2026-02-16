@@ -1,4 +1,10 @@
+use rig::completion::Prompt;
+use rig::message::{DocumentSourceKind, Message, UserContent};
+use rig::prelude::*;
+use rig::providers::ollama;
+use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Parsed structure of the description JSON content
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,34 +20,31 @@ pub struct DescriptionContent {
     pub openings: Option<String>,
 }
 
-/// Generate the system/user prompt for LLM to produce DescriptionContent format
-pub fn create_description_prompt(additional_context: Option<&str>) -> String {
-    let context = additional_context.unwrap_or("");
-
+/// Generate the system prompt for LLM to produce DescriptionContent format
+pub fn create_description_system_prompt() -> String {
     format!(
-        r#"You are an expert at analyzing architectural and construction images.
-Analyze the provided image and generate a detailed description.
+        r#"
+You are a precise, reliable, and concise assistant.
+You are an expert in construction description.
+Your specialization is only windows, doors, radiators and empty openings for future installation of windows and doors.
+If any windows, doors, or radiators are missing and there are only bare openings, be sure to describe this in detail!
+It is necessary to describe in detail the quantity, material, condition, completeness and stage of installation of windows, doors and radiators.
+An error in determining presence or quantity is very bad!
+Don't let me down with the definitions and calculations.
+Don't show empty descriptions!
+This is a photo of a construction site, so you might see exposed concrete or brick.
+If so, please describe it.
+Don't invent what you don't see!
 
-{context}
-
-You MUST respond with ONLY a valid JSON object in this exact format:
+Response format (JSON only, no other text):
 {{
-  "description": "General and complete description of the object in the image",
-  "windows": "Detailed information about windows visible in the image (or null if none)",
-  "doors": "Detailed information about doors visible in the image (or null if none)",
-  "radiators": "Detailed information about radiators/heating elements visible in the image (or null if none)",
-  "openings": "Detailed information about openings (arches, passages, etc.) visible in the image (or null if none)"
+  "description": "General and complete description of the object",
+  "windows": "Detailed information about windows only",
+  "doors": "Detailed information about doors only",
+  "radiators": "Detailed information about radiators only",
+  "openings": "Detailed information about openings only"
 }}
-
-IMPORTANT RULES:
-1. Return ONLY the JSON object, no additional text before or after
-2. All field values must be strings or null
-3. The "description" field is REQUIRED and must contain a comprehensive description
-4. Other fields (windows, doors, radiators, openings) should be null if the respective elements are not visible in the image
-5. Be specific and detailed in your descriptions
-6. Use proper JSON formatting with double quotes
-7. Do not include markdown code blocks or any other formatting"#,
-        context = context
+"#
     )
 }
 
@@ -158,6 +161,103 @@ pub fn validate_description_content(
     Ok(())
 }
 
+/// Generate description content from image bytes using LLM
+/// The image should already be resized to the target dimensions
+pub async fn generate_description_from_image(
+    client: &Arc<ollama::Client>,
+    model: &str,
+    image_bytes: &[u8],
+    user_prompt: &str,
+    system_prompt: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Convert image to base64
+    let image_base64 = base64::Engine::encode(
+        &base64::prelude::BASE64_STANDARD,
+        image_bytes,
+    );
+
+    // Create Image for prompt
+    let image = Image {
+        data: DocumentSourceKind::base64(&image_base64),
+        media_type: Some(ImageMediaType::JPEG),
+        ..Default::default()
+    };
+
+    // Create agent with system prompt
+    let json = serde_json::json!({
+        "format": "json"
+    });
+
+    let agent = client
+        .agent(model)
+        .additional_params(json)
+        .preamble(system_prompt)
+        .temperature(0.1)
+        .build();
+
+    // Send user prompt with image
+    let response = agent
+        .prompt(Message::User {
+            content: OneOrMany::many(vec![
+                UserContent::Text(user_prompt.into()),
+                UserContent::Image(image),
+            ])?,
+        })
+        .await?;
+
+    Ok(response)
+}
+
+/// Generate description content from image file path
+/// This function handles loading, resizing, and LLM call
+pub async fn generate_description(
+    client: &Arc<ollama::Client>,
+    model: &str,
+    image_path: &str,
+    user_prompt: &str,
+    system_prompt: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    // Load image bytes
+    let image_bytes = tokio::fs::read(image_path).await
+        .map_err(|e| format!("Failed to read image: {}", e))?;
+
+    // Resize to 1200x1200
+    let resized_bytes = resize_image_to_bytes(&image_bytes, 1200, 1200)?;
+
+    // Generate description
+    generate_description_from_image(client, model, &resized_bytes, user_prompt, system_prompt).await
+}
+
+/// Resize image to maximum dimensions while maintaining aspect ratio
+/// Returns resized image as bytes
+pub fn resize_image_to_bytes(
+    image_bytes: &[u8],
+    output_width: u32,
+    output_height: u32,
+) -> Result<Vec<u8>, image::ImageError> {
+    // Open the image from bytes
+    let img = image::load_from_memory(image_bytes)?;
+
+    // If image is smaller than target, return as is
+    if img.height() <= output_height && img.width() <= output_width {
+        return Ok(image_bytes.to_vec());
+    }
+
+    // Resize using Lanczos3 filter for high quality
+    let resized_img = img.resize(
+        output_width,
+        output_height,
+        image::imageops::FilterType::Lanczos3,
+    );
+
+    // Encode as JPEG
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut bytes);
+    resized_img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
+
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,49 +311,3 @@ Hope this helps!"#;
         assert!(result.is_ok());
     }
 }
-/*
-``` rust
-/// Example: Complete flow with LLM call
-pub async fn describe_image_with_llm(
-    node_id: &Uuid,
-    image_data: &[u8], // or image path
-    llm_client: &YourLLMClient, // Replace with your actual LLM client type
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Create the prompt
-    let prompt = create_description_prompt(Some(
-        "Focus on architectural elements and construction details."
-    ));
-
-    // Call LLM (pseudocode - adapt to your LLM client)
-    let response = llm_client
-        .generate_with_image(prompt, image_data)
-        .await?;
-
-    // Extract and validate the content
-    let content = extract_description_content_robust(&response)?;
-
-    // Serialize back to JSON string for storage
-    let json_string = serde_json::to_string(&content)?;
-
-    Ok(json_string)
-}
-```
-Ключевые моменты:
-
-1. **Промпт для LLM**:
-- Чёткие инструкции возвращать ТОЛЬКО JSON
-- Указание формата с примером
-- Правила для обязательных и опциональных полей
-- Запрет на markdown и дополнительный текст
-
-2. **Extraction**:
-- `extract_description_content()` - базовая версия с очисткой от markdown
-- `extract_description_content_robust()` - более надёжная версия с несколькими попытками парсинга
-- Поиск JSON объекта внутри текста если LLM добавил комментарии
-
-3. **Validation**:
-- Проверка что обязательное поле `description` не пустое
-- Дополнительные проверки по необходимости
-
-4. **Тесты** для проверки различных форматов ответов от LLM
-*/

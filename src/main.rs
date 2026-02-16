@@ -1,18 +1,15 @@
-use std::net::SocketAddr;
 use axum::{middleware, Router};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 
 use cx58_agent::handlers::{chat_stream_cancel, chat_stream_handler, get_tree_handler, health_check};
+use cx58_agent::hmac::{rate_limit_middleware, verify_signature, RateLimiter};
 use cx58_agent::init::app_init;
 use cx58_agent::storage::{delete_image_handler, get_image_handler, upload_image_handler};
 use cx58_agent::AppState;
 use tower_http::trace::TraceLayer;
-use tracing::level_filters::LevelFilter;
-use tracing_subscriber::filter;
-use tracing_subscriber::fmt::writer::MakeWriterExt;
-use cx58_agent::hmac::{rate_limit_middleware, verify_signature, RateLimiter};
 
 fn create_app_router(state: Arc<AppState>) -> Router {
     let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));
@@ -51,11 +48,6 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
-    ///env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-/*    let filter = filter::Targets::new()
-        .with_default(LevelFilter::INFO)c
-        .with_target("rig", filter::LevelFilter::OFF); // Set rig to OFF
-*/
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cx58_agent=info,rig=debug")
         .try_init();

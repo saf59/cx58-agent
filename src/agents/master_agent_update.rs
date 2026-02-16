@@ -410,15 +410,19 @@ impl MasterAgentNew {
                 result
             }
 
-            WorkerParameters::DescribeReport { report_id } => {
+            WorkerParameters::DescribeReport { reports } => {
                 let agent = DescriptionAgent::new(
                     self.client.clone(),
                     context.clone(),
                     event_tx.clone(),
+                    //state.image_resolver.clone(),
+                    //state.image_processor.clone(),
+                    self.lang_manager.clone(),
+                    self.template_manager.clone(),
                 );
 
-                let result = agent.execute_by_id(&state, &report_id).await?.unwrap();
-                serde_json::json!({ "description": result })
+                let result = agent.execute_by_id(&state, &reports).await?;
+                result
             }
 
             WorkerParameters::CompareReports {
