@@ -12,6 +12,7 @@ const PROMPT_FILES: &[(&str, &str)] = &[
     ("intent-router-system-prompt", "intent_router_system.txt"),
     ("orchestrator-system-prompt", "orchestrator_system.txt"),
     ("formatter-system-prompt", "formatter_system.txt"),
+    ("description-system-prompt", "descriptor_system.txt"),
 ];
 
 /// Internal request sent to localization worker thread

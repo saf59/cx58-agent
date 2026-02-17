@@ -259,7 +259,7 @@ impl DescriptionAgent {
 
         let system_prompt = self
             .lang_manager
-            .get_prompt(&lang, "formatter-system-prompt")
+            .get_prompt(&lang, "description-system-prompt")
             .map_err(|e| format!("Failed to get system prompt: {}", e))?;
 
         // Get object name/path for the prompt
