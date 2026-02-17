@@ -52,8 +52,8 @@ impl AiConfig {
 pub struct AppState {
     pub db: sqlx::PgPool,
     pub storage: Arc<StorageService>,
-    pub image_resolver: Arc<ImageUrlResolver>,
-    pub image_processor: Arc<ImageProcessor>,
+    //pub image_resolver: Arc<ImageUrlResolver>,
+    //pub image_processor: Arc<ImageProcessor>,
     pub master_agent: Arc<MasterAgentNew>,
     pub ai_config: AiConfig,
 }
@@ -499,7 +499,7 @@ impl StorageService {
 // ============================================================================
 // Image Processor
 // ============================================================================
-
+/*
 pub struct ImageProcessor {
     pub storage: Arc<StorageService>,
 }
@@ -587,7 +587,7 @@ impl ImageUrlResolver {
             .collect())
     }
 }
-
+*/
 // ============================================================================
 // HTTP Handlers
 // ============================================================================
@@ -637,7 +637,7 @@ pub async fn upload_image_handler(
     }
 
     // Validate image
-    state.image_processor.validate_image(&image_data, 10)?;
+    validate_image(&image_data, 10)?;
 
     // Upload to S3
     let node_id = Uuid::now_v7();
@@ -681,6 +681,19 @@ pub async fn upload_image_handler(
         storage_path: storage_result.storage_path,
         size: storage_result.size,
     }))
+}
+pub fn validate_image(data: &Bytes, max_size_mb: u64) -> Result<()> {
+    if data.len() as u64 > max_size_mb * 1024 * 1024 {
+        return Err(AppError::bad_request(format!(
+            "Image too large (max {}MB)",
+            max_size_mb
+        )));
+    }
+
+    image::load_from_memory(data)
+        .map_err(|e| AppError::validation(format!("Invalid image: {}", e)))?;
+
+    Ok(())
 }
 
 pub async fn get_image_handler(

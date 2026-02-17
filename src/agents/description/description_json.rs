@@ -1,6 +1,6 @@
 use crate::db_description::ImageDescription;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, Value};
+use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 /// Parsed structure of the description JSON content
@@ -88,7 +88,8 @@ pub fn build_description_json(
     Ok(content)
 }
 
-/// Example usage in SSE streaming context
+/*
+// Example usage in SSE streaming context
 pub async fn send_description_via_sse(
     image_desc: ImageDescription,
     object: &str,
@@ -116,3 +117,4 @@ pub async fn send_description_via_sse(
 
     Ok(json_data)
 }
+ */

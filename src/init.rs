@@ -6,7 +6,7 @@ use sqlx::postgres::PgPoolOptions;
 use crate::{AiConfig, AppState};
 use crate::agents::master_agent_update::MasterAgentNew;
 use crate::error::AppError;
-use crate::handlers::{ImageProcessor, ImageUrlResolver, StorageService};
+use crate::handlers::{StorageService};
 
 // ============================================================================
 // Configuration
@@ -86,13 +86,13 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     }
 
     // Resolvers and processors
-    let image_resolver = Arc::new(ImageUrlResolver {
+/*    let image_resolver = Arc::new(ImageUrlResolver {
         storage: storage.clone(),
         db: db.clone(),
     });
 
     let image_processor = Arc::new(ImageProcessor::new(storage.clone()));
-
+*/
     let client = Arc::new(ollama::Client::builder()
         .api_key(Nothing)
         .base_url(ai_config.url.clone())
@@ -105,8 +105,8 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     let state = Arc::new(AppState {
         db,
         storage,
-        image_resolver,
-        image_processor,
+        //image_resolver,
+        //image_processor,
         master_agent,
         ai_config
     });

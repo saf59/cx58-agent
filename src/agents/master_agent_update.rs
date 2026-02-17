@@ -270,6 +270,19 @@ impl MasterAgentNew {
         loop {
             context.cancellation_token.check().await?;
 
+            let ready = Self::intent_ready(classification.intent.clone(), &worker_results);
+            if !ready.is_empty() {
+                tracing::info!("Intent ready for response formatting: {:?}", &classification.intent);
+                self.format_and_stream_response(
+                    &tx,
+                    &classification.intent,
+                    &ready,
+                    &context,
+                    &current_context,
+                ).await?;
+                break;
+            }
+
             let decision = self.orchestrator
                 .decide_next_step(
                     &classification,
@@ -375,6 +388,27 @@ impl MasterAgentNew {
 
         Ok(())
     }
+
+    fn intent_ready(intent: Intent, worker_results: &[WorkerResponse]) -> Vec<WorkerResponse> {
+        let worker_type = match intent {
+            Intent::DescribeReport => Some(WorkerType::DescribeReport),
+            Intent::CompareReports => Some(WorkerType::CompareReports),
+            Intent::GetObjectTree => Some(WorkerType::GetObjectTree),
+            Intent::GetReportList => Some(WorkerType::GetReportList),
+            _ => None,
+        };
+
+        if let Some(wt) = worker_type {
+            worker_results
+                .iter()
+                .filter(|r| r.worker_type == wt)
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+
     // Map WorkerType to existing Task/Agent
     // Bridge worker execution to existing agents
     async fn execute_worker_via_agent(
@@ -478,12 +512,18 @@ async fn format_and_stream_response(
     match intent {
         Intent::DescribeReport => {
             if let Some(result) = worker_results.first() {
+                tx.send(StreamEvent::Description {
+                    request_id: context.request_id.clone(),
+                    data: result.data.clone(),
+                }).await?;
+            }
+/*            if let Some(result) = worker_results.first() {
                 let description = self.formatter
                     .format_description(&result.data, &user_context.language, "report-id")
                     .await?;
                 self.send_text_chunks(tx, &description, &context.request_id, &user_context.language).await?;
             }
-        }
+*/        }
 
         Intent::CompareReports => {
             if worker_results.len() >= 2 {

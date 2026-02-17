@@ -1,4 +1,3 @@
-use crate::db_description::{get_descriptions_by_node, ImageDescription};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -10,9 +9,9 @@ pub async fn resolve_node_data(
     let row: (sqlx::types::JsonValue,) = sqlx::query_as(
         r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
     )
-    .bind(node_id)
-    .fetch_one(pool)
-    .await?;
+        .bind(node_id)
+        .fetch_one(pool)
+        .await?;
 
     Ok(row.0)
 }
@@ -32,7 +31,8 @@ pub async fn resolve_node_storage_path(
     Ok(storage_path.to_string())
 }
 
-/// Get image filename/src from node data in database by node_id
+// Get image filename/src from node data in database by node_id
+/*
 pub async fn resolve_node_filename(
     pool: &PgPool,
     node_id: &Uuid,
@@ -47,7 +47,7 @@ pub async fn resolve_node_filename(
     Ok(filename.to_string())
 }
 
-/// Get full node name (path) from database by node_id
+// Get full node name (path) from database by node_id
 pub async fn resolve_node_full_name(
     pool: &PgPool,
     node_id: &Uuid,
@@ -62,7 +62,7 @@ pub async fn resolve_node_full_name(
     Ok(result.0)
 }
 
-/// Get the latest description for a node (without filtering by model)
+// Get the latest description for a node (without filtering by model)
 pub async fn get_latest_description(
     pool: &PgPool,
     node_id: &Uuid,
@@ -72,7 +72,7 @@ pub async fn get_latest_description(
     Ok(descriptions.first().cloned())
 }
 
-/// Get the latest description for a node matching a specific model
+// Get the latest description for a node matching a specific model
 pub async fn get_description_for_model(
     pool: &PgPool,
     node_id: &Uuid,
@@ -83,7 +83,7 @@ pub async fn get_description_for_model(
     Ok(descriptions.iter().find(|d| d.model_name == model_name).cloned())
 }
 
-/// Check if a description exists for the given node and model
+// Check if a description exists for the given node and model
 pub async fn description_exists(
     pool: &PgPool,
     node_id: &Uuid,
@@ -109,3 +109,4 @@ mod tests {
         // fn requires_db() {}
     }
 }
+*/

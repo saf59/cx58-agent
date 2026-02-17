@@ -236,10 +236,12 @@ fn load_prompt_file(lang: &str, filename: &str) -> Result<String> {
         ("en", "intent_router_system.txt") => include_str!("../locales/en/prompts/intent_router_system.txt"),
         ("en", "orchestrator_system.txt") => include_str!("../locales/en/prompts/orchestrator_system.txt"),
         ("en", "formatter_system.txt") => include_str!("../locales/en/prompts/formatter_system.txt"),
+        ("en", "descriptor_system.txt") => include_str!("../locales/en/prompts/descriptor_system.txt"),
 
         ("de", "intent_router_system.txt") => include_str!("../locales/de/prompts/intent_router_system.txt"),
         ("de", "orchestrator_system.txt") => include_str!("../locales/de/prompts/orchestrator_system.txt"),
         ("de", "formatter_system.txt") => include_str!("../locales/de/prompts/formatter_system.txt"),
+        ("de", "descriptor_system.txt") => include_str!("../locales/de/prompts/descriptor_system.txt"),
 
         _ => return Err(anyhow::anyhow!("Unknown prompt")),
     };

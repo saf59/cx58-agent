@@ -17,7 +17,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use crate::agents::StreamEvent;
 use crate::db::{get_tree, NodeType, TreeNode};
-pub use crate::storage::{ImageProcessor, ImageUrlResolver, StorageService};
+pub use crate::storage::{StorageService};
 use crate::AgentRequest;
 use crate::AppState;
 use crate::storage::set_storage_url;

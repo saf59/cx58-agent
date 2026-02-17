@@ -141,7 +141,7 @@ impl DescriptionAgent {
             }
         };
 
-        let model_name = state.ai_config.vision_model.clone();
+        // let model_name = state.ai_config.vision_model.clone();
 
         // Check if we have a matching description
         let existing_desc = descriptions.first();

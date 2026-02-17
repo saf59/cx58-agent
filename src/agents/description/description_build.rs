@@ -20,9 +20,10 @@ pub struct DescriptionContent {
     pub openings: Option<String>,
 }
 
-/// Generate the system prompt for LLM to produce DescriptionContent format
+/*
+// Generate the system prompt for LLM to produce DescriptionContent format
 
-/// Extract and parse DescriptionContent from LLM response
+// Extract and parse DescriptionContent from LLM response
 pub fn extract_description_content(
     llm_response: &str,
 ) -> Result<DescriptionContent, Box<dyn std::error::Error + Send + Sync>> {
@@ -44,7 +45,7 @@ pub fn extract_description_content(
 
     Ok(content)
 }
-
+*/
 /// More robust extraction with fallback parsing
 pub fn extract_description_content_robust(
     llm_response: &str,
@@ -84,8 +85,8 @@ pub fn extract_description_content_robust(
 
     Err(format!("Failed to parse DescriptionContent from response: {}", llm_response).into())
 }
-
-/// Validate DescriptionContent structure
+/*
+// Validate DescriptionContent structure
 pub fn validate_description_content(
     content: &DescriptionContent,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -100,6 +101,7 @@ pub fn validate_description_content(
 
     Ok(())
 }
+*/
 
 /// Generate description content from image bytes using LLM
 /// The image should already be resized to the target dimensions
@@ -148,8 +150,9 @@ pub async fn generate_description_from_image(
     Ok(response)
 }
 
-/// Generate description content from image file path
-/// This function handles loading, resizing, and LLM call
+/*
+// Generate description content from image file path
+// This function handles loading, resizing, and LLM call
 pub async fn generate_description(
     client: &Arc<ollama::Client>,
     model: &str,
@@ -167,6 +170,7 @@ pub async fn generate_description(
     // Generate description
     generate_description_from_image(client, model, &resized_bytes, user_prompt, system_prompt).await
 }
+*/
 
 /// Resize image to maximum dimensions while maintaining aspect ratio
 /// Returns resized image as bytes
