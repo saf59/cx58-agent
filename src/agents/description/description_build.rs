@@ -21,66 +21,6 @@ pub struct DescriptionContent {
 }
 
 /// Generate the system prompt for LLM to produce DescriptionContent format
-pub fn create_description_system_prompt() -> String {
-    format!(
-        r#"
-You are a precise, reliable, and concise assistant.
-You are an expert in construction description.
-Your specialization is only windows, doors, radiators and empty openings for future installation of windows and doors.
-If any windows, doors, or radiators are missing and there are only bare openings, be sure to describe this in detail!
-It is necessary to describe in detail the quantity, material, condition, completeness and stage of installation of windows, doors and radiators.
-An error in determining presence or quantity is very bad!
-Don't let me down with the definitions and calculations.
-Don't show empty descriptions!
-This is a photo of a construction site, so you might see exposed concrete or brick.
-If so, please describe it.
-Don't invent what you don't see!
-
-Response format (JSON only, no other text):
-{{
-  "description": "General and complete description of the object",
-  "windows": "Detailed information about windows only",
-  "doors": "Detailed information about doors only",
-  "radiators": "Detailed information about radiators only",
-  "openings": "Detailed information about openings only"
-}}
-"#
-    )
-}
-
-/// Alternative: Create prompt with schema example
-pub fn create_description_prompt_with_schema() -> String {
-    r#"You are an expert at analyzing architectural and construction images.
-Analyze the provided image and generate a detailed description in JSON format.
-
-REQUIRED OUTPUT FORMAT:
-Return ONLY a valid JSON object matching this schema:
-
-{
-  "description": "string (REQUIRED) - General and complete description of the object",
-  "windows": "string or null - Detailed information about windows only",
-  "doors": "string or null - Detailed information about doors only",
-  "radiators": "string or null - Detailed information about radiators only",
-  "openings": "string or null - Detailed information about openings only"
-}
-
-EXAMPLE OUTPUT:
-{
-  "description": "A modern residential room with white walls and wooden flooring",
-  "windows": "Two large double-glazed windows on the eastern wall with white frames",
-  "doors": "Single wooden door with silver handle on the northern wall",
-  "radiators": "White panel radiator mounted beneath the window",
-  "openings": null
-}
-
-CRITICAL INSTRUCTIONS:
-- Return ONLY the JSON object, no additional text
-- Do not wrap the JSON in markdown code blocks
-- Use null for fields where elements are not visible
-- Ensure all strings are properly escaped
-- The "description" field must always be present and non-empty"#
-        .to_string()
-}
 
 /// Extract and parse DescriptionContent from LLM response
 pub fn extract_description_content(
