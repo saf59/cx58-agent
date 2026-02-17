@@ -638,9 +638,9 @@ impl Orchestrator {
                     
                     // Vision Analysis Worker: Processes single image from S3
                     "DescribeReport" | "DESCRIBE_REPORT" => {
-                        let current_report_id = action_data["parameters"]["report_id"]
+                        let current_report_id = action_data["parameters"]["reports"]["prev"]
                             .as_str()
-                            .ok_or_else(|| anyhow::anyhow!("Missing report_id"))?
+                            .ok_or_else(|| anyhow::anyhow!("Missing prev report_id"))?
                             .to_string();
 
                         // Validate report_id is not empty
@@ -651,7 +651,7 @@ impl Orchestrator {
                         }
 
                         // Previous report is optional (for comparing with previous)
-                        let previous_report_id = action_data["parameters"]["previous_report_id"]
+                        let previous_report_id = action_data["parameters"]["reports"]["next"]
                             .as_str()
                             .map(|s| s.to_string());
 

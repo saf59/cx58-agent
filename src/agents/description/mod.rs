@@ -5,5 +5,5 @@ mod description_build;
 
 // Re-export for convenience
 pub use description_agent::DescriptionAgent;
-pub use description_helper::{resolve_node_data, resolve_node_url};
+pub use description_helper::{resolve_node_data, resolve_node_storage_path};
 pub use description_json::{build_description_data, build_description_json, DescriptionData, DescriptionContent};

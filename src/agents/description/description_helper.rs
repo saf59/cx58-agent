@@ -18,18 +18,18 @@ pub async fn resolve_node_data(
 }
 
 /// Get image URL from node data in database by node_id
-pub async fn resolve_node_url(
+pub async fn resolve_node_storage_path(
     pool: &PgPool,
     node_id: &Uuid,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let data = resolve_node_data(pool, node_id).await?;
 
-    let url = data
-        .get("url")
+    let storage_path = data
+        .get("storage_path")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "URL field not found in node data")?;
+        .ok_or_else(|| "'storage_path' field not found in node data")?;
 
-    Ok(url.to_string())
+    Ok(storage_path.to_string())
 }
 
 /// Get image filename/src from node data in database by node_id

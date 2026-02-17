@@ -43,12 +43,16 @@ From user query, extract parameters for filtering and retrieval:
 - all: boolean (user wants complete list without filters)
   Triggers: "all", "every", "complete", "entire", "full list"
   
-- period: Day | Week | Month | Quarter | Year (time period for filtering)
+- period: Day | Week | Month | Quarter | Year (time period for filtering) | None (if no clear period is mentioned)
   Day: "today", "yesterday", "daily"
   Week: "last week", "this week", "weekly", "past 7 days"
   Month: "this month", "last month", "monthly", "past 30 days"
   Quarter: "this quarter", "Q1", "Q2", "quarterly"
-  
+  Year: "year"
+  None: if no clear period is mentioned
+
+  Do not infer period from vague references like "all",  "recent" or "latest".
+
 - amount: number (specific quantity requested)
   Examples: "last 5 reports", "top 10 objects", "3 most recent"
 
@@ -91,6 +95,7 @@ Determine what context is needed for the query:
   * Comparing (as one of the reports)
   
 - previous_report_id required for:
+  * Describing a specific report
   * Comparing two specific reports
 
 OUTPUT FORMAT:

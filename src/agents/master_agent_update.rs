@@ -233,7 +233,8 @@ impl MasterAgentNew {
         let classification = self.intent_router
             .classify(&context.message, &user_context, &[])
             .await?;
-
+        tracing::info!("Intent classification result: {:?}", &classification.intent);
+        
         context.cancellation_token.check().await?;
 
         // TODO (Ambiguity Gap):

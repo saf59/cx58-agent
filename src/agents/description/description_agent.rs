@@ -9,7 +9,7 @@ use crate::agents::description::description_build::generate_description_from_ima
 use crate::agents::description::description_build::{
     extract_description_content_robust, resize_image_to_bytes,
 };
-use crate::agents::description::description_helper::{resolve_node_data, resolve_node_url};
+use crate::agents::description::description_helper::{resolve_node_data, resolve_node_storage_path};
 use crate::agents::description::description_json::DescriptionData;
 use crate::agents::ReportPair;
 use crate::db_description::{
@@ -144,7 +144,8 @@ impl DescriptionAgent {
         let model_name = state.ai_config.vision_model.clone();
 
         // Check if we have a matching description
-        let existing_desc = descriptions.iter().find(|d| d.model_name == model_name);
+        let existing_desc = descriptions.first();
+            //.iter().find(|d| d.model_name == model_name);
 
         if let Some(image_desc) = existing_desc {
             tracing::info!("Found existing description for node {}", node_id);
@@ -170,8 +171,8 @@ impl DescriptionAgent {
         tracing::info!("Generating new description for node {}", node_id);
 
         // Get the image URL from database
-        let image_url = match resolve_node_url(&state.db, &node_id).await {
-            Ok(url) => url,
+        let storage_path = match resolve_node_storage_path(&state.db, &node_id).await {
+            Ok(path) => path,
             Err(e) => {
                 tracing::error!("Failed to get image URL for node {}: {}", node_id, e);
                 self.send_event(StreamEvent::TextChunk {
@@ -192,6 +193,22 @@ impl DescriptionAgent {
         })
         .await;
 
+        let image_url = match state
+            .storage
+            .generate_presigned_url(&storage_path, 120)
+            .await
+        {
+            Ok(url) => url,
+            Err(e) => {
+                let msg = format!("Failed to generate presigned URL for {}: {}", &storage_path, e);
+                tracing::error!(msg);
+                self.send_event(StreamEvent::TextChunk {
+                    request_id: self.context.request_id.clone(),
+                    chunk: msg,
+                }).await;
+                return Ok(None);
+            }
+        };
         // Download image from storage
         // The URL is the public presigned URL, we need to extract the storage path
         // or use the image processor to download from the internal path

@@ -82,7 +82,9 @@ where
             "Week" => Ok(Some(Period::Week)),
             "Month" => Ok(Some(Period::Month)),
             "Quarter" => Ok(Some(Period::Quarter)),
-            _ => Err(serde::de::Error::unknown_variant(&s, &["Day", "Week", "Month", "Quarter", "Year"])),
+            "Year" => Ok(Some(Period::Year)),
+            _ => Ok(None),
+            //_ => Err(serde::de::Error::unknown_variant(&s, &["Day", "Week", "Month", "Quarter", "Year"])),
         },
         None => Ok(None),
     }
