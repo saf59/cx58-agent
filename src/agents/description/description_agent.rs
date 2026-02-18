@@ -9,7 +9,7 @@ use crate::agents::description::description_build::generate_description_from_ima
 use crate::agents::description::description_build::{
     extract_description_content_robust, resize_image_to_bytes,
 };
-use crate::agents::description::description_helper::{resolve_node_data, resolve_node_storage_path};
+use crate::agents::description::description_helper::{resolve_node_full_name, resolve_node_storage_path};
 use crate::agents::description::description_json::DescriptionData;
 use crate::agents::ReportPair;
 use crate::db_description::{
@@ -135,7 +135,18 @@ impl DescriptionAgent {
             }
         };
 
-        // let model_name = state.ai_config.vision_model.clone();
+        let object_name = match resolve_node_full_name(&state.db, &node_id).await {
+            Ok(object_name) => object_name,
+            Err(e) => {
+                tracing::error!("Failed to get full report name {}: {}", node_id, e);
+                self.send_event(StreamEvent::TextChunk {
+                    request_id: self.context.request_id.clone(),
+                    chunk: format!("Failed to get full report name: {}", e),
+                })
+                    .await;
+                return Ok(None);
+            }
+        };
 
         // Check if we have a matching description
         let existing_desc = descriptions.first();
@@ -143,16 +154,6 @@ impl DescriptionAgent {
 
         if let Some(image_desc) = existing_desc {
             tracing::info!("Found existing description for node {}", node_id);
-
-            // Get node name/path for context
-            let object_name = match resolve_node_data(&state.db, &node_id).await {
-                Ok(data) => data
-                    .get("src")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("image")
-                    .to_string(),
-                Err(_) => "image".to_string(),
-            };
 
             // Convert to JSON format
             let desc_json = self
@@ -255,16 +256,6 @@ impl DescriptionAgent {
             .lang_manager
             .get_prompt(&lang, "description-system-prompt")
             .map_err(|e| format!("Failed to get system prompt: {}", e))?;
-
-        // Get object name/path for the prompt
-        let object_name = match resolve_node_data(&state.db, &node_id).await {
-            Ok(data) => data
-                .get("src")
-                .and_then(|s| s.as_str())
-                .unwrap_or("image")
-                .to_string(),
-            Err(_) => "image".to_string(),
-        };
 
         // Create the prompt for description generation
         // The prompt should be in the requested language

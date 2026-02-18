@@ -30,6 +30,20 @@ pub async fn resolve_node_storage_path(
 
     Ok(storage_path.to_string())
 }
+// Get full node name (path) from database by node_id
+pub async fn resolve_node_full_name(
+    pool: &PgPool,
+    node_id: &Uuid,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let result: (Option<String>,) = sqlx::query_as(
+        r#"SELECT get_full_node_name($1)"#,
+    )
+        .bind(node_id)
+        .fetch_one(pool)
+        .await?;
+
+    result.0.ok_or_else(|| format!("Node with id '{}' not found", node_id).into())
+}
 
 // Get image filename/src from node data in database by node_id
 /*
@@ -46,22 +60,6 @@ pub async fn resolve_node_filename(
 
     Ok(filename.to_string())
 }
-
-// Get full node name (path) from database by node_id
-pub async fn resolve_node_full_name(
-    pool: &PgPool,
-    node_id: &Uuid,
-) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
-    let result: (Option<String>,) = sqlx::query_as(
-        r#"SELECT get_full_node_name($1)"#,
-    )
-    .bind(node_id)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(result.0)
-}
-
 // Get the latest description for a node (without filtering by model)
 pub async fn get_latest_description(
     pool: &PgPool,
