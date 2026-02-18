@@ -254,4 +254,25 @@ Hope this helps!"#;
         let result = extract_description_content_robust(response);
         assert!(result.is_ok());
     }
+    fn extract_description_content(
+        llm_response: &str,
+    ) -> Result<DescriptionContent, Box<dyn std::error::Error + Send + Sync>> {
+        // Clean the response - remove potential markdown code blocks
+        let cleaned = llm_response
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+
+        // Parse JSON
+        let content: DescriptionContent = serde_json::from_str(cleaned)?;
+
+        // Validate that description is not empty
+        if content.description.trim().is_empty() {
+            return Err("Description field is empty".into());
+        }
+
+        Ok(content)
+    }    
 }

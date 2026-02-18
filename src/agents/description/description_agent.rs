@@ -23,8 +23,6 @@ pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
     context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
-    //image_resolver: Arc<ImageUrlResolver>,
-    //image_processor: Arc<ImageProcessor>,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
 }
@@ -34,8 +32,6 @@ impl DescriptionAgent {
         client: Arc<ollama::Client>,
         context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
-        //image_resolver: Arc<ImageUrlResolver>,
-        //image_processor: Arc<ImageProcessor>,
         lang_manager: Arc<LocalizationManager>,
         template_manager: Arc<TemplateManager>,
     ) -> Self {
@@ -43,8 +39,6 @@ impl DescriptionAgent {
             client,
             context,
             event_tx,
-            //image_resolver,
-            //image_processor,
             lang_manager,
             template_manager,
         }
@@ -128,7 +122,7 @@ impl DescriptionAgent {
         };
 
         // First, try to get existing description from database
-        let descriptions = match get_descriptions_by_node(&state.db, &node_id).await {
+        let descriptions = match get_descriptions_by_node(&state.db, &node_id, lang_code).await {
             Ok(descs) => descs,
             Err(e) => {
                 tracing::error!("Failed to query descriptions for node {}: {}", node_id, e);
@@ -312,7 +306,7 @@ impl DescriptionAgent {
                     description: content_str,
                     confidence: None,
                 };
-                if let Err(e) = upsert_description(&state.db, &create_data).await {
+                if let Err(e) = upsert_description(&state.db, &create_data, lang_code).await {
                     tracing::error!("Failed to save description: {}", e);
                 }
                 return Ok(None);
@@ -331,12 +325,13 @@ impl DescriptionAgent {
             confidence: None,
         };
 
-        let saved_data = match upsert_description(&state.db, &create_data).await {
+        let saved_data = match upsert_description(&state.db, &create_data, lang_code).await {
             Ok(saved) => {
                 tracing::info!(
-                    "Saved description for node {} with model {}",
+                    "Saved description for node {} with model {} on {}",
                     node_id,
-                    saved.model_name
+                    saved.model_name,
+                    lang_code
                 );
                 saved
             }

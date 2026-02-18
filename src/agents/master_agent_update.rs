@@ -118,6 +118,8 @@ pub struct MasterAgentNew {
     intent_router: Arc<IntentRouter>,
     orchestrator: Arc<Orchestrator>,
     formatter: Arc<ResponseFormatter>,
+    //description_agent: Arc<DescriptionAgent>, // много send_event через event_tx
+    //comparison_agent: Arc<ComparisonAgent>
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
 }
@@ -450,8 +452,6 @@ impl MasterAgentNew {
                     self.client.clone(),
                     context.clone(),
                     event_tx.clone(),
-                    //state.image_resolver.clone(),
-                    //state.image_processor.clone(),
                     self.lang_manager.clone(),
                     self.template_manager.clone(),
                 );

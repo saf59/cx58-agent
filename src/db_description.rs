@@ -43,16 +43,18 @@ impl From<CreateImageDescription> for ImageDescription {
 pub async fn get_descriptions_by_node(
     pool: &PgPool,
     node_id: &Uuid,
+    lang_id: &str,
 ) -> Result<Vec<ImageDescription>, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
         SELECT id, node_id, model_name, prompt, description, confidence, created_at
         FROM image_descriptions
-        WHERE node_id = $1
+        WHERE node_id = $1 and lang = $2
         ORDER BY created_at DESC
         "#,
     )
         .bind(node_id)
+        .bind(lang_id)
         .fetch_all(pool)
         .await
 }
@@ -82,15 +84,18 @@ pub async fn get_description(
 pub async fn upsert_description(
     pool: &PgPool,
     data: &CreateImageDescription,
+    lang_code: &str
 ) -> Result<ImageDescription, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
-        INSERT INTO image_descriptions (node_id, model_name, prompt, description, confidence)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (node_id, model_name, prompt)
+        INSERT INTO image_descriptions (node_id, model_name, prompt, description, confidence, lang)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (node_id, lang)
         DO UPDATE SET
             description = EXCLUDED.description,
             confidence = EXCLUDED.confidence,
+            model_name = EXCLUDED.model_name,
+            prompt = EXCLUDED.prompt,
             created_at = NOW()
         RETURNING id, node_id, model_name, prompt, description, confidence, created_at
         "#,
@@ -100,6 +105,7 @@ pub async fn upsert_description(
         .bind(&data.prompt)
         .bind(&data.description)
         .bind(data.confidence)
+        .bind(lang_code)
         .fetch_one(pool)
         .await
 }
