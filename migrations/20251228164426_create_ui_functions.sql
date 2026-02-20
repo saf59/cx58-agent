@@ -192,7 +192,7 @@ RETURN QUERY
                      SELECT * FROM child_leafs cl
                      WHERE p_to_timestamp IS NOT NULL
                        AND cl.updated_at > p_to_timestamp
-                     ORDER BY cl.updated_at
+                     ORDER BY cl.updated_at ASC
                      LIMIT 1
                  )
                  UNION
@@ -201,7 +201,7 @@ RETURN QUERY
                      SELECT * FROM child_leafs cl
                      WHERE p_from_timestamp IS NOT NULL
                        AND cl.updated_at > p_from_timestamp
-                     ORDER BY cl.updated_at
+                     ORDER BY cl.updated_at ASC
                      LIMIT 1
                  )
              ),
