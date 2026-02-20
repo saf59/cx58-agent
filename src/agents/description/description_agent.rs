@@ -147,13 +147,14 @@ impl DescriptionAgent {
                 return Ok(None);
             }
         };
+        let report_type = object_name.split('/').last().unwrap_or(report_type);
 
         // Check if we have a matching description
         let existing_desc = descriptions.first();
             //.iter().find(|d| d.model_name == model_name);
 
         if let Some(image_desc) = existing_desc {
-            tracing::info!("Found existing description for node {}", node_id);
+            tracing::info!("Found existing description for '{}', node_id: {}",report_type, node_id);
 
             // Convert to JSON format
             let desc_json = self
@@ -163,7 +164,7 @@ impl DescriptionAgent {
         }
 
         // No existing description found - need to generate one
-        tracing::info!("Generating new description for node {}", node_id);
+        tracing::info!("Generating new description for {}, node_id {}",report_type , node_id);
 
         // Get the image URL from database
         let storage_path = match resolve_node_storage_path(&state.db, &node_id).await {
@@ -184,7 +185,7 @@ impl DescriptionAgent {
             request_id: self.context.request_id.clone(),
             status: "downloading_image".to_string(),
             percent: 30,
-            message: format!("Downloading {} image...", report_type),
+            message: format!("Downloading '{}' image...", report_type),
         })
         .await;
 
@@ -225,7 +226,7 @@ impl DescriptionAgent {
             request_id: self.context.request_id.clone(),
             status: "processing_image".to_string(),
             percent: 50,
-            message: format!("Processing {} image...", report_type),
+            message: format!("Processing '{}' image...", report_type),
         })
         .await;
 
@@ -248,7 +249,7 @@ impl DescriptionAgent {
             request_id: self.context.request_id.clone(),
             status: "generating_description".to_string(),
             percent: 70,
-            message: format!("Generating {} description...", report_type),
+            message: format!("Generating '{}' description...", report_type),
         })
         .await;
 
