@@ -152,18 +152,7 @@ impl StorageService {
                 HeaderName::from_static("x-amz-acl"),
                 "public-read".parse().unwrap(),
             );
-            let _response_data = self
-                .bucket
-                .put_object_with_content_type_and_headers(
-                    &storage_path,
-                    &image_data,
-                    &mime_type,
-                    Some(headers),
-                )
-                .await
-                .map_err(|e| {
-                    AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
-                })?;
+            self.save_image(&image_data, &storage_path, &mime_type, headers).await?;
         } else {
             self.bucket
                 .put_object(&storage_path, &image_data)
@@ -193,6 +182,22 @@ impl StorageService {
             mime_type,
             hash,
         })
+    }
+
+    async fn save_image(&self, image_data: &Bytes, storage_path: &String, mime_type: &String, headers: HeaderMap) -> std::result::Result<(), AppError> {
+        let _response_data = self
+            .bucket
+            .put_object_with_content_type_and_headers(
+                &storage_path,
+                &image_data,
+                &mime_type,
+                Some(headers),
+            )
+            .await
+            .map_err(|e| {
+                AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
+            })?;
+        Ok(())
     }
 
     /// Download image from S3
@@ -400,19 +405,7 @@ impl StorageService {
             HeaderName::from_static("x-amz-acl"),
             "public-read".parse().unwrap(),
         );
-
-        self.bucket
-            .put_object_with_content_type_and_headers(
-                &storage_path,
-                &buffer_bytes,
-                &mime_type,
-                Some(headers),
-            )
-            .await
-            .map_err(|e| {
-                AppError::new(ErrorCode::StorageError, format!("S3 upload failed: {}", e))
-            })?;
-
+        self.save_image(&buffer_bytes, &storage_path, &mime_type, headers).await?;
         let public_url = self
             .bucket
             .presign_get(&storage_path, 86400, None)
