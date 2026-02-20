@@ -7,6 +7,7 @@ use rig::completion::Prompt;
 use rig::providers::ollama;
 use std::sync::Arc;
 use tera::Context;
+use crate::agents::agents_helper::clean_json_response;
 
 pub struct ResponseFormatter {
     client: Arc<ollama::Client>,
@@ -110,7 +111,7 @@ impl ResponseFormatter {
         
         tracing::info!("Formatter comparison response:\n{}", response);
         
-        let cleaned = self.clean_json_response(&response);
+        let cleaned = clean_json_response(&response);
 
         let error_msg = self.lang_manager.get_msg(lang, "error-comparison-parse");
         let comparison: serde_json::Value = serde_json::from_str(&cleaned)
@@ -155,29 +156,5 @@ impl ResponseFormatter {
         
         Ok(response)
     }
-    
-    /// Clean JSON response
-    fn clean_json_response(&self, response: &str) -> String {
-        let mut cleaned = response.trim().to_string();
-        
-        if cleaned.starts_with("```json") {
-            cleaned = cleaned.trim_start_matches("```json").trim_start().to_string();
-        } else if cleaned.starts_with("```") {
-            cleaned = cleaned.trim_start_matches("```").trim_start().to_string();
-        }
-        
-        if cleaned.ends_with("```") {
-            cleaned = cleaned.trim_end_matches("```").trim_end().to_string();
-        }
-        
-        if let Some(start_pos) = cleaned.find('{') {
-            cleaned = cleaned[start_pos..].to_string();
-        }
-        
-        if let Some(end_pos) = cleaned.rfind('}') {
-            cleaned = cleaned[..=end_pos].to_string();
-        }
-        
-        cleaned.trim().to_string()
-    }
+       
 }

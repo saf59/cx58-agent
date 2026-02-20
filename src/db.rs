@@ -264,44 +264,34 @@ pub async fn get_id_by_name(
 // ============================================================================
 
 impl TreeNode {
-    /// Check if the node is a root node
     pub fn is_root(&self) -> bool {
         self.node_type == NodeType::Root
     }
 
-    /// Check if the node is a branch node
     pub fn is_branch(&self) -> bool {
         self.node_type == NodeType::Branch
     }
-
-    /// Check if the node is a leaf node
-    pub fn is_leaf(&self) -> bool {
-        self.node_type == NodeType::ImageLeaf
-    }
-
-    /// Retrieve URL for ImageLeaf node
-    pub fn get_image_url(&self) -> Option<String> {
-        if self.is_leaf() {
-            self.data
-                .get("url")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        } else {
-            None
-        }
-    }
+}
+impl Leaf for TreeNode {
+    fn node_type(&self) -> &NodeType { &self.node_type }
+    fn data(&self) -> &serde_json::Value { &self.data }
 }
 
-impl NodeWithLeaf {
-    /// Check if the node is a leaf node
-    pub fn is_leaf(&self) -> bool {
-        self.node_type == NodeType::ImageLeaf
+impl Leaf for NodeWithLeaf {
+    fn node_type(&self) -> &NodeType { &self.node_type }
+    fn data(&self) -> &serde_json::Value { &self.data }
+}
+pub trait Leaf {
+    fn node_type(&self) -> &NodeType;
+    fn data(&self) -> &serde_json::Value;
+
+    fn is_leaf(&self) -> bool {
+        *self.node_type() == NodeType::ImageLeaf
     }
 
-    /// Retrieve URL for ImageLeaf node
-    pub fn get_image_url(&self) -> Option<String> {
+    fn get_image_url(&self) -> Option<String> {
         if self.is_leaf() {
-            self.data
+            self.data()
                 .get("url")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())

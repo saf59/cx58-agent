@@ -3,6 +3,7 @@
 mod common;
 
 use common::TestContext;
+use cx58_agent::agents::Period;
 use cx58_agent::agents::types::*;
 
 #[tokio::test]

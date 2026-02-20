@@ -1,6 +1,5 @@
 // Public module exports
 pub mod events;
-pub mod prompt_context;
 pub mod task_detector;
 //pub mod master_agent;
 pub mod object_agent;
@@ -17,6 +16,7 @@ pub mod response_formatter;
 pub mod types;
 pub mod cancellation;
 pub mod agent_context;
+pub mod agents_helper;
 
 pub use crate::localization::LocalizationManager;
 pub use agent_context::AgentContext;
@@ -28,7 +28,7 @@ pub use document_agent::DocumentAgent;
 pub use events::StreamEvent;
 //pub use master_agent::MasterAgent;
 pub use object_agent::ObjectAgent;
-pub use prompt_context::{ContextParser, ParserError, PromptContext, PromptKey};
+pub use crate::prompt_context::{ContextParser, ParserError, PromptContext, PromptKey, Period};
 pub use task_detector::{Task, TaskDetector, };
 // Re-export main types for convenience
 pub use types::*;

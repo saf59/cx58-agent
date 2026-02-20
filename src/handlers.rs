@@ -177,7 +177,7 @@ pub async fn chat_stream_cancel(
         ))
     }
 }
-pub async fn health_check(State(state): State<Arc<AppState>>) -> axum::Json<HealthStatus> {
+pub async fn health_check(State(state): State<Arc<AppState>>) -> Json<HealthStatus> {
     let mut health = HealthStatus::healthy();
 
     health.services.database = sqlx::query("SELECT 1").fetch_one(&state.db).await.is_ok();
@@ -197,5 +197,5 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> axum::Json<Heal
         health.status = "degraded".to_string();
     }
 
-    axum::Json(health)
+    Json(health)
 }

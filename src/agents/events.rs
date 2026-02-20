@@ -52,7 +52,7 @@ pub enum StreamEvent {
         request_id: String,
         error: String,
     },
-    // Cancelled events
+    // Canceled events
     Cancelled {
         request_id: String,
         reason: String,

@@ -1,7 +1,5 @@
-// src/agents/types.rs
-
 use serde::{Deserialize, Serialize};
-use strum_macros::{EnumIter, IntoStaticStr};
+use crate::agents::Period;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassificationResult {
@@ -97,15 +95,6 @@ pub struct TaskParameters {
     #[serde(deserialize_with = "deserialize_period_opt")]
     pub period: Option<Period>,
     pub amount: Option<usize>,
-}
-
-#[derive(Debug, EnumIter, IntoStaticStr, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Period {
-    Day,
-    Week,
-    Month,
-    Quarter,
-    Year,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -420,7 +420,7 @@ impl MasterAgentNew {
         worker_request: WorkerRequest,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Result<WorkerResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let result_data = match worker_request.parameters {
             WorkerParameters::GetObjectTree(task_params) => {
                 let agent = ObjectAgent::new(
@@ -472,7 +472,7 @@ impl MasterAgentNew {
 
                 let result = agent
                     .execute_comparision(&state, &report_id_1, &report_id_2)
-                    .await?.unwrap();
+                    .await??;
 
                 serde_json::json!({ "comparison": result })
             }

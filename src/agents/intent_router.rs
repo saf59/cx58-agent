@@ -22,7 +22,7 @@ use rig::client::CompletionClient;
 use rig::providers::ollama;
 use std::sync::Arc;
 use tera::Context;
-
+use crate::agents::agents_helper::{clean_json_response, format_optional};
 // TODO: According to plan.md Section 1 "Intent Classification Strategy", the router should
 // implement multi-level routing with scope checking first, then intent classification.
 // Consider adding a separate scope validation method before classification.
@@ -163,7 +163,7 @@ impl IntentRouter {
         let response = agent.prompt(&user_prompt).await?;
         
         // Parse JSON response
-        let cleaned = self.clean_json_response(&response);
+        let cleaned = clean_json_response(&response);
 
         //tracing::info!("Cleaned JSON:\n{}", cleaned);
 
@@ -236,9 +236,9 @@ impl IntentRouter {
         ctx.insert("user_id", &context.user_id);
         ctx.insert("chat_id", &context.chat_id);
         ctx.insert("language", context.language.as_str());
-        ctx.insert("object_id", &self.format_optional(&context.object_id, lang));
-        ctx.insert("current_report_id", &self.format_optional(&context.current_report_id, lang));
-        ctx.insert("previous_report_id", &self.format_optional(&context.previous_report_id, lang));
+        ctx.insert("object_id", &format_optional(self.template_manager.clone(),&context.object_id, lang));
+        ctx.insert("current_report_id", &format_optional(self.template_manager.clone(),&context.current_report_id, lang));
+        ctx.insert("previous_report_id", &format_optional(self.template_manager.clone(),&context.previous_report_id, lang));
 
         // TODO: According to plan.md "Conversation Memory", the prompt should include:
         // - Last selected object_id from conversation memory (if different from context)
@@ -262,62 +262,7 @@ impl IntentRouter {
         // Use Tera template
         self.template_manager.render(lang, "intent-router-user-prompt", ctx)
     }
-
-    /// Formats an optional value with localized status message.
-    ///
-    /// # Arguments
-    /// * `opt` - Optional string value to format
-    /// * `lang` - Language code for localization
-    ///
-    /// # Returns
-    /// Formatted string showing the value or empty string if None
-    ///
-    /// # Note
-    /// Returns empty string for None instead of "not set" message.
-    /// This is intentional to keep prompts concise.
-    fn format_optional(&self, opt: &Option<String>, lang: &str) -> String {
-        match opt {
-            Some(val) => {
-                // Use FTL for simple messages
-                let mut ctx = Context::new();
-                ctx.insert("value", val);
-                self.template_manager
-                    .render(lang, "status-set", ctx)
-                    .unwrap_or_else(|_| val.to_string())
-            }
-            //None => self.lang_manager.get_msg(lang, "status-not-set"),
-            None => "".to_string()
-        }
-    }
-    
-    /// Cleans LLM response by removing markdown code blocks and trimming whitespace.
-    ///
-    /// # Arguments
-    /// * `response` - Raw response string from the LLM
-    ///
-    /// # Returns
-    /// Cleaned JSON string ready for parsing
-    ///
-    /// # Note
-    /// Handles common LLM output patterns like ```json ... ``` wrapping.
-    fn clean_json_response(&self, response: &str) -> String {
-        // TODO: According to plan.md "Error Handling and Fallbacks", add more robust
-        // JSON extraction logic:
-        // - Handle multiple JSON objects in response
-        // - Extract JSON even if surrounded by explanatory text
-        // - Validate JSON structure before returning
-        // - Log malformed responses for prompt improvement
-        
-        response.trim()
-            // Remove markdown code blocks at start
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            // Remove markdown code blocks at end
-            .trim_end_matches("```")
-            // Remove extra whitespace
-            .trim()
-            .to_string()
-    }
+       
 }
 
 // ============================================================================

@@ -24,7 +24,7 @@ pub struct DescriptionAgent {
     context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
     lang_manager: Arc<LocalizationManager>,
-    template_manager: Arc<TemplateManager>,
+    _template_manager: Arc<TemplateManager>,
 }
 
 impl DescriptionAgent {
@@ -40,7 +40,7 @@ impl DescriptionAgent {
             context,
             event_tx,
             lang_manager,
-            template_manager,
+            _template_manager: template_manager,
         }
     }
 
@@ -123,7 +123,7 @@ impl DescriptionAgent {
 
         // First, try to get existing description from database
         let descriptions = match get_descriptions_by_node(&state.db, &node_id, lang_code).await {
-            Ok(descs) => descs,
+            Ok(descriptions) => descriptions,
             Err(e) => {
                 tracing::error!("Failed to query descriptions for node {}: {}", node_id, e);
                 self.send_event(StreamEvent::TextChunk {

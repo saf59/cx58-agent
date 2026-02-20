@@ -54,7 +54,7 @@ impl RateLimiter {
 
 pub async fn rate_limit_middleware(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    axum::extract::State(limiter): axum::extract::State<RateLimiter>,
+    State(limiter): State<RateLimiter>,
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {

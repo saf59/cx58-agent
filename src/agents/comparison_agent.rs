@@ -39,7 +39,7 @@ impl ComparisonAgent {
         &self,
         state: Arc<AppState>,
         _parameters: &TaskParameters,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let report_id_1 = self.context.prev_leaf.clone().unwrap_or_default();
         let report_id_2 = self.context.next_leaf.clone().unwrap_or_default();
         self.execute_comparision(&state, &report_id_1, &report_id_2).await?

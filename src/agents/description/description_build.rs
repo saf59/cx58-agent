@@ -1,25 +1,10 @@
+use crate::agents::description::DescriptionContent;
 use rig::completion::Prompt;
 use rig::message::{DocumentSourceKind, Message, UserContent};
 use rig::prelude::*;
 use rig::providers::ollama;
 use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-/// Parsed structure of the description JSON content
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DescriptionContent {
-    pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub windows: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub doors: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub radiators: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub openings: Option<String>,
-}
-
 /*
 // Generate the system prompt for LLM to produce DescriptionContent format
 
@@ -65,25 +50,29 @@ pub fn extract_description_content_robust(
         .trim_end_matches("```")
         .trim();
 
-    if let Ok(content) = serde_json::from_str::<DescriptionContent>(cleaned) {
-        if !content.description.trim().is_empty() {
-            return Ok(content);
-        }
+    if let Ok(content) = serde_json::from_str::<DescriptionContent>(cleaned)
+        && !content.description.trim().is_empty()
+    {
+        return Ok(content);
     }
 
     // Step 3: Try to find JSON object in the text
     if let Some(start) = llm_response.find('{') {
         if let Some(end) = llm_response.rfind('}') {
             let json_str = &llm_response[start..=end];
-            if let Ok(content) = serde_json::from_str::<DescriptionContent>(json_str) {
-                if !content.description.trim().is_empty() {
-                    return Ok(content);
-                }
+            if let Ok(content) = serde_json::from_str::<DescriptionContent>(json_str)
+                && !content.description.trim().is_empty()
+            {
+                return Ok(content);
             }
         }
     }
 
-    Err(format!("Failed to parse DescriptionContent from response: {}", llm_response).into())
+    Err(format!(
+        "Failed to parse DescriptionContent from response: {}",
+        llm_response
+    )
+    .into())
 }
 /*
 // Validate DescriptionContent structure
@@ -113,10 +102,7 @@ pub async fn generate_description_from_image(
     system_prompt: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     // Convert image to base64
-    let image_base64 = base64::Engine::encode(
-        &base64::prelude::BASE64_STANDARD,
-        image_bytes,
-    );
+    let image_base64 = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, image_bytes);
 
     // Create Image for prompt
     let image = Image {
@@ -274,5 +260,5 @@ Hope this helps!"#;
         }
 
         Ok(content)
-    }    
+    }
 }
