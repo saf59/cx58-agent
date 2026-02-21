@@ -43,6 +43,7 @@ use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::ollama;
 use std::sync::Arc;
+use serde_json::Value;
 use tera::Context;
 use uuid::Uuid;
 use crate::agents::agents_helper::{clean_json_response, format_optional};
@@ -577,22 +578,20 @@ impl Orchestrator {
                     
                     // Comparison Worker: Analyzes differences between two reports
                     "CompareReports" | "COMPARE_REPORTS" => {
-                        let report_id_1 = action_data["parameters"]["report_id_1"]
+                        let reports_str = action_data["parameters"]["reports"]
                             .as_str()
-                            .ok_or_else(|| anyhow::anyhow!("Missing report_id_1"))?
+                            .ok_or_else(|| anyhow::anyhow!("Missing reports"))?
                             .to_string();
-                        let report_id_2 = action_data["parameters"]["report_id_2"]
-                            .as_str()
-                            .ok_or_else(|| anyhow::anyhow!("Missing report_id_2"))?
-                            .to_string();
-
+                        let reports:Value =serde_json::from_str(&reports_str).unwrap();
+                        let is_array_of_two =  reports.as_array()
+                            .map_or(false, |arr| arr.len() == 2);
                         // Validate both report IDs are present
-                        if report_id_1.is_empty() || report_id_2.is_empty() {
+                        if !is_array_of_two {
                             return Err(anyhow::anyhow!(
                                 self.lang_manager.get_msg(lang, "error-empty-report-id")
                             ));
                         }
-                        WorkerParameters::CompareReports { report_id_1, report_id_2 }
+                        WorkerParameters::CompareReports { reports  }
                     }
                     
                     // Knowledge Base Worker: RAG retrieval for project questions

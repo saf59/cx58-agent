@@ -36,7 +36,7 @@ DESCRIBE_REPORT:
 COMPARE_REPORTS:
 - Required: object_id, current_report_id, previous_report_id
 - OR: object_id + time reference that can fetch reports
-- Decision: Complex - may need multiple steps to gather report IDs
+- Decision: Complex - required already executed worker DescribeReport
 
 RAG_QUERY:
 - Required: none
@@ -106,8 +106,7 @@ For CompareReports worker:
 {
   "worker_type": "CompareReports",
   "parameters": {
-    "report_id_1": "<first report>",
-    "report_id_2": "<second report>"
+    "reports": "<data from DescribeReport, if both prev and next reports exist>",
   }
 }
 

@@ -11,22 +11,22 @@ If so, please describe it.
 Don't invent what you don't see!
 
 Response format (JSON only, no other text):
-{{
+{
   "description": "General and complete description of the object",
   "windows": "Detailed information about windows only",
   "doors": "Detailed information about doors only",
   "radiators": "Detailed information about radiators only",
   "openings": "Detailed information about openings only"
-}}
+}
 
 EXAMPLE OUTPUT:
-{{
+{
   "description": "A modern residential room with white walls and wooden flooring",
   "windows": "Two large double-glazed windows on the eastern wall with white frames",
   "doors": "Single wooden door with silver handle on the northern wall",
   "radiators": "White panel radiator mounted beneath the window",
   "openings": null
-}}
+}
 
 CRITICAL INSTRUCTIONS:
 - Return ONLY the JSON object, no additional text

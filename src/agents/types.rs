@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use crate::agents::Period;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,68 +137,12 @@ pub enum WorkerParameters {
         reports: ReportPair,
     },
     CompareReports {
-        report_id_1: String,
-        report_id_2: String,
+        reports: Value,
     },
     RagQuery {
         query: String,
     },
 }
-// SSE Stream Chunks
-/*#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data",rename_all = "snake_case")]
-pub enum StreamEvent {
-    // Lifecycle events
-    Started {
-        request_id: String,
-        timestamp: i64,
-    },
-    Progress {
-        request_id: String,
-        status: String,
-        percent: u8,
-        message: String,
-    },
-    ObjectTree {
-        request_id: String,
-        data: serde_json::Value,
-    },
-    TextChunk {
-        request_id: String,
-        chunk: String,
-       // language: String,
-    },
-    ReportList {
-        request_id: String,
-        data: serde_json::Value, // TODO
-        //data: Vec<serde_json::Value>,
-    },
-    Description {
-        request_id: String,
-        data: serde_json::Value,
-        // report_id: String,
-        // text: String,
-        // is_complete: bool,
-    },
-    Comparison {
-        request_id: String,
-        data: serde_json::Value,
-    },
-    Completed {
-        request_id: String,
-        total_time_ms: u64,
-    },
-    Error {
-        request_id: String,
-        error: String,
-    },
-    // Cancelled events
-    Cancelled {
-        request_id: String,
-        reason: String,
-    },
-}
-*/
 // Orchestrator Decision
 #[derive(Debug, Clone)]
 pub enum OrchestratorDecision {

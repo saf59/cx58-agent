@@ -12,22 +12,22 @@ Erfinden Sie nichts, was Sie nicht sehen!
 
 
 Antwortformat (nur JSON, kein weiterer Text):
-{{
+{
   "description": "Allgemeine und vollständige Beschreibung des Objekts",
   "windows": "Detaillierte Informationen nur zu den Fenstern",
   "doors": "Detaillierte Informationen nur zu den Türen",
   "radiators": "Detaillierte Informationen nur zu den Heizkörpern",
   "openings": "Detaillierte Informationen nur zu den Öffnungen"
-}}
+}
 
 BEISPIELAUSGABE:
-{{
+{
   "description": "Ein modernes Wohnzimmer mit weißen Wänden und Holzboden",
   "windows": "Zwei große, doppelt verglaste Fenster mit weißen Rahmen an der Ostwand",
   "doors": "Eine einzelne Holztür mit silbernem Griff an der Nordwand",
   "radiators": "Weißer Plattenheizkörper unter dem Fenster",
   "openings": null
-}}
+}
 
 WICHTIGE HINWEISE:
 - Geben Sie NUR das JSON-Objekt zurück, keinen zusätzlichen Text.

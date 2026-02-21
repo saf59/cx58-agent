@@ -70,6 +70,7 @@ use anyhow::Result;
 use rig::providers::ollama;
 use std::sync::Arc;
 use std::time::Instant;
+use serde_json::Value;
 use tera::Context;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -316,8 +317,10 @@ impl MasterAgentNew {
                         message: executing_msg,
                     }).await?;
 
-                    //let result = self.execute_worker(&state, worker_req).await?;
-                    let result = self.execute_worker_via_agent(state.clone(), context.clone(), worker_req, tx.clone()).await?;
+                    let result = self.execute_worker_via_agent(
+                        state.clone(), context.clone(), worker_req, tx.clone(),
+                        &worker_results,
+                    ).await?;
 
                     worker_results.push(result);
                 }
@@ -419,6 +422,7 @@ impl MasterAgentNew {
         context: AgentContext,
         worker_request: WorkerRequest,
         event_tx: mpsc::Sender<StreamEvent>,
+        previous_results: &[WorkerResponse],
     ) -> Result<WorkerResponse, Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
         let result_data = match worker_request.parameters {
@@ -460,21 +464,26 @@ impl MasterAgentNew {
                 result
             }
 
-            WorkerParameters::CompareReports {
-                report_id_1,
-                report_id_2,
-            } => {
+            WorkerParameters::CompareReports { reports: _ } => {
+                let descriptions: Vec<Value> = previous_results
+                    .iter()
+                    .filter(|r| r.worker_type == WorkerType::DescribeReport)
+                    .map(|r| r.data.clone())
+                    .collect();
+
+                if descriptions.is_empty() {
+                    return Err("ComparisonAgent requires DescribeReport results first".into());
+                }
+
                 let agent = ComparisonAgent::new(
                     self.client.clone(),
                     context.clone(),
                     event_tx.clone(),
+                    self.lang_manager.clone(),
+                    self.template_manager.clone(),
                 );
-
-                let result = agent
-                    .execute_comparision(&state, &report_id_1, &report_id_2)
-                    .await??;
-
-                serde_json::json!({ "comparison": result })
+                //let descriptions_value = Value::Array(descriptions);
+                agent.execute_comparison(&state, descriptions, ).await?
             }
 
             WorkerParameters::RagQuery { query: _ } => {
@@ -517,29 +526,13 @@ async fn format_and_stream_response(
                     data: result.data.clone(),
                 }).await?;
             }
-/*            if let Some(result) = worker_results.first() {
-                let description = self.formatter
-                    .format_description(&result.data, &user_context.language, "report-id")
-                    .await?;
-                self.send_text_chunks(tx, &description, &context.request_id, &user_context.language).await?;
-            }
-*/        }
+        }
 
         Intent::CompareReports => {
-            if worker_results.len() >= 2 {
-                let comparison = self.formatter
-                    .format_comparison(
-                        &worker_results[0].data.to_string(),
-                        &worker_results[1].data.to_string(),
-                        &user_context.language,
-                        "report-1",
-                        "report-2",
-                    )
-                    .await?;
-
+            if let Some(result) = worker_results.first() {
                 tx.send(StreamEvent::Comparison {
                     request_id: context.request_id.clone(),
-                    data: comparison,
+                    data: result.data.clone(),
                 }).await?;
             }
         }
