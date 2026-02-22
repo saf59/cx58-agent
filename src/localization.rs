@@ -11,6 +11,7 @@ use unic_langid::LanguageIdentifier;
 const PROMPT_FILES: &[(&str, &str)] = &[
     ("intent-router-system-prompt", "intent_router_system.txt"),
     ("orchestrator-system-prompt", "orchestrator_system.txt"),
+    ("comparison-system-prompt", "comparison_system.txt"),
     ("formatter-system-prompt", "formatter_system.txt"),
     ("description-system-prompt", "descriptor_system.txt"),
 ];
@@ -235,11 +236,13 @@ fn load_prompt_file(lang: &str, filename: &str) -> Result<String> {
     let content = match (lang, filename) {
         ("en", "intent_router_system.txt") => include_str!("../locales/en/prompts/intent_router_system.txt"),
         ("en", "orchestrator_system.txt") => include_str!("../locales/en/prompts/orchestrator_system.txt"),
+        ("en", "comparison_system.txt") => include_str!("../locales/en/prompts/comparison_system.txt"),
         ("en", "formatter_system.txt") => include_str!("../locales/en/prompts/formatter_system.txt"),
         ("en", "descriptor_system.txt") => include_str!("../locales/en/prompts/descriptor_system.txt"),
 
         ("de", "intent_router_system.txt") => include_str!("../locales/de/prompts/intent_router_system.txt"),
         ("de", "orchestrator_system.txt") => include_str!("../locales/de/prompts/orchestrator_system.txt"),
+        ("de", "comparison_system.txt") => include_str!("../locales/de/prompts/comparison_system.txt"),
         ("de", "formatter_system.txt") => include_str!("../locales/de/prompts/formatter_system.txt"),
         ("de", "descriptor_system.txt") => include_str!("../locales/de/prompts/descriptor_system.txt"),
 

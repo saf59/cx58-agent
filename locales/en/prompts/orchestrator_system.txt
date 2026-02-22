@@ -34,9 +34,9 @@ DESCRIBE_REPORT:
   - If object_id is in missing_context → Request context from user
 
 COMPARE_REPORTS:
-- Required: object_id, current_report_id, previous_report_id
-- OR: object_id + time reference that can fetch reports
-- Decision: Complex - required already executed worker DescribeReport
+- Required: DescribeReport must already be in WORKER RESULTS SO FAR
+- If DescribeReport results are present → ExecuteWorker CompareReports (no parameters needed)
+- If DescribeReport results are absent → ExecuteWorker DescribeReport first
 
 RAG_QUERY:
 - Required: none
@@ -102,12 +102,10 @@ For DescribeReport worker:
   }
 }
 
-For CompareReports worker:
+For CompareReports worker (only after DescribeReport results are available):
 {
   "worker_type": "CompareReports",
-  "parameters": {
-    "reports": "<data from DescribeReport, if both prev and next reports exist>",
-  }
+  "parameters": {}
 }
 
 For RagQuery worker:
@@ -122,19 +120,15 @@ STEP 4 - MULTI-WORKER ORCHESTRATION:
 
 Some intents require multiple workers in sequence:
 
-Example 1: Compare last two reports (no report IDs available)
-1. Execute GetReportList worker (amount: 2, last: true)
-2. Wait for response with report IDs
-3. Execute DescribeReport worker
-4. Wait for both descriptions
-5. Execute CompareReports worker with both descriptions
-6. Return for formatting
+Example 1: Compare reports workflow
+1. ExecuteWorker GetReportList → get [report_id_1, report_id_2]
+2. ExecuteWorker DescribeReport with prev=report_id_1, next=report_id_2
+3. After receiving the result, DescribeReport → ExecuteWorker CompareReports passing data from worker_results (descriptions of both reports) to reports
 
 Example 2: Describe latest report (no report ID available)
 1. Execute GetReportList worker (amount: 1, last: true)
 2. Wait for response with report ID
 3. Execute DescribeReport worker
-4. Return for formatting
 
 STEP 5 - PROGRESS UPDATES:
 

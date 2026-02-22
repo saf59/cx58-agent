@@ -5,11 +5,12 @@ use rig::providers::ollama;
 use serde_json::{Value, json};
 use std::error::Error;
 use std::sync::Arc;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use tera::Context;
 use tokio::sync::mpsc;
 use crate::agents::agents_helper::clean_json_response;
-use crate::agents::{Language, LocalizationManager};
+use crate::agents::{Language, LocalizationManager, WorkerType};
 use crate::templating::TemplateManager;
 /// Structured output of ComparisonAgent.
 /// Mirrors the shape returned by the LLM and can be serialized to JSON for SSE.
@@ -121,12 +122,8 @@ impl ComparisonAgent {
         descriptions: Vec<Value>,
        //lang: &str
     ) -> Result<Value, Box<dyn Error + Send + Sync>> {
-        if descriptions.len() < 2 {
-            return Err(format!(
-                "ComparisonAgent requires exactly 2 DescribeReport results, got {}",
-                descriptions.len()
-            ).into());
-        }
+        tracing::info!("Descriptions: {:#?}",descriptions);
+        let descriptions = descriptions.first().unwrap().as_array().unwrap();
         let lang = Language::from_short(&self.context.language);
         let lang = lang.to_code();
 
@@ -140,25 +137,21 @@ impl ComparisonAgent {
                 .as_str()
                 .unwrap_or("Unknown object")
         );
+        let native_date_0 = Self::to_native_date(date_0.as_str())
+            .map_err(|e| format!("Failed to parse date '{}': {}", date_0, e))?;
+        let native_date_1 = Self::to_native_date(date_1.as_str())
+            .map_err(|e| format!("Failed to parse date '{}': {}", date_1, e))?;
 
-        let (prev,next) = if date_0 <= date_1 {
+        let (prev,next) = if native_date_0 <= native_date_1 {
             (&descriptions[0], &descriptions[1])
         } else {
             (&descriptions[1], &descriptions[0])
         };
-        let (prev_date, next_date) = if date_0 <= date_1 {
+        let (prev_date, next_date) = if native_date_0 <= native_date_1 {
             (date_0, date_1)
         } else {
             (date_1, date_0)
         };
-
-        self.send_event(StreamEvent::TextChunk {
-            request_id: self.context.request_id.clone(),
-            chunk: format!(
-                "Comparing inspections: {} vs {}...\n",
-                prev_date, next_date
-            ),
-        }).await;
 
         // Load system prompt from localization (comparison_system.txt)
         let system_prompt = self.lang_manager
@@ -172,7 +165,18 @@ impl ComparisonAgent {
         ctx.insert("user_message", &self.context.message);
         ctx.insert("prev_description", prev);
         ctx.insert("next_description", next);
+/*        ctx.insert("prev_description", &serde_json::to_string_pretty(prev)?);
+        ctx.insert("next_description", &serde_json::to_string_pretty(next)?);
+        let prev_str = serde_json::to_string_pretty(prev)?
+            .replace("{{", "{ {")
+            .replace("}}", "} }");
+        let next_str = serde_json::to_string_pretty(next)?
+            .replace("{{", "{ {")
+            .replace("}}", "} }");
 
+        ctx.insert("prev_description", &prev_str);
+        ctx.insert("next_description", &next_str);
+*/
         // Render user prompt from comparison_user_prompt.tera
         let user_prompt = self.template_manager
             .render(lang, "comparison-user-prompt", ctx)?;
@@ -209,5 +213,8 @@ impl ComparisonAgent {
         let object_name = parts[..parts.len().saturating_sub(1)].join(" - ");
 
         (object_name, report_name)
+    }
+    fn to_native_date(date:&str) -> Result<NaiveDateTime, chrono::ParseError> {
+        NaiveDateTime::parse_from_str(date, "%d.%m.%Y %H:%M:%S")
     }
 }

@@ -24,7 +24,10 @@ MISSING CONTEXT FIELDS:
 {{ missing_context }}
 
 WORKER RESULTS SO FAR:
-{{ worker_results }}
+{% for result in worker_results %}
+Worker: {{ result.worker_type }}
+Status: {{ result.status }}
+{% endfor %}
 
 Based on this information, what is your next decision? Consider:
 1. Do we have all required context for this intent?

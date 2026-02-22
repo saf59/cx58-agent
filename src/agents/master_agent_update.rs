@@ -285,6 +285,34 @@ impl MasterAgentNew {
                 ).await?;
                 break;
             }
+            // Guard: CompareReports require DescribeReport
+            if matches!(classification.intent, Intent::CompareReports) {
+                let has_describe = worker_results.iter()
+                    .any(|r| r.worker_type == WorkerType::DescribeReport);
+
+                if !has_describe {
+                    // Принудительно запускаем DescribeReport без LLM
+                    let reports = ReportPair {
+                        prev: current_context.current_report_id.clone()
+                            .ok_or("Missing current_report_id")?,
+                        next: current_context.previous_report_id.clone(),
+                    };
+                    let worker_req = WorkerRequest {
+                        worker_type: WorkerType::DescribeReport,
+                        parameters: WorkerParameters::DescribeReport { reports },
+                        context: WorkerContext {
+                            user_id: current_context.user_id.clone(),
+                            language: current_context.language.clone(),
+                            request_id: Uuid::now_v7().to_string(),
+                        },
+                    };
+                    let result = self.execute_worker_via_agent(
+                        state.clone(), context.clone(), worker_req, tx.clone(), &worker_results,
+                    ).await?;
+                    worker_results.push(result);
+                    continue; // следующая итерация — теперь DescribeReport есть
+                }
+            }
 
             let decision = self.orchestrator
                 .decide_next_step(

@@ -36,17 +36,17 @@
 //! - `Reject`: Politely decline out-of-scope requests
 
 use super::types::*;
+use crate::agents::agents_helper::{clean_json_response, format_optional};
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use anyhow::Result;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::ollama;
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 use tera::Context;
 use uuid::Uuid;
-use crate::agents::agents_helper::{clean_json_response, format_optional};
 
 /// # Orchestrator - Coordination Agent
 ///
@@ -80,14 +80,14 @@ use crate::agents::agents_helper::{clean_json_response, format_optional};
 pub struct Orchestrator {
     /// Ollama client for LLM-based decision making
     client: Arc<ollama::Client>,
-    
+
     /// Model identifier (e.g., "llama3.2", "mistral")
     model: String,
-    
+
     /// Localization manager for multi-language support
     /// Handles English and German translations for prompts and messages
     lang_manager: Arc<LocalizationManager>,
-    
+
     /// Template manager for dynamic prompt generation
     /// Uses Tera templating engine for structured prompts
     template_manager: Arc<TemplateManager>,
@@ -136,7 +136,7 @@ impl Orchestrator {
             template_manager,
         }
     }
-    
+
     /// # Core Decision Engine
     ///
     /// Determines the next step in workflow orchestration based on:
@@ -214,14 +214,18 @@ impl Orchestrator {
         // attempting to execute workers. Uses extracted object_identifier as suggestions
         // to help guide the user.
         if matches!(classification.intent, Intent::Ambiguous) {
-            let prompt = self.lang_manager.get_msg(lang, "context-request-clarification");
-            
+            let prompt = self
+                .lang_manager
+                .get_msg(lang, "context-request-clarification");
+
             // Use extracted object_identifier as suggestions if available
-            let suggestions = classification.extracted_parameters.object_identifier
+            let suggestions = classification
+                .extracted_parameters
+                .object_identifier
                 .clone()
                 .map(|s| vec![s])
                 .unwrap_or_default();
-            
+
             // TODO: CurrentReportId is used as a dummy value here to trigger user request.
             // This should be refactored to use a more semantic field like "Clarification"
             return Ok(OrchestratorDecision::RequestContextFromUser {
@@ -232,11 +236,12 @@ impl Orchestrator {
         }
 
         // === LLM-Based Decision Generation ===
-        
+
         // Get system prompt that defines orchestrator's role and decision format
-        let system_prompt = self.lang_manager
+        let system_prompt = self
+            .lang_manager
             .get_prompt(lang, "orchestrator-system-prompt")?;
-        
+
         // Build detailed user prompt with classification, context, and worker results
         let prompt = self.build_orchestrator_prompt(
             classification,
@@ -245,39 +250,42 @@ impl Orchestrator {
             worker_results,
             lang,
         )?;
-        
+
         tracing::info!("Orchestrator - Prompt: {}", prompt);
-        
+
         // Create LLM agent with low temperature (0.2) for consistent, predictable decisions
         // Low temperature is critical for structured orchestration decisions
-        let agent = self.client
+        let agent = self
+            .client
             .agent(&self.model)
             .preamble(&system_prompt)
-            .temperature(0.2)  // Low temperature = more deterministic decisions
+            .temperature(0.2) // Low temperature = more deterministic decisions
             .build();
-        
+
         // Get decision from LLM
         let response = agent.prompt(&prompt).await?;
-        
+
         tracing::info!("Orchestrator raw response:\n{}", response);
-        
+
         // Clean markdown code fences and extract pure JSON
         let cleaned = clean_json_response(&response);
-        
+
         tracing::debug!("Orchestrator cleaned JSON:\n{}", cleaned);
-        
+
         // Parse JSON response
-        let decision_json: serde_json::Value = serde_json::from_str(&cleaned)
-            .map_err(|e| anyhow::anyhow!(
+        let decision_json: serde_json::Value = serde_json::from_str(&cleaned).map_err(|e| {
+            anyhow::anyhow!(
                 "Failed to parse orchestrator decision: {}\nCleaned: {}\nOriginal: {}",
-                e, cleaned, response
-            ))?;
-        
+                e,
+                cleaned,
+                response
+            )
+        })?;
+
         // Convert JSON to OrchestratorDecision enum
         self.parse_decision(decision_json, lang, context, worker_results)
     }
-    
-    
+
     /// Builds the user prompt for LLM-based orchestration decision
     ///
     /// Constructs a detailed prompt using Tera templates that includes:
@@ -331,61 +339,44 @@ impl Orchestrator {
         lang: &str,
     ) -> Result<String> {
         let mut ctx = Context::new();
-        
-        // Insert classification data
         ctx.insert("intent", &format!("{:?}", classification.intent));
         ctx.insert("confidence", &format!("{:.2}", classification.confidence));
         ctx.insert("original_message", original_message);
-        
+
         // Insert user context (required fields)
         ctx.insert("user_id", &context.user_id);
         ctx.insert("chat_id", &context.chat_id);
         ctx.insert("language", context.language.as_str());
-        
+
         // Insert optional context fields with localized "Not set" message
         ctx.insert("object_id", &format_optional(self.template_manager.clone(),&context.object_id, lang));
         ctx.insert("current_report_id", &format_optional(self.template_manager.clone(),&context.current_report_id, lang));
         ctx.insert("previous_report_id", &format_optional(self.template_manager.clone(),&context.previous_report_id, lang));
-        
-        // Insert extracted parameters as pretty-printed JSON
+
         ctx.insert(
             "extracted_parameters",
             &serde_json::to_string_pretty(&classification.extracted_parameters)?,
         );
-        ctx.insert("missing_context", &format!("{:?}", classification.missing_context));
-        
-        // Format worker results for display
-        let worker_results_text = if worker_results.is_empty() {
-            self.lang_manager.get_msg(lang, "no-worker-results")
-        } else {
-            worker_results
-                .iter()
-                .map(|r| {
-                    let mut result_ctx = Context::new();
-                    result_ctx.insert("worker_type", &format!("{:?}", r.worker_type));
-                    result_ctx.insert("status", &format!("{:?}", r.status));
-                    result_ctx.insert("execution_time", &r.metadata.execution_time_ms);
-                    
-                    // Use template for consistent formatting, fallback to simple format
-                    self.template_manager
-                        .render(lang, "worker-result-summary", result_ctx)
-                        .unwrap_or_else(|_| {
-                            format!(
-                                "{:?}: {:?} ({}ms)",
-                                r.worker_type, r.status, r.metadata.execution_time_ms
-                            )
-                        })
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        ctx.insert("worker_results", &worker_results_text);
-        
-        // Render template with all context variables
-        self.template_manager.render(lang, "orchestrator-user-prompt", ctx)
-    }
-    
+        ctx.insert(
+            "missing_context",
+            &format!("{:?}", classification.missing_context),
+        );
 
+        let results: Vec<serde_json::Value> = worker_results
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "worker_type": format!("{:?}", r.worker_type),
+                    "status": format!("{:?}", r.status),
+                })
+            })
+            .collect();
+
+        ctx.insert("worker_results", &results);
+        // Render template with all context variables
+        self.template_manager
+            .render(lang, "orchestrator-user-prompt", ctx)
+    }
 
     /// # Decision Parser
     ///
@@ -532,11 +523,11 @@ impl Orchestrator {
                     // Object Tree Worker: Queries PostgreSQL hierarchical data
                     "GetObjectTree" | "GET_OBJECT_TREE" => {
                         let task_params: TaskParameters = serde_json::from_value(
-                            action_data["parameters"]["task_params"].clone()
+                            action_data["parameters"]["task_params"].clone(),
                         )?;
                         WorkerParameters::GetObjectTree(task_params)
                     }
-                    
+
                     // Report List Worker: Retrieves photo reports with date filtering
                     "GetReportList" | "GET_REPORT_LIST" => {
                         let object_id = action_data["parameters"]["object_id"]
@@ -544,11 +535,14 @@ impl Orchestrator {
                             .ok_or_else(|| anyhow::anyhow!("Missing object_id"))?
                             .to_string();
                         let task_params: TaskParameters = serde_json::from_value(
-                            action_data["parameters"]["task_params"].clone()
+                            action_data["parameters"]["task_params"].clone(),
                         )?;
-                        WorkerParameters::GetReportList { object_id, task_params }
+                        WorkerParameters::GetReportList {
+                            object_id,
+                            task_params,
+                        }
                     }
-                    
+
                     // Vision Analysis Worker: Processes single image from S3
                     "DescribeReport" | "DESCRIBE_REPORT" => {
                         let current_report_id = action_data["parameters"]["reports"]["prev"]
@@ -575,25 +569,17 @@ impl Orchestrator {
 
                         WorkerParameters::DescribeReport { reports }
                     }
-                    
+
                     // Comparison Worker: Analyzes differences between two reports
                     "CompareReports" | "COMPARE_REPORTS" => {
-                        let reports_str = action_data["parameters"]["reports"]
-                            .as_str()
-                            .ok_or_else(|| anyhow::anyhow!("Missing reports"))?
-                            .to_string();
-                        let reports:Value =serde_json::from_str(&reports_str).unwrap();
-                        let is_array_of_two =  reports.as_array()
-                            .map_or(false, |arr| arr.len() == 2);
-                        // Validate both report IDs are present
-                        if !is_array_of_two {
-                            return Err(anyhow::anyhow!(
-                                self.lang_manager.get_msg(lang, "error-empty-report-id")
-                            ));
+                        WorkerParameters::CompareReports { reports: serde_json::Value::Null }
+/*                        let reports = action_data["parameters"]["reports"].clone();
+                        if reports.is_null() {
+                            return Err(anyhow::anyhow!("Missing reports"));
                         }
-                        WorkerParameters::CompareReports { reports  }
-                    }
-                    
+                        WorkerParameters::CompareReports { reports }
+*/                    }
+
                     // Knowledge Base Worker: RAG retrieval for project questions
                     "RagQuery" | "RAG_QUERY" => {
                         let query = action_data["parameters"]["query"]
@@ -602,7 +588,7 @@ impl Orchestrator {
                             .to_string();
                         WorkerParameters::RagQuery { query }
                     }
-                    
+
                     // Unknown worker type - return error
                     _ => {
                         let msg = self.lang_manager.get_msg(lang, "error-unknown-worker");
@@ -634,14 +620,14 @@ impl Orchestrator {
                     },
                 }))
             }
-            
+
             // === RequestContextFromUser: Missing Context Handling ===
             //
             // When optional context (object_id, report_ids) is needed but missing,
             // orchestrator requests it from the user with helpful prompts and suggestions
             "RequestContextFromUser" => {
                 let missing_field_raw = &action_data["missing_field"];
-                
+
                 // Parse missing field - handles both string and array formats
                 // String format: "ObjectId" or "ObjectId,CurrentReportId" (comma-separated)
                 // Array format: ["ObjectId", "CurrentReportId"]
@@ -651,21 +637,21 @@ impl Orchestrator {
                     if s.is_empty() {
                         return Err(anyhow::anyhow!("Empty missing_field"));
                     }
-                    
+
                     // Take the first field from comma-separated list
                     // TODO: Should handle multiple missing fields properly rather than
                     // just taking the first one
-                    let first_field = s.split(',')
-                        .next()
-                        .unwrap_or("");
-                    
+                    let first_field = s.split(',').next().unwrap_or("");
+
                     match first_field.trim() {
                         "ObjectId" | "OBJECT_ID" => ContextField::ObjectId,
                         "CurrentReportId" | "CURRENT_REPORT_ID" => ContextField::CurrentReportId,
                         "PreviousReportId" | "PREVIOUS_REPORT_ID" => ContextField::PreviousReportId,
                         _ => {
-                            let msg = self.lang_manager.get_msg(lang, "error-unknown-context-field");
-                            return Err(anyhow::anyhow!(format!("{}:{}",msg,first_field)));
+                            let msg = self
+                                .lang_manager
+                                .get_msg(lang, "error-unknown-context-field");
+                            return Err(anyhow::anyhow!(format!("{}:{}", msg, first_field)));
                         }
                     }
                 } else if missing_field_raw.is_array() {
@@ -687,9 +673,15 @@ impl Orchestrator {
 
                 // Get default localized prompt for this context field
                 let default_prompt = match missing_field {
-                    ContextField::ObjectId => self.lang_manager.get_msg(lang, "context-request-object-id"),
-                    ContextField::CurrentReportId => self.lang_manager.get_msg(lang, "context-request-current-report"),
-                    ContextField::PreviousReportId => self.lang_manager.get_msg(lang, "context-request-previous-report"),
+                    ContextField::ObjectId => {
+                        self.lang_manager.get_msg(lang, "context-request-object-id")
+                    }
+                    ContextField::CurrentReportId => self
+                        .lang_manager
+                        .get_msg(lang, "context-request-current-report"),
+                    ContextField::PreviousReportId => self
+                        .lang_manager
+                        .get_msg(lang, "context-request-previous-report"),
                 };
 
                 Ok(OrchestratorDecision::RequestContextFromUser {
@@ -708,7 +700,7 @@ impl Orchestrator {
                         .unwrap_or_default(),
                 })
             }
-            
+
             // === SendProgress: SSE Progress Updates ===
             //
             // Sends progress updates during long-running operations like:
@@ -730,14 +722,14 @@ impl Orchestrator {
                     .unwrap_or("Processing...")
                     .to_string(),
             }),
-            
+
             // === FormatAndReturn: Complete Workflow ===
             // Final step - format all collected worker results and return to user
             // Response formatter will handle conversion to UI-compatible JSON
             "FormatAndReturn" => Ok(OrchestratorDecision::FormatAndReturn {
                 worker_results: worker_results.to_vec(),
             }),
-            
+
             // === Reject: Out of Scope Handler ===
             // Politely declines requests that are outside system capabilities
             "Reject" => Ok(OrchestratorDecision::Reject {
@@ -750,14 +742,18 @@ impl Orchestrator {
                     .unwrap_or("Cannot process this request")
                     .to_string(),
             }),
-            
+
             // Unknown decision type - return error with localized message
             _ => {
                 let mut ctx = Context::new();
                 ctx.insert("decision_type", decision_type);
-                let msg = self.template_manager
+                let msg = self
+                    .template_manager
                     .render(lang, "error-unknown-decision", ctx)
-                    .unwrap_or_else(|_| self.lang_manager.get_msg(lang, "error-unknown-decision-type"));
+                    .unwrap_or_else(|_| {
+                        self.lang_manager
+                            .get_msg(lang, "error-unknown-decision-type")
+                    });
                 Err(anyhow::anyhow!(msg))
             }
         }
