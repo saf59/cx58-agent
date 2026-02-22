@@ -197,11 +197,14 @@ impl ComparisonAgent {
 
         tracing::debug!("ComparisonAgent cleaned JSON:\n{}", cleaned);
 
-        let parsed: ComparisonData = serde_json::from_str(&cleaned)
+        let mut parsed: ComparisonData = serde_json::from_str(&cleaned)
             .map_err(|e| format!(
                 "ComparisonAgent: failed to parse LLM response: {}\nCleaned: {}",
                 e, cleaned
             ))?;
+
+        parsed.prev_date = prev_date.to_string();
+        parsed.next_date = next_date.to_string();
 
         Ok(json!(parsed))
     }
