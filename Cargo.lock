@@ -661,6 +661,7 @@ dependencies = [
  "hmac",
  "image",
  "mime_guess",
+ "rand 0.9.2",
  "reqwest 0.13.2",
  "rig-core",
  "rust-s3",

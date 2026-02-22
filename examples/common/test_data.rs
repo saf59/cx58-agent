@@ -2,6 +2,7 @@
 use chrono::{Local, Duration, NaiveTime};
 use sqlx::PgPool;
 use std::path::PathBuf;
+use rand::Rng;
 
 pub const DATA_DIR: &str = "data";
 
@@ -52,10 +53,15 @@ pub fn generate_date(shift: i32, time: &str) -> Result<String, Box<dyn std::erro
     let today = Local::now().date_naive();
     let target_date = today + Duration::days(shift as i64);
 
-    // Check if time is valid
-    NaiveTime::parse_from_str(time, "%H:%M:%S")?;
+    let mut rng = rand::rng();
+    let random_seconds: u32 = rng.random_range(46800..64800); // Random seconds in a day
+    let rnd_time = NaiveTime::from_num_seconds_from_midnight_opt(random_seconds, 0).unwrap();
+    let formatted = rnd_time.format("%H:%M:%S").to_string();
 
-    Ok(format!("{} {}", target_date.format("%d.%m.%Y"), time))
+    // Check if time is valid
+    //NaiveTime::parse_from_str(time, "%H:%M:%S")?;
+
+    Ok(format!("{} {}", target_date.format("%d.%m.%Y"), rnd_time))
 }
 
 /// Check if all files exist in specified directory

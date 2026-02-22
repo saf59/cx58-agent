@@ -11,11 +11,8 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
     ("formatter-out-of-scope-prompt", "formatter_out_of_scope.tera"),
 ];
 
-/*pub struct TemplateManager {
-    tera_templates: HashMap<String, HashMap<String, String>>, // lang -> template_id -> content
-}*/
 pub struct TemplateManager {
-    engines: HashMap<String, Tera>, // lang -> готовый Tera с зарегистрированными шаблонами
+    engines: HashMap<String, Tera>, // lang -> ready Tera with all templates loaded
 }
 impl Default for TemplateManager {
     fn default() -> Self {
@@ -29,23 +26,6 @@ impl TemplateManager {
         manager.load_templates("de");
         manager
     }
-
-/*    fn load_templates_(&mut self, lang: &str) {
-        let mut lang_templates = HashMap::new();
-
-        for (template_id, filename) in TEMPLATE_FILES {
-            match Self::load_template_file(lang, filename) {
-                Ok(content) => {
-                    lang_templates.insert(template_id.to_string(), content);
-                }
-                Err(e) => {
-                    tracing::error!("Failed to load template {} for {}: {}", filename, lang, e);
-                }
-            }
-        }
-
-        self.tera_templates.insert(lang.to_string(), lang_templates);
-    }*/
     fn load_templates(&mut self, lang: &str) {
         let mut tera = Tera::default();
 
@@ -60,21 +40,6 @@ impl TemplateManager {
 
         self.engines.insert(lang.to_string(), tera);
     }
-
-    //pub fn new(lang_manager: Arc<crate::localization::LocalizationManager>) -> Self {
-/*    pub fn new() -> Self {
-        let mut manager = Self {
-            //lang_manager,
-            tera_templates: HashMap::new(),
-        };
-
-        // Load templates for both languages
-        manager.load_templates("en");
-        manager.load_templates("de");
-
-        manager
-    }
-*/
     fn load_template_file(lang: &str, filename: &str) -> Result<String> {
         let content = match (lang, filename) {
             ("en", "intent_router_user.tera") => include_str!("../locales/en/prompts/intent_router_user.tera"),
@@ -96,23 +61,12 @@ impl TemplateManager {
 
         Ok(content.to_string())
     }
-/*    pub fn render_(&self, lang: &str, template_id: &str, context: Context) -> Result<String> {
-        let template = self.tera_templates
-            .get(lang)
-            .or_else(|| self.tera_templates.get("en"))
-            .and_then(|lang_templates| lang_templates.get(template_id))
-            .ok_or_else(|| anyhow::anyhow!("Template {} not found for language {}", template_id, lang))?;
-
-        let text = Tera::one_off(template, &context, false)?;
-        Ok(text)
-    }*/
     pub fn render(&self, lang: &str, template_id: &str, context: Context) -> Result<String> {
         let tera = self.engines
             .get(lang)
             .or_else(|| self.engines.get("en"))
             .ok_or_else(|| anyhow::anyhow!("No templates for language {}", lang))?;
 
-        // render по имени — данные в контексте НЕ парсятся как шаблон
         let text = tera.render(template_id, &context)?;
         Ok(text)
     }
