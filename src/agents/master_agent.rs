@@ -70,7 +70,7 @@ use anyhow::Result;
 use rig::providers::ollama;
 use std::sync::Arc;
 use std::time::Instant;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tera::Context;
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -81,6 +81,7 @@ use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext, StreamEvent};
 use crate::agents::agent_error::AgentError;
+use crate::agents::stats::AgentStats;
 
 /// # MasterAgent
 ///
@@ -225,6 +226,7 @@ impl MasterAgent {
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start_time = Instant::now();
+        let mut stats = AgentStats::start();
 
         let lang = Language::from_short(&context.language);
         let lang_code = lang.to_code();
@@ -246,11 +248,11 @@ impl MasterAgent {
             previous_report_id: context.prev_leaf.clone(),
         };
 
-        let classification = self.intent_router
+        let (classification, router_tokens) = self.intent_router
             .classify(&context.message, &user_context, &[])
             .await?;
         tracing::info!("Intent classification result: {:?}", &classification.intent);
-        
+        stats.record_router(router_tokens);
         context.cancellation_token.check().await?;
 
         // TODO (Ambiguity Gap):
@@ -263,10 +265,11 @@ impl MasterAgent {
                 .await?;
 
             self.send_text_chunks(&tx, &message, &context.request_id, &user_context.language).await?;
-
+            stats.finalize();
             tx.send(StreamEvent::Completed {
                 request_id: context.request_id.clone(),
                 total_time_ms: start_time.elapsed().as_millis() as u64,
+                stats
             }).await?;
 
             return Ok(());
@@ -322,12 +325,18 @@ impl MasterAgent {
                     let result = self.execute_worker_via_agent(
                         state.clone(), context.clone(), worker_req, tx.clone(), &worker_results,
                     ).await?;
+                    stats.record_worker(
+                        &format!("{:?}", result.worker_type),
+                        result.metadata.execution_time_ms,
+                        result.metadata.llm_calls,
+                        result.metadata.tokens_used,
+                    );
                     worker_results.push(result);
                     continue; // следующая итерация — теперь DescribeReport есть
                 }
             }
 
-            let decision = self.orchestrator
+            let (decision, orch_tokens) = self.orchestrator
                 .decide_next_step(
                     &classification,
                     &current_context,
@@ -335,7 +344,7 @@ impl MasterAgent {
                     &worker_results,
                 )
                 .await?;
-
+            stats.record_orchestrator(orch_tokens);
             context.cancellation_token.check().await?;
 
             match decision {
@@ -363,6 +372,13 @@ impl MasterAgent {
                         &worker_results,
                     ).await?;
 
+                    stats.record_worker(
+                        &format!("{:?}", result.worker_type),
+                        result.metadata.execution_time_ms,
+                        result.metadata.llm_calls,
+                        result.metadata.tokens_used,
+                    );
+
                     worker_results.push(result);
                 }
 
@@ -380,10 +396,11 @@ impl MasterAgent {
                         request_id: context.request_id.clone(),
                         chunk: prompt_with_suggestions,
                     }).await?;
-
+                    stats.finalize();
                     tx.send(StreamEvent::Completed {
                         request_id: context.request_id.clone(),
                         total_time_ms: start_time.elapsed().as_millis() as u64,
+                        stats
                     }).await?;
                     return Ok(());
                 }
@@ -426,10 +443,11 @@ impl MasterAgent {
                 }
             }
         }
-
+        stats.finalize();
         tx.send(StreamEvent::Completed {
             request_id: context.request_id.clone(),
             total_time_ms: start_time.elapsed().as_millis() as u64,
+            stats
         }).await?;
 
         Ok(())
@@ -466,7 +484,7 @@ impl MasterAgent {
         previous_results: &[WorkerResponse],
     ) -> Result<WorkerResponse, Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
-        let result_data = match worker_request.parameters {
+        let (result_data, tokens, llm_calls) = match worker_request.parameters {
             WorkerParameters::GetObjectTree(task_params) => {
                 let agent = ObjectAgent::new(
                     self.client.clone(),
@@ -475,7 +493,7 @@ impl MasterAgent {
                 );
 
                 let result = agent.execute(state, &task_params).await?;
-                result
+                (result, None, 0u32)
             }
 
             WorkerParameters::GetReportList { object_id: _, task_params } => {
@@ -490,7 +508,7 @@ impl MasterAgent {
                     .execute(state, &task_params)
                     //.execute_with_object(state, &object_id, &task_params)
                     .await?;
-                result
+                (result, None, 0u32)
             }
 
             WorkerParameters::DescribeReport { reports } => {
@@ -502,8 +520,8 @@ impl MasterAgent {
                     self.template_manager.clone(),
                 );
 
-                let result = agent.execute_by_id(&state, &reports).await?;
-                result
+                let (result, tokens) = agent.execute_by_id(&state, &reports).await?;
+                (result, tokens, 1u32)
             }
 
             WorkerParameters::CompareReports { reports: _ } => {
@@ -525,7 +543,8 @@ impl MasterAgent {
                     self.template_manager.clone(),
                 );
                 //let descriptions_value = Value::Array(descriptions);
-                agent.execute_comparison(&state, descriptions, ).await?
+                let (result, tokens) = agent.execute_comparison(&state, descriptions, ).await?;
+                (result, tokens, 1u32)
             }
 
             WorkerParameters::RagQuery { query: _ } => {
@@ -535,8 +554,8 @@ impl MasterAgent {
                     event_tx.clone(),
                 );
 
-                let result = agent.execute(state).await?;
-                serde_json::json!({ "answer": result })
+                let (result, tokens) = agent.execute(state,&context.message).await?;
+                (json!({ "answer": result }), tokens, 1u32)
             }
         };
 
@@ -548,6 +567,8 @@ impl MasterAgent {
                 execution_time_ms: start.elapsed().as_millis() as u64,
                 data_source: "agent".to_string(),
                 cache_hit: false,
+                tokens_used: tokens,
+                llm_calls,
             },
         })
    }

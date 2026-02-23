@@ -45,6 +45,8 @@ use crate::agents::LocalizationManager;
 #[derive(Debug, Clone)]
 pub enum AgentError {
     // --- Context / input errors ---
+    /// The request was cancelled by the client.
+    Cancelled,
 
     /// `object_id` was not provided in `AgentContext`.
     MissingObjectId,
@@ -104,6 +106,7 @@ impl fmt::Display for AgentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Fallback English messages used when the localization layer itself fails.
         match self {
+            Self::Cancelled => write!(f, "Request was cancelled"),
             Self::MissingObjectId => write!(f, "Object ID is required but was not provided"),
             Self::InvalidUuid { raw } => write!(f, "Invalid UUID: '{}'", raw),
             Self::ObjectNotFound { id } => write!(f, "Object '{}' not found", id),
@@ -136,6 +139,7 @@ impl AgentError {
     /// Must match a key defined in `locales/{lang}/messages.ftl`.
     pub fn fluent_key(&self) -> &'static str {
         match self {
+            Self::Cancelled => "error-cancelled",
             Self::MissingObjectId           => "error-missing-object-id",
             Self::InvalidUuid { .. }        => "error-invalid-uuid",
             Self::ObjectNotFound { .. }     => "error-object-not-found",
@@ -165,6 +169,7 @@ impl AgentError {
         }
 
         match self {
+            Self::Cancelled => None,
             Self::InvalidUuid { raw }                => args!("raw"      => raw.clone()),
             Self::ObjectNotFound { id }              => args!("id"       => id.clone()),
             Self::LlmJsonParseError { detail }       => args!("detail"   => detail.clone()),
@@ -262,5 +267,16 @@ pub trait ResultExt<T> {
 impl<T, E: fmt::Display> ResultExt<T> for Result<T, E> {
     fn agent_err(self) -> Result<T, AgentError> {
         self.map_err(|e| AgentError::internal(e))
+    }
+}
+impl From<rig::completion::CompletionError> for AgentError {
+    fn from(e: rig::completion::CompletionError) -> Self {
+        AgentError::internal(e)
+    }
+}
+
+impl From<anyhow::Error> for AgentError {
+    fn from(e: anyhow::Error) -> Self {
+        AgentError::internal(e)
     }
 }

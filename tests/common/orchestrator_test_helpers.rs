@@ -92,6 +92,8 @@ impl OrchestratorTestContext {
                 execution_time_ms: 100,
                 data_source: "test".to_string(),
                 cache_hit: false,
+                tokens_used: None,
+                llm_calls: 0,
             },
         }
     }

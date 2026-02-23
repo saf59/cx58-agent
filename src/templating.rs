@@ -1,6 +1,6 @@
 use tera::{Context, Tera};
-use anyhow::Result;
 use std::collections::HashMap;
+use crate::agents::agent_error::AgentError;
 
 const TEMPLATE_FILES: &[(&str, &str)] = &[
     ("intent-router-user-prompt", "intent_router_user.tera"),
@@ -40,7 +40,7 @@ impl TemplateManager {
 
         self.engines.insert(lang.to_string(), tera);
     }
-    fn load_template_file(lang: &str, filename: &str) -> Result<String> {
+    fn load_template_file(lang: &str, filename: &str) -> Result<String,AgentError> {
         let content = match (lang, filename) {
             ("en", "intent_router_user.tera") => include_str!("../locales/en/prompts/intent_router_user.tera"),
             ("en", "orchestrator_user.tera") => include_str!("../locales/en/prompts/orchestrator_user.tera"),
@@ -56,18 +56,19 @@ impl TemplateManager {
             ("de", "formatter_comparison.tera") => include_str!("../locales/de/prompts/formatter_comparison.tera"),
             ("de", "formatter_out_of_scope.tera") => include_str!("../locales/de/prompts/formatter_out_of_scope.tera"),
 
-            _ => return Err(anyhow::anyhow!("Unknown template: {} for language {}", filename, lang)),
+            _ => return Err(AgentError::internal(format!("Unknown template: {} for language {}", filename, lang))),
         };
 
         Ok(content.to_string())
     }
-    pub fn render(&self, lang: &str, template_id: &str, context: Context) -> Result<String> {
+    pub fn render(&self, lang: &str, template_id: &str, context: Context) -> Result<String,AgentError> {
         let tera = self.engines
             .get(lang)
             .or_else(|| self.engines.get("en"))
-            .ok_or_else(|| anyhow::anyhow!("No templates for language {}", lang))?;
+            .ok_or_else(|| AgentError::internal(format!("No templates for language {}", lang)))?;
 
-        let text = tera.render(template_id, &context)?;
+        let text = tera.render(template_id, &context)
+            .map_err(|e| AgentError::TemplateRenderError { template: e.to_string() })?;
         Ok(text)
     }
 }

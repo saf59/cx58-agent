@@ -1,10 +1,12 @@
 use crate::agents::description::DescriptionContent;
-use rig::completion::Prompt;
+use rig::completion::{AssistantContent, CompletionModel};
+use rig::prelude::CompletionClient;
 use rig::message::{DocumentSourceKind, Message, UserContent};
 use rig::prelude::*;
 use rig::providers::ollama;
 use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
 use std::sync::Arc;
+use crate::agents::agent_error::AgentError;
 /*
 // Generate the system prompt for LLM to produce DescriptionContent format
 
@@ -100,7 +102,7 @@ pub async fn generate_description_from_image(
     image_bytes: &[u8],
     user_prompt: &str,
     system_prompt: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(String,Option<u64>), AgentError> {
     // Convert image to base64
     let image_base64 = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, image_bytes);
 
@@ -111,29 +113,40 @@ pub async fn generate_description_from_image(
         ..Default::default()
     };
 
-    // Create agent with system prompt
-    let json = serde_json::json!({
-        "format": "json"
-    });
-
-    let agent = client
-        .agent(model)
-        .additional_params(json)
-        .preamble(system_prompt)
-        .temperature(0.1)
-        .build();
-
-    // Send user prompt with image
-    let response = agent
-        .prompt(Message::User {
-            content: OneOrMany::many(vec![
-                UserContent::Text(user_prompt.into()),
-                UserContent::Image(image),
-            ])?,
+    let model = client.completion_model(model);
+    let content = OneOrMany::many(vec![
+        UserContent::Text(user_prompt.into()),
+        UserContent::Image(image),
+    ]).map_err(|e| AgentError::internal(e))?;
+    
+    let request = model
+        .completion_request(Message::User {
+            content: content,
         })
-        .await?;
+        .preamble(system_prompt.to_string())
+        .temperature(0.2)
+        .build();
+    let response = model.completion(request).await?;
 
-    Ok(response)
+    let text = response.choice
+        .iter()
+        .filter_map(|c| match c {
+            AssistantContent::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    if text.is_empty() {
+        return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+    }
+
+    let tokens = Some(
+        response.raw_response.prompt_eval_count.unwrap_or(0)
+            + response.raw_response.eval_count.unwrap_or(0)
+    );
+
+    Ok((text,tokens))
 }
 
 /*

@@ -12,16 +12,16 @@
 // Input Flow: Text Input → Intent Router → Route Classification → Specialized Workers
 // This component sits at the entry point of the agent system.
 
-use rig::completion::Prompt;
+use rig::completion::{AssistantContent, CompletionModel};
 use super::types::*;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 // Ollama uses OpenAI-compatible API
-use anyhow::Result;
 use rig::client::CompletionClient;
 use rig::providers::ollama;
 use std::sync::Arc;
 use tera::Context;
+use crate::agents::agent_error::AgentError;
 use crate::agents::agents_helper::{clean_json_response, format_optional};
 // TODO: According to plan.md Section 1 "Intent Classification Strategy", the router should
 // implement multi-level routing with scope checking first, then intent classification.
@@ -107,7 +107,7 @@ impl IntentRouter {
         message: &str,
         context: &UserContext,
         conversation_history: &[String],
-    ) -> Result<ClassificationResult> {
+    ) -> Result<(ClassificationResult,Option<u64>),AgentError> {
         // TODO: According to plan.md Phase 1 "Input Processing", implement:
         // Step 1: Validate Context
         //   - Check required fields: user_id, chat_id, language
@@ -144,11 +144,18 @@ impl IntentRouter {
         // - Normalization of date/time expressions and ambiguous numbers
         // This preprocessing should occur before LLM classification.
 
-        let agent = self.client
+/*        let agent = self.client
             .agent(&self.model)
             .preamble(&system_prompt)
             .temperature(0.1)  // Low temperature for consistent classification
             .max_tokens(2048)
+            .build();
+*/
+        let model = self.client.completion_model(&self.model);
+        let request = model
+            .completion_request(&user_prompt)
+            .preamble(system_prompt)
+            .temperature(0.2)
             .build();
 
         // TODO: According to plan.md "Advanced Recommendations - Hybrid Routing",
@@ -160,10 +167,30 @@ impl IntentRouter {
         // 3. Vision analysis (both reports)
         // 4. Comparison worker
 
-        let response = agent.prompt(&user_prompt).await?;
-        
+        //let response = agent.completion(&user_prompt).await?;
+        let response = model.completion(request).await?;
+
+        let text = response.choice
+            .iter()
+            .filter_map(|c| match c {
+                AssistantContent::Text(t) => Some(t.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        if text.is_empty() {
+            return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+        }
+
+        let tokens = Some(
+            response.raw_response.prompt_eval_count.unwrap_or(0)
+                + response.raw_response.eval_count.unwrap_or(0)
+        );
+
+
         // Parse JSON response
-        let cleaned = clean_json_response(&response);
+        let cleaned = clean_json_response(&text);
 
         //tracing::info!("Cleaned JSON:\n{}", cleaned);
 
@@ -184,7 +211,7 @@ impl IntentRouter {
                 let error_msg = self.template_manager
                     .render(lang, "error-classification", ctx)
                     .unwrap_or_else(|_| self.lang_manager.get_msg(lang, "error-classification-fallback"));
-                anyhow::anyhow!("{}\nResponse was: {}", error_msg, response)
+                AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
             })?;
 
         // TODO: According to plan.md "Conversation Memory", update memory after classification:
@@ -199,7 +226,7 @@ impl IntentRouter {
         // - Return information about what context to request from user
         // - The Orchestrator should handle the actual request to the user
 
-        Ok(result)
+        Ok((result, tokens))
     }
 
     /// Builds the classification prompt using Tera templates.
@@ -223,7 +250,7 @@ impl IntentRouter {
         context: &UserContext,
         history: &[String],
         lang: &str,
-    ) -> Result<String> {
+    ) -> Result<String,AgentError> {
         let mut ctx = Context::new();
 
         // TODO: According to plan.md "TaskParameters Interpretation", the prompt should

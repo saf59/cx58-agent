@@ -89,6 +89,7 @@ info-out-of-scope = Diese Anfrage liegt außerhalb des Bereichs des Baustellenü
 # ------------------------------------------------------------
 # AgentError messages
 # ------------------------------------------------------------
+error-cancelled = Die Anfrage wurde abgebrochen.
 
 error-missing-object-id =
     Es wurde keine Objekt-ID übergeben.

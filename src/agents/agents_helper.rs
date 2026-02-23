@@ -24,14 +24,8 @@ use crate::templating::TemplateManager;
 /// ```
 pub fn format_optional(template_manager:Arc<TemplateManager>, opt: &Option<String>, lang: &str) -> String {
     match opt {
-        Some(val) => {
-            let mut ctx = Context::new();
-            ctx.insert("value", val);
-            template_manager
-                .render(lang, "status-set", ctx)
-                .unwrap_or_else(|_| val.to_string())
-        }
-        None => "".to_string(),
+        Some(val) => val.to_string(),  // просто возвращаем значение
+        None => String::new(),
     }
 }
 

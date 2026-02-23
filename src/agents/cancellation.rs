@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use crate::agents::agent_error::AgentError;
 
 #[derive(Clone, Debug)]
 pub struct CancellationToken {
@@ -31,9 +32,9 @@ impl CancellationToken {
         *self.cancelled.read().await
     }
 
-    pub async fn check(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn check(&self) -> Result<(), AgentError> {
         if self.is_cancelled().await {
-            Err("Operation cancelled".into())
+            Err(AgentError::Cancelled)
         } else {
             Ok(())
         }

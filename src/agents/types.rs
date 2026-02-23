@@ -202,6 +202,8 @@ pub struct WorkerMetadata {
     pub execution_time_ms: u64,
     pub data_source: String,
     pub cache_hit: bool,
+    pub tokens_used: Option<u64>,
+    pub llm_calls: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -20,7 +20,7 @@ use crate::agents::{Language, LocalizationManager};
 use crate::agents::agents_helper::clean_json_response;
 use crate::templating::TemplateManager;
 
-use rig::completion::Prompt;
+use rig::completion::{AssistantContent, CompletionModel, Prompt};
 use rig::prelude::CompletionClient;
 use rig::providers::ollama;
 use serde_json::{Value, json};
@@ -83,30 +83,23 @@ impl ComparisonAgent {
     /// Dev/test entry point with hard-coded sample descriptions.
     pub async fn execute(
         &self,
-        state: Arc<AppState>,
+        _state: Arc<AppState>,
         _parameters: &TaskParameters,
     ) -> Result<Value, Box<dyn Error + Send + Sync>> {
-        let reports = json!([[
-            {
-                "description": "A spacious modern room with white walls.",
-                "windows": "Two large double-glazed windows with white frames.",
-                "doors": "Sliding glass door with white frame on the eastern wall.",
-                "radiators": "Two white panel radiators mounted beneath the windows.",
-                "openings": null
-            },
-            {
-                "description": "A spacious modern room with white walls.",
-                "windows": "Two large double-glazed windows with white frames.",
-                "doors": "Sliding glass door with white frame on the eastern wall.",
-                "radiators": "Two white panel radiators mounted beneath the windows.",
-                "openings": null
-            }
-        ]])
-        .as_array()
-        .unwrap()
-        .to_vec();
-
-        self.execute_comparison(&state, reports).await
+        let report = json!(r#"{
+            "confidence": Null,                                                                                                                                                                                                                
+            "created_at": String("2026-02-22T16:56:51.239822Z"),                                                                                                                                                                               
+            "date": String("2026-02-22"),                                                                                                                                                                                                      
+            "date_id": String("019badc0-0ca7-76b0-b37a-a4cd13b7536c"),                                                                                                                                                                         
+            "description": String("A modern room with white walls, wooden flooring, and exposed concrete ceiling. Features two windows, one door, and two radiators."),                                                                        
+            "doors": String("One sliding door with white frame on the right wall, open with a curtain."),                                                                                                                                      
+            "model_name": String("qwen3-vl"),                                                                                                                                                                                                  
+            "object": String("Root/Object 1/Room 11/10.01.2026 19:00:00"),                                                                                                                                                                     
+            "object_id": String("019badc0-0ca7-76b0-b37a-a4cd13b7536c"),                                                                                                                                                                       
+            "radiators": String("Two white panel radiators: one mounted beneath the middle window, and one mounted beneath the right sliding door."),                                                                                          
+            "windows": String("Two windows: a large double sliding window with white frame on the left wall, and a standard single-pane window with white frame on the middle wall."),                                                         
+        }"#);
+        Ok(report)
     }
 
     /// Main comparison path called from MasterAgent.
@@ -119,7 +112,7 @@ impl ComparisonAgent {
         &self,
         state: &Arc<AppState>,
         descriptions: Vec<Value>,
-    ) -> Result<Value, Box<dyn Error + Send + Sync>> {
+    ) -> Result<(Value,Option<u64>), AgentError> {
         // Validate we have at least two descriptions.
         let descriptions = descriptions
             .first()
@@ -190,18 +183,42 @@ impl ComparisonAgent {
         tracing::info!("ComparisonAgent user_prompt:\n{}", user_prompt);
 
         // Call LLM.
-        let agent = self
+/*        let agent = self
             .client
             .agent(&state.ai_config.text_model)
             .preamble(&system_prompt)
             .temperature(0.2)
             .build();
+*/        let model = self.client.completion_model(&state.ai_config.text_model);
+        let request = model
+            .completion_request(&user_prompt)
+            .preamble(system_prompt)
+            .temperature(0.2)
+            .build();
+        let response = model.completion(request).await?;
 
-        let response = agent.prompt(&user_prompt).await?;
-        tracing::info!("ComparisonAgent raw response:\n{}", response);
+        let text = response.choice
+            .iter()
+            .filter_map(|c| match c {
+                AssistantContent::Text(t) => Some(t.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        if text.is_empty() {
+            return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+        }
+
+        let tokens = Some(
+            response.raw_response.prompt_eval_count.unwrap_or(0)
+                + response.raw_response.eval_count.unwrap_or(0)
+        );
+
+        tracing::info!("ComparisonAgent raw response:\n{}", &text);
 
         // Parse structured output.
-        let cleaned = clean_json_response(&response);
+        let cleaned = clean_json_response(&text);
         tracing::debug!("ComparisonAgent cleaned JSON:\n{}", cleaned);
 
         let mut parsed: ComparisonData = serde_json::from_str(&cleaned).map_err(|e| {
@@ -221,7 +238,7 @@ impl ComparisonAgent {
         parsed.prev_date = prev_date.to_string();
         parsed.next_date = next_date.to_string();
 
-        Ok(json!(parsed))
+        Ok((json!(parsed),tokens))
     }
 
     // -----------------------------------------------------------------------

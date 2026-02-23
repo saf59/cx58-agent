@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-
+use crate::agents::agent_error::AgentError;
 use crate::agents::description::description_build::generate_description_from_image;
 use crate::agents::description::description_build::{
     extract_description_content_robust, resize_image_to_bytes,
@@ -59,7 +59,7 @@ impl DescriptionAgent {
             next: self.context.next_leaf.clone(),
         };
 
-        let result = self.execute_by_id(&state, &report_pair).await?;
+        let (result,_tokens) = self.execute_by_id(&state, &report_pair).await?;
         Ok(result.to_string())
     }
 
@@ -69,26 +69,33 @@ impl DescriptionAgent {
         &self,
         state: &Arc<AppState>,
         reports: &ReportPair,
-    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<(Value, Option<u64>), AgentError> {
         let mut descriptions: Vec<Value> = Vec::new();
+        let mut total_tokens: u64 = 0;
 
         // Process prev report
-        if let Some(desc) = self
+        if let Some((desc, tokens)) = self
             .process_single_report(state, &reports.prev, "prev")
             .await?
         {
             descriptions.push(desc);
+            total_tokens += tokens.unwrap_or(0);
         }
 
         // Process next report if provided
         if let Some(ref next_id) = reports.next {
-            if let Some(desc) = self.process_single_report(state, next_id, "next").await? {
+            if let Some((desc, tokens)) = self
+                .process_single_report(state, next_id, "next")
+                .await?
+            {
                 descriptions.push(desc);
+                total_tokens += tokens.unwrap_or(0);
             }
         }
 
-        // Return as array
-        Ok(json!(descriptions))
+        let tokens = if total_tokens > 0 { Some(total_tokens) } else { Some(0) };
+
+        Ok((json!(descriptions), tokens))
     }
 
     /// Process a single report ID and return its description as JSON
@@ -98,7 +105,7 @@ impl DescriptionAgent {
         state: &Arc<AppState>,
         report_id: &str,
         report_type: &str,
-    ) -> Result<Option<Value>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<(Value,Option<u64>)>, AgentError> {
         // Parse the report_id as UUID
         let node_id = match Uuid::parse_str(report_id) {
             Ok(id) => id,
@@ -159,8 +166,8 @@ impl DescriptionAgent {
             // Convert to JSON format
             let desc_json = self
                 .build_description_json_response(image_desc, &object_name, &node_id, lang_code)
-                .await?;
-            return Ok(Some(desc_json));
+                .await.map_err(|e| AgentError::internal(e))?;
+            return Ok(Some((desc_json,Some(0))));
         }
 
         // No existing description found - need to generate one
@@ -256,14 +263,14 @@ impl DescriptionAgent {
         let system_prompt = self
             .lang_manager
             .get_prompt(&lang, "description-system-prompt")
-            .map_err(|e| format!("Failed to get system prompt: {}", e))?;
+            .map_err(|e| format!("Failed to get system prompt: {}", e)).map_err(|e| AgentError::internal(e))?;
 
         // Create the prompt for description generation
         // The prompt should be in the requested language
         let description_prompt = format!("Describe the construction image: {}", object_name);
 
         // Generate description using LLM
-        let description_text = match generate_description_from_image(
+        let (description_text, tokens) = match generate_description_from_image(
             &self.client,
             &state.ai_config.vision_model,
             &resized_bytes,
@@ -290,7 +297,7 @@ impl DescriptionAgent {
             Err(e) => {
                 tracing::error!("Failed to parse description content: {}", e);
                 // Even if parsing fails, we can still save the raw text
-                let content_str = serde_json::to_string(&description_text)?;
+                let content_str = serde_json::to_string(&description_text).map_err(|e| AgentError::internal(e))?;
                 let create_data = CreateImageDescription {
                     node_id,
                     model_name: state.ai_config.vision_model.clone(),
@@ -306,7 +313,7 @@ impl DescriptionAgent {
         };
 
         // Convert back to JSON string for storage
-        let description_json = serde_json::to_string(&content)?;
+        let description_json = serde_json::to_string(&content).map_err(|e| AgentError::internal(e))?;
 
         // Save to database
         let create_data = CreateImageDescription {
@@ -337,8 +344,8 @@ impl DescriptionAgent {
         // Build and return the JSON response
         let desc_json = self
             .build_description_json_response(&saved_data, &object_name, &node_id, lang_code)
-            .await?;
-        Ok(Some(desc_json))
+            .await.map_err(|e| AgentError::internal(e))?;
+        Ok(Some((desc_json,tokens)))
     }
 
     /// Build JSON response from ImageDescription

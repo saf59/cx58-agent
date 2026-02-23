@@ -99,6 +99,7 @@ info-out-of-scope = This query is outside the scope of the construction monitori
 # Each key maps 1-to-1 to an AgentError variant via AgentError::fluent_key().
 # Named variables (in curly braces) correspond to AgentError::fluent_args().
 # ------------------------------------------------------------
+error-cancelled = The request was cancelled.
 
 error-missing-object-id =
     Object ID is required but was not provided.

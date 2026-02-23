@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use crate::agents::stats::AgentStats;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -46,6 +47,7 @@ pub enum StreamEvent {
         //final_result: String,
         //timestamp: i64,
         total_time_ms: u64,
+        stats: AgentStats,
     },
     // Error events
     Error {
