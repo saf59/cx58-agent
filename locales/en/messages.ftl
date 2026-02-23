@@ -65,3 +65,80 @@ error-comparison-parse = Failed to parse comparison: {$error}
 analyzing-query = Analyzing query
 fetching-data = Fetching data
 processing-results = Processing results
+
+# locales/en/messages.ftl
+# ============================================================
+# English localisation for cx58-agent
+#
+# Convention
+#   progress-*  →  UI progress bar messages
+#   error-*     →  AgentError localized messages
+#   info-*      →  informational text chunks sent to client
+# ============================================================
+
+# ------------------------------------------------------------
+# Progress messages  (used in MasterAgent / Orchestrator)
+# ------------------------------------------------------------
+
+progress-analyzing = Analyzing your query…
+progress-context-validation = Validating context…
+progress-formatting = Formatting response…
+
+# Template variant (rendered via TemplateManager with {worker_type} variable)
+# progress-executing-worker.tera → kept as a Tera template; no Fluent key needed.
+
+# ------------------------------------------------------------
+# Info / status messages
+# ------------------------------------------------------------
+
+info-no-documents-found = No documents found matching the criteria.
+info-out-of-scope = This query is outside the scope of the construction monitoring system.
+
+# ------------------------------------------------------------
+# AgentError messages
+# Each key maps 1-to-1 to an AgentError variant via AgentError::fluent_key().
+# Named variables (in curly braces) correspond to AgentError::fluent_args().
+# ------------------------------------------------------------
+
+error-missing-object-id =
+    Object ID is required but was not provided.
+    Please select an object and try again.
+
+error-invalid-uuid =
+    The value "{ $raw }" is not a valid identifier.
+    Please try again or contact support.
+
+error-object-not-found =
+    Object "{ $id }" was not found.
+    Please check the object ID and try again.
+
+error-no-documents-found =
+    No documents were found matching your criteria.
+    Try a different time period or object.
+
+error-llm-json-parse =
+    The AI model returned an unexpected response and it could not be processed.
+    Details: { $detail }
+
+error-template-render =
+    Failed to render template "{ $template }".
+    Please contact support if this problem persists.
+
+error-localization-key-missing =
+    Missing translation key: { $key }.
+    Please report this to support.
+
+error-date-parse =
+    The date "{ $raw }" could not be parsed.
+    Please use the format DD.MM.YYYY HH:MM:SS.
+
+error-storage =
+    A storage operation failed: { $detail }.
+    Please try again later.
+
+error-insufficient-descriptions =
+    A comparison requires at least 2 report descriptions, but only { $found } were available.
+
+error-internal =
+    An internal error occurred: { $detail }
+    Please try again or contact support.

@@ -1,0 +1,19 @@
+Vergleiche die folgenden zwei Baustelleninspektionsberichte für dasselbe Objekt.
+
+Objekt: {{ object_name }}
+Datum der früheren Inspektion: {{ prev_date }}
+Datum der späteren Inspektion:  {{ next_date }}
+
+Benutzeranfrage: {{ user_message }}
+
+---
+FRÜHERE INSPEKTION ({{ prev_date }}):
+{{ prev_description | json_encode(pretty=true) }}
+
+SPÄTERE INSPEKTION ({{ next_date }}):
+{{ next_description | json_encode(pretty=true) }}
+---
+Erstelle anhand der beiden obigen Beschreibungen einen einzigen vergleichenden JSON-Bericht.
+Schwerpunkte: Fenster, Türen, Heizkörper, Öffnungen.
+Hebe hervor, was sich verändert hat, was installiert wurde und was noch unvollständig ist.
+Gib NUR gültiges JSON zurück – kein Markdown, kein zusätzlicher Text.

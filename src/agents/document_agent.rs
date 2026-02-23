@@ -1,10 +1,20 @@
+// src/agents/document_agent.rs
+//
+// Retrieves and manages document objects based on user requests.
+// Supports parameters for filtering and limiting results.
+// Used to request 1-2 or several specific leafs/photos for a period.
+// Result: 1 owner with leaves
+
 use std::sync::Arc;
 use chrono::Utc;
 use rig::providers::ollama;
 use tokio::sync::mpsc;
 use serde_json::{json, Value};
 use uuid::Uuid;
+
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use crate::agents::agent_error::AgentError;
+use crate::agents::LocalizationManager;
 use crate::db::{get_node_with_leafs, NodeType};
 use crate::storage::set_storage_url;
 
@@ -13,39 +23,45 @@ pub struct DocumentAgent {
     client: Arc<ollama::Client>,
     context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
+    lang_manager: Arc<LocalizationManager>,
 }
-/// Retrieves and manages document objects based on user requests.
-/// Supports parameters for filtering and limiting results.
-/// Used to request 1-2 or several specific leafs/photos for a period.
-/// Result: 1 owner with leaves
+
 impl DocumentAgent {
     pub fn new(
         client: Arc<ollama::Client>,
         context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
+        lang_manager: Arc<LocalizationManager>,
     ) -> Self {
         Self {
             client,
             context,
             event_tx,
+            lang_manager,
         }
-    }
-
-    async fn send_event(&self, event: StreamEvent) {
-        let _ = self.event_tx.send(event).await;
     }
 
     pub async fn execute(
         &self,
-        state:Arc<AppState>,
+        state: Arc<AppState>,
         parameters: &TaskParameters,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-
         let pool = &state.db;
-        let node_id: &str = self.context.object_id.as_ref()
-            .expect("Object ID is required for DescriptionAgent");
-        let node_id = Uuid::parse_str(node_id).expect("Invalid UUID format for Object ID");
+
+        // Validate object_id presence.
+        let node_id_str = self
+            .context
+            .object_id
+            .as_deref()
+            .ok_or(AgentError::MissingObjectId)?;
+
+        // Validate UUID format.
+        let node_id = Uuid::parse_str(node_id_str).map_err(|_| AgentError::InvalidUuid {
+            raw: node_id_str.to_string(),
+        })?;
+
         let limit = if parameters.all { 100 } else { 2 };
+
         let mut data = if let Some(period) = &parameters.period {
             let from = Utc::now().naive_utc();
             let amount = parameters.amount.unwrap_or(1);
@@ -55,15 +71,16 @@ impl DocumentAgent {
         } else {
             get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
         };
+
+        // No results — send a localized info message and return empty.
         if data.is_empty() {
-            self.send_event(StreamEvent::TextChunk {
-                request_id: self.context.request_id.clone(),
-                chunk: "No documents found matching the criteria.\n".to_string(),
-            })
-            .await;
-            return Ok("".into());
+            AgentError::NoDocumentsFound
+                .send_to_client(&self.event_tx, &self.context, &self.lang_manager)
+                .await;
+            return Ok(Value::Null);
         }
-        // Process ImageLeaf nodes
+
+        // Attach storage URLs to image-leaf nodes.
         for node in &mut data {
             if matches!(node.node_type, NodeType::ImageLeaf)
                 && let Some(obj) = node.data.as_object_mut()
@@ -72,7 +89,7 @@ impl DocumentAgent {
                 set_storage_url(state.clone(), obj, node_id).await;
             }
         }
-        let json_data = json!(data);
-        Ok(json_data)
+
+        Ok(json!(data))
     }
 }

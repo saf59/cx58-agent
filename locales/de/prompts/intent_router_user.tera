@@ -9,17 +9,17 @@ AKTUELLER KONTEXT:
 - Aktuelle Bericht-ID: {{ current_report_id }} 
 {% endif -%}
 {% if previous_report_id -%}
-- Vorherige Bericht-ID: {{ previous_report_id }} 
+- Vorherige Bericht-ID: {{ previous_report_id }}                                                   
 {% endif %}
 
-KONVERSATIONSVERLAUF:
+GESPRÄCHSVERLAUF:
 {{ conversation_history }}
 
 BENUTZERNACHRICHT:
 "{{ user_message }}"
 
-Analysieren Sie diese Nachricht und klassifizieren Sie den Intent. 
-Berücksichtigen Sie den verfügbaren Kontext bei der Bestimmung, welcher zusätzliche Kontext benötigt werden könnte.
-"missing_context" MUSS eine Liste aller fehlenden Eigenschaften enthalten.
-Wenn keine spezifischen Objekte oder Berichte erwähnt werden, bedeutet dies, dass Sie diese aus dem AKTUELLEN KONTEXT verwenden müssen. 
-Geben Sie NUR gültiges JSON im angegebenen Format zurück.
+Analysiere diese Nachricht und klassifiziere die Absicht.
+Prüfe, welcher Kontext fehlt, und trage ihn in das Feld „missing_context" ein, sofern er für die klassifizierte Absicht erforderlich ist.
+„missing_context" MUSS eine Liste aller fehlenden Eigenschaften enthalten.
+Wenn kein bestimmtes Objekt oder kein bestimmter Bericht erwähnt wird, sind die Werte aus dem AKTUELLEN KONTEXT zu verwenden.
+Gib NUR gültiges JSON zurück, das dem angegebenen Format entspricht.

@@ -10,13 +10,15 @@ pub mod filter_objects;
 pub mod description;
 pub mod tera;
 pub mod intent_router;
-pub mod master_agent_update;
+pub mod master_agent;
 pub mod orchestrator;
 pub mod response_formatter;
 pub mod types;
 pub mod cancellation;
 pub mod agent_context;
 pub mod agents_helper;
+
+pub mod agent_error;
 
 pub use crate::localization::LocalizationManager;
 pub use agent_context::AgentContext;

@@ -4,7 +4,7 @@ use rig::client::Nothing;
 use rig::providers::ollama;
 use sqlx::postgres::PgPoolOptions;
 use crate::{AiConfig, AppState};
-use crate::agents::master_agent_update::MasterAgentNew;
+use crate::agents::master_agent::MasterAgent;
 use crate::error::AppError;
 use crate::handlers::{StorageService};
 
@@ -99,7 +99,7 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
         .build()
         .unwrap());
     //let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
-    let master_agent = Arc::new(MasterAgentNew::new(client, ai_config.clone()));
+    let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
 
     // Application state
     let state = Arc::new(AppState {

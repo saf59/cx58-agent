@@ -29,6 +29,7 @@ EXAMPLE OUTPUT:
 }
 
 CRITICAL INSTRUCTIONS:
+- You MUST respond EXCLUSIVELY in English, regardless of the language of the input data.
 - Return ONLY the JSON object, no additional text
 - Do not wrap the JSON in markdown code blocks
 - Use null for fields where elements are not visible

@@ -43,7 +43,6 @@ use anyhow::Result;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::ollama;
-use serde_json::Value;
 use std::sync::Arc;
 use tera::Context;
 use uuid::Uuid;

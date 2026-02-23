@@ -70,7 +70,7 @@ dotenv = "0.15"
 
 # lang
 fluent-bundle = "0.16"
-unic-langid = "0.9"
+unic-langid = { version = "0.9", features = ["macros"] }
 # schemars = "1.2.0"
 aho-corasick = "1.1"
 strum = "0.27"

@@ -54,7 +54,7 @@ pub fn generate_date(shift: i32, time: &str) -> Result<String, Box<dyn std::erro
     let target_date = today + Duration::days(shift as i64);
 
     let mut rng = rand::rng();
-    let random_seconds: u32 = rng.random_range(46800..64800); // Random seconds in a day
+    let random_seconds: u32 = rng.random_range(50400..61200); // Random seconds in a day
     let rnd_time = NaiveTime::from_num_seconds_from_midnight_opt(random_seconds, 0).unwrap();
     let formatted = rnd_time.format("%H:%M:%S").to_string();
 

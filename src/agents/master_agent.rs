@@ -80,6 +80,7 @@ use super::{intent_router::IntentRouter, orchestrator::Orchestrator, response_fo
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext, StreamEvent};
+use crate::agents::agent_error::AgentError;
 
 /// # MasterAgent
 ///
@@ -112,7 +113,7 @@ use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext, Stre
 /// - Knowledge Base Worker (RAG) as a first-class worker.
 ///   RagQuery worker_type exists but is not fully formatted downstream.
 /// - No Evaluator/Compliance agent layer for quality control.
-pub struct MasterAgentNew {
+pub struct MasterAgent {
     client: Arc<ollama::Client>,
     config: AiConfig,
     request_manager: Arc<RequestManager>,
@@ -125,7 +126,7 @@ pub struct MasterAgentNew {
     template_manager: Arc<TemplateManager>,
 }
 
-impl MasterAgentNew {
+impl MasterAgent {
     pub fn new(
         client: Arc<ollama::Client>,
         config: AiConfig,
@@ -171,14 +172,20 @@ impl MasterAgentNew {
     ) -> mpsc::Receiver<StreamEvent> {
         let (tx, rx) = mpsc::channel(100);
 
-        let template_manager = self.template_manager.clone();
+        let lang_manager = self.lang_manager.clone();
         let state = state.clone();
         let agent = self.clone();
+
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
             let cancellation_token = agent.request_manager.register(request_id.clone()).await;
-            let context = AgentContext::from_request(request_id.clone(), request.clone(), cancellation_token.clone());
-            // Send start event
+            let context = AgentContext::from_request(
+                request_id.clone(),
+                request.clone(),
+                cancellation_token.clone(),
+            );
+
+            // Notify client that streaming has started.
             let _ = tx
                 .send(StreamEvent::Started {
                     request_id: request_id.clone(),
@@ -187,18 +194,24 @@ impl MasterAgentNew {
                 .await;
 
             if let Err(e) = agent.process_request(state, context.clone(), tx.clone()).await {
-                let mut ctx = Context::new();
-                ctx.insert("error", &e.to_string());
+                // Determine the user's language for the error message.
+                let lang = Language::from_short(&context.language);
+                let lang_code = lang.to_code();
 
-                let error_msg = template_manager
-                    .render("en", "error-agent", ctx)
-                    .unwrap_or_else(|_| format!("Agent error: {}", e));
+                // Try to downcast to AgentError for a fully localized message;
+                // fall back to Internal for generic errors.
+                let agent_error = e
+                    .downcast::<AgentError>()
+                    .unwrap_or_else(|e| Box::new(AgentError::Internal { detail: e.to_string() }));
 
-                let _ = tx.send(StreamEvent::Error {
-                    request_id: context.request_id.clone(),
-                    error: error_msg,
-                    // code: "AGENT_ERROR".to_string(),
-                }).await;
+                let error_msg = agent_error.localized_message(lang_code, &lang_manager);
+
+                let _ = tx
+                    .send(StreamEvent::Error {
+                        request_id: context.request_id.clone(),
+                        error: error_msg,
+                    })
+                    .await;
             }
         });
 
@@ -281,7 +294,7 @@ impl MasterAgentNew {
                     &classification.intent,
                     &ready,
                     &context,
-                    &current_context,
+                    //&current_context,
                 ).await?;
                 break;
             }
@@ -398,7 +411,7 @@ impl MasterAgentNew {
                         &classification.intent,
                         &decision_results,
                         &context,
-                        &current_context,
+                        //&current_context,
                     ).await?;
 
                     break;
@@ -470,6 +483,7 @@ impl MasterAgentNew {
                     self.client.clone(),
                     context.clone(),
                     event_tx.clone(),
+                    self.lang_manager.clone(),
                 );
 
                 let result = agent
@@ -500,7 +514,7 @@ impl MasterAgentNew {
                     .collect();
 
                 if descriptions.is_empty() {
-                    return Err("ComparisonAgent requires DescribeReport results first".into());
+                    return Err(AgentError::InsufficientDescriptions { found: 0 }.into());
                 }
 
                 let agent = ComparisonAgent::new(
@@ -544,7 +558,7 @@ async fn format_and_stream_response(
     intent: &Intent,
     worker_results: &[WorkerResponse],
     context: &AgentContext,
-    user_context: &UserContext,
+    //user_context: &UserContext,
 ) -> Result<()> {
     match intent {
         Intent::DescribeReport => {
@@ -624,7 +638,7 @@ async fn send_text_chunks(
 }
 }
 
-impl Clone for MasterAgentNew {
+impl Clone for MasterAgent {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),

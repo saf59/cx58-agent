@@ -154,23 +154,39 @@ impl LocalizationManager {
     }
 
     /// Returns prompt for specified language.
+    ///
+    /// Returns `Err` instead of panicking when the worker thread has stopped.
     pub fn get_prompt(&self, lang: &str, prompt_id: &str) -> Result<String> {
         let (resp_tx, resp_rx) = mpsc::channel();
 
-        self.sender
+        if self
+            .sender
             .send(Request::Prompt {
                 lang: lang.to_string(),
                 prompt_id: prompt_id.to_string(),
                 resp: resp_tx,
             })
-            .expect("Localization worker stopped");
+            .is_err()
+        {
+            tracing::error!(
+                "LocalizationManager: worker thread stopped, cannot resolve prompt='{}'",
+                prompt_id
+            );
+            return Err(anyhow::anyhow!(
+                "Localization worker stopped while fetching prompt '{}'",
+                prompt_id
+            ));
+        }
 
         resp_rx.recv().unwrap_or_else(|_| {
-            Err(anyhow::anyhow!("Prompt worker error"))
+            Err(anyhow::anyhow!("Prompt worker channel closed"))
         })
     }
 
     /// Internal helper for sending message request.
+    ///
+    /// Returns a safe fallback string instead of panicking when the worker
+    /// thread has stopped (e.g. due to a startup error in load_language).
     fn send_message(
         &self,
         lang: &str,
@@ -179,16 +195,25 @@ impl LocalizationManager {
     ) -> String {
         let (resp_tx, resp_rx) = mpsc::channel();
 
-        self.sender
+        if self
+            .sender
             .send(Request::Message {
                 lang: lang.to_string(),
                 msg_id: msg_id.to_string(),
                 args,
                 resp: resp_tx,
             })
-            .expect("Localization worker stopped");
+            .is_err()
+        {
+            // Worker thread is gone — log and return a visible but safe placeholder.
+            tracing::error!(
+                "LocalizationManager: worker thread stopped, cannot resolve msg='{}'",
+                msg_id
+            );
+            return format!("[{}]", msg_id);
+        }
 
-        resp_rx.recv().unwrap_or_else(|_| "Localization error".into())
+        resp_rx.recv().unwrap_or_else(|_| format!("[{}]", msg_id))
     }
     fn fluent_value_to_string(v: &fluent_bundle::FluentValue) -> String {
         match v {
@@ -201,16 +226,48 @@ impl LocalizationManager {
 }
 
 /// Loads FTL bundle inside worker thread.
+///
+/// Logs errors instead of panicking so the worker thread stays alive
+/// even if one language file has a syntax error.
 fn load_language(
     bundles: &mut HashMap<String, FluentBundle<FluentResource>>,
     lang: &str,
     content: &str,
 ) {
-    let lang_id: LanguageIdentifier = lang.parse().unwrap();
-    let resource = FluentResource::try_new(content.to_string()).unwrap();
+    let lang_id: LanguageIdentifier = match lang.parse() {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::error!("LocalizationManager: invalid lang id '{}': {}", lang, e);
+            return;
+        }
+    };
+
+    let resource = match FluentResource::try_new(content.to_string()) {
+        Ok(r) => r,
+        Err((r, errors)) => {
+            // try_new returns the partially-parsed resource alongside errors;
+            // log them but continue with whatever was parsed successfully.
+            for e in &errors {
+                tracing::error!(
+                    "LocalizationManager: FTL parse error in lang '{}': {:?}",
+                    lang, e
+                );
+            }
+            r
+        }
+    };
 
     let mut bundle = FluentBundle::new(vec![lang_id]);
-    bundle.add_resource(resource).unwrap();
+
+    if let Err(errors) = bundle.add_resource(resource) {
+        for e in &errors {
+            tracing::error!(
+                "LocalizationManager: duplicate message in lang '{}': {:?}",
+                lang, e
+            );
+        }
+        // Still insert the bundle — duplicate messages are non-fatal.
+    }
 
     bundles.insert(lang.to_string(), bundle);
 }
@@ -259,10 +316,16 @@ fn format_message(
     msg_id: &str,
     args: Vec<(String, String)>,
 ) -> String {
-    let bundle = bundles
-        .get(lang)
-        .or_else(|| bundles.get("en"))
-        .expect("No language bundle available");
+    let bundle = match bundles.get(lang).or_else(|| bundles.get("en")) {
+        Some(b) => b,
+        None => {
+            tracing::error!(
+                "LocalizationManager: no bundle for lang '{}' and no 'en' fallback",
+                lang
+            );
+            return format!("[{}]", msg_id);
+        }
+    };
 
     let msg = match bundle.get_message(msg_id) {
         Some(m) => m,

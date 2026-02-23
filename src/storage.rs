@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use serde_json::{Map, Value};
 use uuid::Uuid;
-use crate::agents::master_agent_update::MasterAgentNew;
+use crate::agents::master_agent::MasterAgent;
 
 // ============================================================================
 // AppState && AiConfig
@@ -54,7 +54,7 @@ pub struct AppState {
     pub storage: Arc<StorageService>,
     //pub image_resolver: Arc<ImageUrlResolver>,
     //pub image_processor: Arc<ImageProcessor>,
-    pub master_agent: Arc<MasterAgentNew>,
+    pub master_agent: Arc<MasterAgent>,
     pub ai_config: AiConfig,
 }
 //pub redis: redis::aio::ConnectionManager,
