@@ -10,7 +10,7 @@ pub struct WorkerStat {
 }
 
 /// Accumulated statistics for a single agent request lifecycle.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AgentStats {
     /// Tokens consumed by IntentRouter LLM call.
     pub router_tokens: Option<u64>,

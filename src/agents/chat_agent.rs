@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use rig::providers::ollama;
+use crate::agents::StreamEvent;
+use crate::agents::agent_error::AgentError;
+use crate::{AgentContext, AppState};
 use rig::completion::{AssistantContent, CompletionModel};
 use rig::prelude::CompletionClient;
+use rig::providers::ollama;
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use crate::agents::StreamEvent;
-use crate::{AgentContext, AppState};
-use crate::agents::agent_error::AgentError;
 
 pub struct ChatAgent {
     client: Arc<ollama::Client>,
@@ -35,10 +35,9 @@ impl ChatAgent {
 
     pub async fn execute(
         &self,
-        state:Arc<AppState>,
+        state: Arc<AppState>,
         message: &str,
-    ) -> Result<(String,Option<u64>), AgentError> {
-
+    ) -> Result<(String, Option<u64>), AgentError> {
         self.context.cancellation_token.check().await?;
 
         let system_prompt = format!(
@@ -54,7 +53,8 @@ impl ChatAgent {
             .build();
         let response = model.completion(request).await?;
 
-        let text = response.choice
+        let text = response
+            .choice
             .iter()
             .filter_map(|c| match c {
                 AssistantContent::Text(t) => Some(t.text.clone()),
@@ -64,12 +64,18 @@ impl ChatAgent {
             .join("");
 
         if text.is_empty() {
-            return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+            let err_msg = format!(
+                "Orchestrator LLM returned no text content. Response: {:?}",
+                response.choice
+            );
+            tracing::error!("{}", err_msg);
+            let err = AgentError::internal(err_msg.clone());
+            return Err(err);
         }
 
         let tokens = Some(
             response.raw_response.prompt_eval_count.unwrap_or(0)
-                + response.raw_response.eval_count.unwrap_or(0)
+                + response.raw_response.eval_count.unwrap_or(0),
         );
 
         // Send response in chunks for streaming effect
@@ -77,7 +83,11 @@ impl ChatAgent {
         for chunk in text.chars().collect::<Vec<_>>().chunks(chunk_size) {
             self.context.cancellation_token.check().await?;
             let chunk_str: String = chunk.iter().collect();
-            tracing::info!("Sending text chunk:{} {}", &self.context.request_id, chunk_str);
+            tracing::info!(
+                "Sending text chunk:{} {}",
+                &self.context.request_id,
+                chunk_str
+            );
             self.send_event(StreamEvent::TextChunk {
                 request_id: self.context.request_id.clone(),
                 chunk: chunk_str,
@@ -88,6 +98,6 @@ impl ChatAgent {
             tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
         }
 
-        Ok((text,tokens))
+        Ok((text, tokens))
     }
 }

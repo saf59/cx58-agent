@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use tera::Context;
 use crate::templating::TemplateManager;
 
 /// Formats optional context values for display in prompts
@@ -22,7 +21,7 @@ use crate::templating::TemplateManager;
 /// Some("building-123") → "building-123"
 /// None                 → "Not set" (or "Nicht gesetzt" in German)
 /// ```
-pub fn format_optional(template_manager:Arc<TemplateManager>, opt: &Option<String>, lang: &str) -> String {
+pub fn format_optional(_template_manager:Arc<TemplateManager>, opt: &Option<String>, _lang: &str) -> String {
     match opt {
         Some(val) => val.to_string(),  // просто возвращаем значение
         None => String::new(),

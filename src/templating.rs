@@ -56,7 +56,11 @@ impl TemplateManager {
             ("de", "formatter_comparison.tera") => include_str!("../locales/de/prompts/formatter_comparison.tera"),
             ("de", "formatter_out_of_scope.tera") => include_str!("../locales/de/prompts/formatter_out_of_scope.tera"),
 
-            _ => return Err(AgentError::internal(format!("Unknown template: {} for language {}", filename, lang))),
+            _ =>  {
+                let err = AgentError::internal(format!("Unknown template: {} for language {}", filename, lang));
+                tracing::error!("{}", err);
+                return Err(err);
+            },
         };
 
         Ok(content.to_string())

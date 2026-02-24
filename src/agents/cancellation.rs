@@ -34,7 +34,9 @@ impl CancellationToken {
 
     pub async fn check(&self) -> Result<(), AgentError> {
         if self.is_cancelled().await {
-            Err(AgentError::Cancelled)
+            tracing::warn!("Operation cancelled");
+            let err = AgentError::Cancelled; 
+            Err(err)
         } else {
             Ok(())
         }

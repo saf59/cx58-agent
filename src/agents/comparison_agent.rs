@@ -14,20 +14,19 @@
 //   - User prompt rendered from `comparison-user-prompt.tera` via TemplateManager
 //   - Temperature 0.2 for consistent structured output
 
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 use crate::agents::agent_error::AgentError;
-use crate::agents::{Language, LocalizationManager};
 use crate::agents::agents_helper::clean_json_response;
+use crate::agents::{Language, LocalizationManager};
 use crate::templating::TemplateManager;
+use crate::{AgentContext, AppState, StreamEvent};
 
-use rig::completion::{AssistantContent, CompletionModel, Prompt};
+use chrono::NaiveDateTime;
+use rig::completion::{AssistantContent, CompletionModel};
 use rig::prelude::CompletionClient;
 use rig::providers::ollama;
-use serde_json::{Value, json};
-use std::error::Error;
-use std::sync::Arc;
-use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::sync::Arc;
 use tera::Context;
 use tokio::sync::mpsc;
 
@@ -73,46 +72,31 @@ impl ComparisonAgent {
         lang_manager: Arc<LocalizationManager>,
         template_manager: Arc<TemplateManager>,
     ) -> Self {
-        Self { client, context, event_tx, lang_manager, template_manager }
+        Self {
+            client,
+            context,
+            event_tx,
+            lang_manager,
+            template_manager,
+        }
     }
 
     // -----------------------------------------------------------------------
     // Public entry points
     // -----------------------------------------------------------------------
 
-    /// Dev/test entry point with hard-coded sample descriptions.
-    pub async fn execute(
-        &self,
-        _state: Arc<AppState>,
-        _parameters: &TaskParameters,
-    ) -> Result<Value, Box<dyn Error + Send + Sync>> {
-        let report = json!(r#"{
-            "confidence": Null,                                                                                                                                                                                                                
-            "created_at": String("2026-02-22T16:56:51.239822Z"),                                                                                                                                                                               
-            "date": String("2026-02-22"),                                                                                                                                                                                                      
-            "date_id": String("019badc0-0ca7-76b0-b37a-a4cd13b7536c"),                                                                                                                                                                         
-            "description": String("A modern room with white walls, wooden flooring, and exposed concrete ceiling. Features two windows, one door, and two radiators."),                                                                        
-            "doors": String("One sliding door with white frame on the right wall, open with a curtain."),                                                                                                                                      
-            "model_name": String("qwen3-vl"),                                                                                                                                                                                                  
-            "object": String("Root/Object 1/Room 11/10.01.2026 19:00:00"),                                                                                                                                                                     
-            "object_id": String("019badc0-0ca7-76b0-b37a-a4cd13b7536c"),                                                                                                                                                                       
-            "radiators": String("Two white panel radiators: one mounted beneath the middle window, and one mounted beneath the right sliding door."),                                                                                          
-            "windows": String("Two windows: a large double sliding window with white frame on the left wall, and a standard single-pane window with white frame on the middle wall."),                                                         
-        }"#);
-        Ok(report)
-    }
-
     /// Main comparison path called from MasterAgent.
     ///
     /// # Arguments
     /// * `state`        – AppState with AI config.
-    /// * `descriptions` – exactly two Value objects from DescriptionAgent,
+    /// * `descriptions` – first row in it is exactly two Value objects from DescriptionAgent,
     ///                    ordered [earlier, later] by date.
     pub async fn execute_comparison(
         &self,
         state: &Arc<AppState>,
         descriptions: Vec<Value>,
-    ) -> Result<(Value,Option<u64>), AgentError> {
+    ) -> Result<(Value, Option<u64>), AgentError> {
+        // first row in the descriptions is expected to be an array of two objects
         // Validate we have at least two descriptions.
         let descriptions = descriptions
             .first()
@@ -120,8 +104,11 @@ impl ComparisonAgent {
             .ok_or_else(|| AgentError::InsufficientDescriptions { found: 0 })?;
 
         if descriptions.len() < 2 {
-            let err = AgentError::InsufficientDescriptions { found: descriptions.len() };
-            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager).await;
+            let err = AgentError::InsufficientDescriptions {
+                found: descriptions.len(),
+            };
+            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
+                .await;
             return Err(err.into());
         }
 
@@ -132,19 +119,25 @@ impl ComparisonAgent {
 
         // Extract object name and dates from the "object" field.
         let (object_name, date_0) = Self::extract_name_pair(
-            descriptions[0]["object"].as_str().unwrap_or("Unknown object"),
+            descriptions[0]["object"]
+                .as_str()
+                .unwrap_or("Unknown object"),
         );
         let (_, date_1) = Self::extract_name_pair(
-            descriptions[1]["object"].as_str().unwrap_or("Unknown object"),
+            descriptions[1]["object"]
+                .as_str()
+                .unwrap_or("Unknown object"),
         );
 
         // Parse dates for chronological ordering.
-        let native_date_0 = Self::to_native_date(&date_0).map_err(|_| {
-            AgentError::DateParseError { raw: date_0.clone() }
-        })?;
-        let native_date_1 = Self::to_native_date(&date_1).map_err(|_| {
-            AgentError::DateParseError { raw: date_1.clone() }
-        })?;
+        let native_date_0 =
+            Self::to_native_date(&date_0).map_err(|_| AgentError::DateParseError {
+                raw: date_0.clone(),
+            })?;
+        let native_date_1 =
+            Self::to_native_date(&date_1).map_err(|_| AgentError::DateParseError {
+                raw: date_1.clone(),
+            })?;
 
         let (prev, next) = if native_date_0 <= native_date_1 {
             (&descriptions[0], &descriptions[1])
@@ -182,14 +175,7 @@ impl ComparisonAgent {
 
         tracing::info!("ComparisonAgent user_prompt:\n{}", user_prompt);
 
-        // Call LLM.
-/*        let agent = self
-            .client
-            .agent(&state.ai_config.text_model)
-            .preamble(&system_prompt)
-            .temperature(0.2)
-            .build();
-*/        let model = self.client.completion_model(&state.ai_config.text_model);
+        let model = self.client.completion_model(&state.ai_config.text_model);
         let request = model
             .completion_request(&user_prompt)
             .preamble(system_prompt)
@@ -197,7 +183,8 @@ impl ComparisonAgent {
             .build();
         let response = model.completion(request).await?;
 
-        let text = response.choice
+        let text = response
+            .choice
             .iter()
             .filter_map(|c| match c {
                 AssistantContent::Text(t) => Some(t.text.clone()),
@@ -207,12 +194,18 @@ impl ComparisonAgent {
             .join("");
 
         if text.is_empty() {
-            return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+            let err_msg = format!(
+                "ComparisonAgent LLM returned no text content. Response: {:?}",
+                response.choice
+            );
+            tracing::error!("{}", err_msg);
+            let err = AgentError::internal(err_msg.clone());
+            return Err(err);
         }
 
         let tokens = Some(
             response.raw_response.prompt_eval_count.unwrap_or(0)
-                + response.raw_response.eval_count.unwrap_or(0)
+                + response.raw_response.eval_count.unwrap_or(0),
         );
 
         tracing::info!("ComparisonAgent raw response:\n{}", &text);
@@ -222,15 +215,7 @@ impl ComparisonAgent {
         tracing::debug!("ComparisonAgent cleaned JSON:\n{}", cleaned);
 
         let mut parsed: ComparisonData = serde_json::from_str(&cleaned).map_err(|e| {
-            let err = AgentError::LlmJsonParseError { detail: e.to_string() };
-            // Fire-and-forget: send the error event; we still propagate the Err below.
-            // Using block_in_place avoids needing async here.
-            let tx = self.event_tx.clone();
-            let context = self.context.clone();
-            let lm = self.lang_manager.clone();
-            tokio::spawn(async move {
-                err.send_to_client(&tx, &context, &lm).await;
-            });
+            tracing::error!("ComparisonAgent: failed to parse LLM response: {}\nCleaned: {}",e, cleaned);
             AgentError::LlmJsonParseError { detail: e.to_string() }
         })?;
 
@@ -238,7 +223,7 @@ impl ComparisonAgent {
         parsed.prev_date = prev_date.to_string();
         parsed.next_date = next_date.to_string();
 
-        Ok((json!(parsed),tokens))
+        Ok((json!(parsed), tokens))
     }
 
     // -----------------------------------------------------------------------

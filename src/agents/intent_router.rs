@@ -180,7 +180,10 @@ impl IntentRouter {
             .join("");
 
         if text.is_empty() {
-            return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+            let msg = "IntentRouter: LLM returned empty response";
+            tracing::error!("{}", msg);
+            let err = AgentError::internal(msg);
+            return Err(err);
         }
 
         let tokens = Some(
@@ -211,6 +214,7 @@ impl IntentRouter {
                 let error_msg = self.template_manager
                     .render(lang, "error-classification", ctx)
                     .unwrap_or_else(|_| self.lang_manager.get_msg(lang, "error-classification-fallback"));
+                tracing::error!("IntentRouter: failed to parse ClassificationResult: {}\nRaw response: {}", e, text);
                 AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
             })?;
 

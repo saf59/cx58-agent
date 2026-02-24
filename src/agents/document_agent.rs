@@ -63,10 +63,10 @@ impl DocumentAgent {
         let limit = if parameters.all { 100 } else { 2 };
 
         let mut data = if let Some(period) = &parameters.period {
-            let from = Utc::now().naive_utc();
+            let to = Utc::now().naive_utc();
             let amount = parameters.amount.unwrap_or(1);
             let days = period.to_days() * amount as i64;
-            let to = from + chrono::Duration::days(days);
+            let from = to - chrono::Duration::days(days);
             get_node_with_leafs(pool, node_id, Some(limit), Some(from), Some(to)).await?
         } else {
             get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
@@ -74,10 +74,10 @@ impl DocumentAgent {
 
         // No results — send a localized info message and return empty.
         if data.is_empty() {
-            AgentError::NoDocumentsFound
-                .send_to_client(&self.event_tx, &self.context, &self.lang_manager)
+            let err = AgentError::NoDocumentsFound;
+               err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
                 .await;
-            return Ok(Value::Null);
+            return Err(err.into());
         }
 
         // Attach storage URLs to image-leaf nodes.

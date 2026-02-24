@@ -2,7 +2,6 @@ use crate::agents::description::DescriptionContent;
 use rig::completion::{AssistantContent, CompletionModel};
 use rig::prelude::CompletionClient;
 use rig::message::{DocumentSourceKind, Message, UserContent};
-use rig::prelude::*;
 use rig::providers::ollama;
 use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
 use std::sync::Arc;
@@ -138,7 +137,13 @@ pub async fn generate_description_from_image(
         .join("");
 
     if text.is_empty() {
-        return Err(AgentError::internal("Orchestrator LLM returned no text content").into());
+        let err_msg = format!(
+            "Orchestrator LLM returned no text content for image-based description generation. Response: {:?}",
+            response.choice
+        );
+        tracing::error!("{}", err_msg);
+        let err = AgentError::internal(err_msg.clone());
+        return Err(err);
     }
 
     let tokens = Some(

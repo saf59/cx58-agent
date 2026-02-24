@@ -66,22 +66,27 @@
 //! - Request lifecycle terminates on first error
 //!
 
-use anyhow::Result;
+//use anyhow::Result;
 use rig::providers::ollama;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Instant;
-use serde_json::{json, Value};
 use tera::Context;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 
-use super::{intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter, types::*, ChatAgent, ComparisonAgent, DescriptionAgent, DocumentAgent, ObjectAgent};
+use super::{
+    ChatAgent, ComparisonAgent, DescriptionAgent, DocumentAgent, ObjectAgent,
+    intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter,
+    types::*,
+};
 
-use crate::localization::LocalizationManager;
-use crate::templating::TemplateManager;
-use crate::{AiConfig, AgentRequest, AppState, RequestManager, AgentContext, StreamEvent};
 use crate::agents::agent_error::AgentError;
 use crate::agents::stats::AgentStats;
+use crate::localization::LocalizationManager;
+use crate::templating::TemplateManager;
+use crate::{AgentContext, AgentRequest, AiConfig, AppState, RequestManager, StreamEvent};
 
 /// # MasterAgent
 ///
@@ -128,10 +133,7 @@ pub struct MasterAgent {
 }
 
 impl MasterAgent {
-    pub fn new(
-        client: Arc<ollama::Client>,
-        config: AiConfig,
-    ) -> Self {
+    pub fn new(client: Arc<ollama::Client>, config: AiConfig) -> Self {
         let lang_manager = Arc::new(LocalizationManager::new());
         let template_manager = Arc::new(TemplateManager::new());
 
@@ -176,6 +178,7 @@ impl MasterAgent {
         let lang_manager = self.lang_manager.clone();
         let state = state.clone();
         let agent = self.clone();
+        let start_time = Instant::now();
 
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
@@ -194,16 +197,21 @@ impl MasterAgent {
                 })
                 .await;
 
-            if let Err(e) = agent.process_request(state, context.clone(), tx.clone()).await {
+            if let Err(e) = agent
+                .process_request(state, context.clone(), tx.clone())
+                .await
+            {
                 // Determine the user's language for the error message.
                 let lang = Language::from_short(&context.language);
                 let lang_code = lang.to_code();
 
                 // Try to downcast to AgentError for a fully localized message;
                 // fall back to Internal for generic errors.
-                let agent_error = e
-                    .downcast::<AgentError>()
-                    .unwrap_or_else(|e| Box::new(AgentError::Internal { detail: e.to_string() }));
+                let agent_error = e.downcast::<AgentError>().unwrap_or_else(|e| {
+                    Box::new(AgentError::Internal {
+                        detail: e.to_string(),
+                    })
+                });
 
                 let error_msg = agent_error.localized_message(lang_code, &lang_manager);
 
@@ -211,6 +219,13 @@ impl MasterAgent {
                     .send(StreamEvent::Error {
                         request_id: context.request_id.clone(),
                         error: error_msg,
+                    })
+                    .await;
+                let _ = tx
+                    .send(StreamEvent::Completed {
+                        request_id: context.request_id.clone(),
+                        total_time_ms: start_time.elapsed().as_millis() as u64,
+                        stats: AgentStats::default(), // или пустой stats
                     })
                     .await;
             }
@@ -237,7 +252,8 @@ impl MasterAgent {
             status: "analyzing".to_string(),
             percent: 10,
             message: analyzing_msg,
-        }).await?;
+        })
+        .await?;
 
         let user_context = UserContext {
             user_id: context.user_id.clone(),
@@ -248,7 +264,8 @@ impl MasterAgent {
             previous_report_id: context.prev_leaf.clone(),
         };
 
-        let (classification, router_tokens) = self.intent_router
+        let (classification, router_tokens) = self
+            .intent_router
             .classify(&context.message, &user_context, &[])
             .await?;
         tracing::info!("Intent classification result: {:?}", &classification.intent);
@@ -260,28 +277,34 @@ impl MasterAgent {
         // No explicit branch for Intent::Ambiguous here.
 
         if matches!(classification.intent, Intent::OutOfScope) {
-            let message = self.formatter
+            let message = self
+                .formatter
                 .format_out_of_scope(&user_context.language, &context.message)
                 .await?;
 
-            self.send_text_chunks(&tx, &message, &context.request_id, &user_context.language).await?;
+            self.send_text_chunks(&tx, &message, &context.request_id, &user_context.language)
+                .await?;
             stats.finalize();
             tx.send(StreamEvent::Completed {
                 request_id: context.request_id.clone(),
                 total_time_ms: start_time.elapsed().as_millis() as u64,
-                stats
-            }).await?;
+                stats,
+            })
+            .await?;
 
             return Ok(());
         }
 
-        let validation_msg = self.lang_manager.get_msg(lang_code, "progress-context-validation");
+        let validation_msg = self
+            .lang_manager
+            .get_msg(lang_code, "progress-context-validation");
         tx.send(StreamEvent::Progress {
             request_id: context.request_id.clone(),
             status: "context_validation".to_string(),
             percent: 30,
             message: validation_msg,
-        }).await?;
+        })
+        .await?;
 
         let mut worker_results = Vec::new();
         let current_context = user_context.clone();
@@ -291,25 +314,32 @@ impl MasterAgent {
 
             let ready = Self::intent_ready(classification.intent.clone(), &worker_results);
             if !ready.is_empty() {
-                tracing::info!("Intent ready for response formatting: {:?}", &classification.intent);
+                tracing::info!(
+                    "Intent ready for response formatting: {:?}",
+                    &classification.intent
+                );
                 self.format_and_stream_response(
                     &tx,
                     &classification.intent,
                     &ready,
                     &context,
                     //&current_context,
-                ).await?;
+                )
+                .await?;
                 break;
             }
             // Guard: CompareReports require DescribeReport
             if matches!(classification.intent, Intent::CompareReports) {
-                let has_describe = worker_results.iter()
+                let has_describe = worker_results
+                    .iter()
                     .any(|r| r.worker_type == WorkerType::DescribeReport);
 
                 if !has_describe {
-                    // Принудительно запускаем DescribeReport без LLM
+                    // Force DescribeReport execution without going through LLM orchestration
                     let reports = ReportPair {
-                        prev: current_context.current_report_id.clone()
+                        prev: current_context
+                            .current_report_id
+                            .clone()
                             .ok_or("Missing current_report_id")?,
                         next: current_context.previous_report_id.clone(),
                     };
@@ -322,9 +352,21 @@ impl MasterAgent {
                             request_id: Uuid::now_v7().to_string(),
                         },
                     };
-                    let result = self.execute_worker_via_agent(
-                        state.clone(), context.clone(), worker_req, tx.clone(), &worker_results,
-                    ).await?;
+
+                    let result = self
+                        .execute_worker_via_agent(
+                            state.clone(),
+                            context.clone(),
+                            worker_req,
+                            tx.clone(),
+                            &worker_results,
+                        )
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("Worker execution failed: {}", e);
+                            e
+                        })?;
+
                     stats.record_worker(
                         &format!("{:?}", result.worker_type),
                         result.metadata.execution_time_ms,
@@ -332,11 +374,12 @@ impl MasterAgent {
                         result.metadata.tokens_used,
                     );
                     worker_results.push(result);
-                    continue; // следующая итерация — теперь DescribeReport есть
+                    continue; // next iteration — DescribeReport result is now available
                 }
             }
 
-            let (decision, orch_tokens) = self.orchestrator
+            let (decision, orch_tokens) = self
+                .orchestrator
                 .decide_next_step(
                     &classification,
                     &current_context,
@@ -352,11 +395,15 @@ impl MasterAgent {
                     worker_req.context.user_id = current_context.user_id.clone();
                     worker_req.context.language = current_context.language.clone();
 
-                    tracing::info!("OrchestratorDecision::ExecuteWorker: {:?}", &worker_req.worker_type);
+                    tracing::info!(
+                        "OrchestratorDecision::ExecuteWorker: {:?}",
+                        &worker_req.worker_type
+                    );
 
                     let mut ctx = Context::new();
                     ctx.insert("worker_type", &format!("{:?}", worker_req.worker_type));
-                    let executing_msg = self.template_manager
+                    let executing_msg = self
+                        .template_manager
                         .render(lang_code, "progress-executing-worker", ctx)
                         .unwrap_or_else(|_| format!("Executing {:?}...", worker_req.worker_type));
 
@@ -365,12 +412,16 @@ impl MasterAgent {
                         status: "executing_worker".to_string(),
                         percent: 50,
                         message: executing_msg,
-                    }).await?;
+                    })
+                    .await?;
 
                     let result = self.execute_worker_via_agent(
-                        state.clone(), context.clone(), worker_req, tx.clone(),
+                        state.clone(), context.clone(), worker_req.clone(), tx.clone(),
                         &worker_results,
-                    ).await?;
+                    ).await.map_err(|e| {
+                        tracing::error!(worker_type = ?worker_req.worker_type,"Worker execution failed: {}", e);
+                        e
+                    })?;
 
                     stats.record_worker(
                         &format!("{:?}", result.worker_type),
@@ -382,7 +433,11 @@ impl MasterAgent {
                     worker_results.push(result);
                 }
 
-                OrchestratorDecision::RequestContextFromUser { missing_field: _, prompt, suggestions } => {
+                OrchestratorDecision::RequestContextFromUser {
+                    missing_field: _,
+                    prompt,
+                    suggestions,
+                } => {
                     // TODO:
                     // structured clarification flow.
                     // Current implementation concatenates suggestions as plain text.
@@ -395,33 +450,44 @@ impl MasterAgent {
                     tx.send(StreamEvent::TextChunk {
                         request_id: context.request_id.clone(),
                         chunk: prompt_with_suggestions,
-                    }).await?;
+                    })
+                    .await?;
                     stats.finalize();
                     tx.send(StreamEvent::Completed {
                         request_id: context.request_id.clone(),
                         total_time_ms: start_time.elapsed().as_millis() as u64,
-                        stats
-                    }).await?;
+                        stats,
+                    })
+                    .await?;
                     return Ok(());
                 }
 
-                OrchestratorDecision::SendProgress { status, percent, message } => {
+                OrchestratorDecision::SendProgress {
+                    status,
+                    percent,
+                    message,
+                } => {
                     tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
                         status,
                         percent,
                         message,
-                    }).await?;
+                    })
+                    .await?;
                 }
 
-                OrchestratorDecision::FormatAndReturn { worker_results: decision_results } => {
-                    let formatting_msg = self.lang_manager.get_msg(lang_code, "progress-formatting");
+                OrchestratorDecision::FormatAndReturn {
+                    worker_results: decision_results,
+                } => {
+                    let formatting_msg =
+                        self.lang_manager.get_msg(lang_code, "progress-formatting");
                     tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
                         status: "formatting".to_string(),
                         percent: 80,
                         message: formatting_msg,
-                    }).await?;
+                    })
+                    .await?;
 
                     self.format_and_stream_response(
                         &tx,
@@ -429,7 +495,8 @@ impl MasterAgent {
                         &decision_results,
                         &context,
                         //&current_context,
-                    ).await?;
+                    )
+                    .await?;
 
                     break;
                 }
@@ -438,7 +505,8 @@ impl MasterAgent {
                     tx.send(StreamEvent::TextChunk {
                         request_id: context.request_id.clone(),
                         chunk: message,
-                    }).await?;
+                    })
+                    .await?;
                     break;
                 }
             }
@@ -447,8 +515,9 @@ impl MasterAgent {
         tx.send(StreamEvent::Completed {
             request_id: context.request_id.clone(),
             total_time_ms: start_time.elapsed().as_millis() as u64,
-            stats
-        }).await?;
+            stats,
+        })
+        .await?;
 
         Ok(())
     }
@@ -486,17 +555,17 @@ impl MasterAgent {
         let start = Instant::now();
         let (result_data, tokens, llm_calls) = match worker_request.parameters {
             WorkerParameters::GetObjectTree(task_params) => {
-                let agent = ObjectAgent::new(
-                    self.client.clone(),
-                    context.clone(),
-                    event_tx.clone(),
-                );
+                let agent =
+                    ObjectAgent::new(self.client.clone(), context.clone(), event_tx.clone());
 
                 let result = agent.execute(state, &task_params).await?;
                 (result, None, 0u32)
             }
 
-            WorkerParameters::GetReportList { object_id: _, task_params } => {
+            WorkerParameters::GetReportList {
+                object_id: _,
+                task_params,
+            } => {
                 let agent = DocumentAgent::new(
                     self.client.clone(),
                     context.clone(),
@@ -520,8 +589,8 @@ impl MasterAgent {
                     self.template_manager.clone(),
                 );
 
-                let (result, tokens) = agent.execute_by_id(&state, &reports).await?;
-                (result, tokens, 1u32)
+                let (result, tokens, calls) = agent.execute_by_id(&state, &reports).await?;
+                (result, tokens, calls)
             }
 
             WorkerParameters::CompareReports { reports: _ } => {
@@ -532,7 +601,9 @@ impl MasterAgent {
                     .collect();
 
                 if descriptions.is_empty() {
-                    return Err(AgentError::InsufficientDescriptions { found: 0 }.into());
+                    let err = AgentError::InsufficientDescriptions { found: 0 }.into();
+                    tracing::error!("InsufficientDescriptions: {}", err);
+                    return Err(err);
                 }
 
                 let agent = ComparisonAgent::new(
@@ -543,18 +614,14 @@ impl MasterAgent {
                     self.template_manager.clone(),
                 );
                 //let descriptions_value = Value::Array(descriptions);
-                let (result, tokens) = agent.execute_comparison(&state, descriptions, ).await?;
+                let (result, tokens) = agent.execute_comparison(&state, descriptions).await?;
                 (result, tokens, 1u32)
             }
 
             WorkerParameters::RagQuery { query: _ } => {
-                let agent = ChatAgent::new(
-                    self.client.clone(),
-                    context.clone(),
-                    event_tx.clone(),
-                );
+                let agent = ChatAgent::new(self.client.clone(), context.clone(), event_tx.clone());
 
-                let (result, tokens) = agent.execute(state,&context.message).await?;
+                let (result, tokens) = agent.execute(state, &context.message).await?;
                 (json!({ "answer": result }), tokens, 1u32)
             }
         };
@@ -571,92 +638,139 @@ impl MasterAgent {
                 llm_calls,
             },
         })
-   }
+    }
 
-async fn format_and_stream_response(
-    &self,
-    tx: &mpsc::Sender<StreamEvent>,
-    intent: &Intent,
-    worker_results: &[WorkerResponse],
-    context: &AgentContext,
-    //user_context: &UserContext,
-) -> Result<()> {
-    match intent {
-        Intent::DescribeReport => {
-            if let Some(result) = worker_results.first() {
-                tx.send(StreamEvent::Description {
-                    request_id: context.request_id.clone(),
-                    data: result.data.clone(),
-                }).await?;
+    async fn format_and_stream_response(
+        &self,
+        tx: &mpsc::Sender<StreamEvent>,
+        intent: &Intent,
+        worker_results: &[WorkerResponse],
+        context: &AgentContext,
+        //user_context: &UserContext,
+    ) -> Result<(), AgentError> {
+        let lang = Language::from_short(&context.language);
+        let lang_code = lang.to_code();
+
+        match intent {
+            Intent::DescribeReport => {
+                if let Some(result) = worker_results.first() {
+                    tx.send(StreamEvent::Description {
+                        request_id: context.request_id.clone(),
+                        data: result.data.clone(),
+                    })
+                    .await
+                    .unwrap_or(Self::failed_to_send(context));
+                } else {
+                    self.empty_results(tx, intent, context, lang_code).await?;
+                }
             }
+            Intent::CompareReports => {
+                if let Some(result) = worker_results.first() {
+                    tx.send(StreamEvent::Comparison {
+                        request_id: context.request_id.clone(),
+                        data: result.data.clone(),
+                    })
+                    .await
+                    .unwrap_or(Self::failed_to_send(context));
+                } else {
+                    self.empty_results(tx, intent, context, lang_code).await?;
+                }
+            }
+            Intent::GetObjectTree => {
+                if let Some(result) = worker_results.first() {
+                    tx.send(StreamEvent::ObjectTree {
+                        request_id: context.request_id.clone(),
+                        data: result.data.clone(),
+                    })
+                    .await
+                    .unwrap_or(Self::failed_to_send(context));
+                } else {
+                    self.empty_results(tx, intent, context, lang_code).await?;
+                }
+            }
+            Intent::GetReportList => {
+                if let Some(result) = worker_results.first() {
+                    tx.send(StreamEvent::ReportList {
+                        request_id: context.request_id.clone(),
+                        data: result.data.clone(),
+                    })
+                    .await
+                    .unwrap_or(Self::failed_to_send(context));
+                } else {
+                    self.empty_results(tx, intent, context, lang_code).await?;
+                }
+            }
+
+            // TODO:
+            // Missing explicit handling for Intent::RagQuery.
+            // Knowledge Base Worker with citation support.
+            // Also missing fallback handling for Ambiguous intent.
+            _ => {}
         }
 
-        Intent::CompareReports => {
-            if let Some(result) = worker_results.first() {
-                tx.send(StreamEvent::Comparison {
-                    request_id: context.request_id.clone(),
-                    data: result.data.clone(),
-                }).await?;
-            }
-        }
+        Ok(())
+    }
 
-        Intent::GetObjectTree => {
-            if let Some(result) = worker_results.first() {
-                tx.send(StreamEvent::ObjectTree {
-                    request_id: context.request_id.clone(),
-                    data: result.data.clone(),
-                }).await?;
-            }
-        }
+    fn failed_to_send(context: &AgentContext) {
+        tracing::error!(
+            "Failed to send description response for request_id: {}",
+            context.request_id
+        );
+    }
 
-        Intent::GetReportList => {
-            if let Some(result) = worker_results.first() {
-                tx.send(StreamEvent::ReportList {
-                    request_id: context.request_id.clone(),
-                    data: result.data.clone(),
-                }).await?;
-            }
-        }
-
+    async fn send_text_chunks(
+        &self,
+        tx: &mpsc::Sender<StreamEvent>,
+        text: &str,
+        request_id: &str,
+        _language: &Language,
+    ) -> Result<(), AgentError> {
         // TODO:
-        // Missing explicit handling for Intent::RagQuery.
-        // Knowledge Base Worker with citation support.
-        // Also missing fallback handling for Ambiguous intent.
+        // chunk streaming by semantic units.
+        // Current implementation splits by ". " which is naive
+        // and may break abbreviations or non-English punctuation.
 
-        _ => {}
-    }
+        let sentences: Vec<&str> = text.split(". ").collect();
 
-    Ok(())
-}
+        for sentence in sentences {
+            if !sentence.trim().is_empty() {
+                tx.send(StreamEvent::TextChunk {
+                    request_id: request_id.to_string(),
+                    chunk: format!("{}. ", sentence.trim()),
+                })
+                .await
+                .unwrap_or(tracing::error!("Failed to send TextChunk: {}", sentence));
 
-async fn send_text_chunks(
-    &self,
-    tx: &mpsc::Sender<StreamEvent>,
-    text: &str,
-    request_id: &str,
-    _language: &Language,
-) -> Result<()> {
-
-    // TODO:
-    // chunk streaming by semantic units.
-    // Current implementation splits by ". " which is naive
-    // and may break abbreviations or non-English punctuation.
-
-    let sentences: Vec<&str> = text.split(". ").collect();
-
-    for sentence in sentences {
-        if !sentence.trim().is_empty() {
-            tx.send(StreamEvent::TextChunk {
-                request_id: request_id.to_string(),
-                chunk: format!("{}. ", sentence.trim()),
-            }).await?;
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
         }
-    }
 
-    Ok(())
-}
+        Ok(())
+    }
+    async fn empty_results(
+        &self,
+        tx: &Sender<StreamEvent>,
+        intent: &Intent,
+        context: &AgentContext,
+        lang_code: &str,
+    ) -> Result<(), AgentError> {
+        tracing::warn!(
+            "format_and_stream_response: no worker results for {:?}",
+            intent
+        );
+        tx.send(StreamEvent::TextChunk {
+            request_id: context.request_id.clone(),
+            chunk: self.lang_manager.get_msg(lang_code, "error-no-results"),
+        })
+        .await
+        .unwrap_or_else(|_| {
+            tracing::error!(
+                "empty_results: failed to send TextChunk for request {}",
+                context.request_id
+            )
+        });
+        Ok(())
+    }
 }
 
 impl Clone for MasterAgent {

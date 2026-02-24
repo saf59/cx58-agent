@@ -1,23 +1,24 @@
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
-use rig::providers::ollama;
-use serde_json::{json, Value};
-use std::sync::Arc;
-use tokio::sync::mpsc;
-use uuid::Uuid;
+use crate::agents::ReportPair;
 use crate::agents::agent_error::AgentError;
 use crate::agents::description::description_build::generate_description_from_image;
 use crate::agents::description::description_build::{
     extract_description_content_robust, resize_image_to_bytes,
 };
-use crate::agents::description::description_helper::{resolve_node_full_name, resolve_node_storage_path};
+use crate::agents::description::description_helper::{
+    resolve_node_full_name, resolve_node_storage_path,
+};
 use crate::agents::description::description_json::DescriptionData;
-use crate::agents::ReportPair;
 use crate::db_description::{
-    get_descriptions_by_node, upsert_description, CreateImageDescription,
-    ImageDescription,
+    CreateImageDescription, ImageDescription, get_descriptions_by_node, upsert_description,
 };
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use rig::providers::ollama;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
@@ -59,7 +60,7 @@ impl DescriptionAgent {
             next: self.context.next_leaf.clone(),
         };
 
-        let (result,_tokens) = self.execute_by_id(&state, &report_pair).await?;
+        let (result, _tokens, _calls) = self.execute_by_id(&state, &report_pair).await?;
         Ok(result.to_string())
     }
 
@@ -69,9 +70,10 @@ impl DescriptionAgent {
         &self,
         state: &Arc<AppState>,
         reports: &ReportPair,
-    ) -> Result<(Value, Option<u64>), AgentError> {
+    ) -> Result<(Value, Option<u64>, u32), AgentError> {
         let mut descriptions: Vec<Value> = Vec::new();
         let mut total_tokens: u64 = 0;
+        let mut calls: u32 = 0;
 
         // Process prev report
         if let Some((desc, tokens)) = self
@@ -79,23 +81,42 @@ impl DescriptionAgent {
             .await?
         {
             descriptions.push(desc);
-            total_tokens += tokens.unwrap_or(0);
+            if let Some(n) = tokens {
+                if n > 0 {
+                    calls += 1;
+                    total_tokens += n;
+                };
+            }
         }
 
         // Process next report if provided
         if let Some(ref next_id) = reports.next {
-            if let Some((desc, tokens)) = self
-                .process_single_report(state, next_id, "next")
-                .await?
+            if let Some((desc, tokens)) = self.process_single_report(state, next_id, "next").await?
             {
                 descriptions.push(desc);
-                total_tokens += tokens.unwrap_or(0);
+                if let Some(n) = tokens {
+                    if n > 0 {
+                        calls += 1;
+                        total_tokens += n;
+                    };
+                };
             }
         }
+        if descriptions.is_empty() {
+            tracing::warn!(
+                "DescriptionAgent: no descriptions generated for reports {:?}",
+                reports
+            );
+            let err = AgentError::InsufficientDescriptions { found: 0 };
+            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
+                .await;
+            tracing::error!("DescriptionAgent: insufficient descriptions for reports {:?}, found 0", reports);
+            return Err(err);
+        }
 
-        let tokens = if total_tokens > 0 { Some(total_tokens) } else { Some(0) };
+        let tokens_result = Some(total_tokens);
 
-        Ok((json!(descriptions), tokens))
+        Ok((json!(descriptions), tokens_result, calls))
     }
 
     /// Process a single report ID and return its description as JSON
@@ -105,18 +126,16 @@ impl DescriptionAgent {
         state: &Arc<AppState>,
         report_id: &str,
         report_type: &str,
-    ) -> Result<Option<(Value,Option<u64>)>, AgentError> {
+    ) -> Result<Option<(Value, Option<u64>)>, AgentError> {
         // Parse the report_id as UUID
         let node_id = match Uuid::parse_str(report_id) {
             Ok(id) => id,
             Err(e) => {
-                tracing::error!("Failed to parse report_id {} as UUID: {}", report_id, e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Invalid report ID: {}", report_id),
-                })
-                .await;
-                return Ok(None);
+                tracing::error!(report_id = %report_id, error = %e, "Failed to parse report_id as UUID");
+                let err = AgentError::InvalidUuid{    
+                    raw: report_id.to_string(),
+                };       
+                return Err(err);
             }
         };
 
@@ -132,58 +151,58 @@ impl DescriptionAgent {
         let descriptions = match get_descriptions_by_node(&state.db, &node_id, lang_code).await {
             Ok(descriptions) => descriptions,
             Err(e) => {
-                tracing::error!("Failed to query descriptions for node {}: {}", node_id, e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Database error: {}", e),
-                })
-                .await;
-                return Ok(None);
+                let err_msg = format!("Database query failed for node {}: {}", node_id, e);
+                tracing::error!("{}", err_msg);
+                let err = AgentError::internal(err_msg.clone());
+                return Err(err);
             }
         };
 
         let object_name = match resolve_node_full_name(&state.db, &node_id).await {
             Ok(object_name) => object_name,
             Err(e) => {
-                tracing::error!("Failed to get full report name {}: {}", node_id, e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Failed to get full report name: {}", e),
-                })
-                    .await;
-                return Ok(None);
+                let err_msg = format!("Failed to resolve full name for node {}: {}", node_id, e);
+                tracing::error!("{}",err_msg);
+                let err = AgentError::internal(err_msg.clone());
+                return Err(err);
             }
         };
         let report_type = object_name.split('/').last().unwrap_or(report_type);
 
         // Check if we have a matching description
         let existing_desc = descriptions.first();
-            //.iter().find(|d| d.model_name == model_name);
+        //.iter().find(|d| d.model_name == model_name);
 
         if let Some(image_desc) = existing_desc {
-            tracing::info!("Found existing description for '{}', node_id: {}",report_type, node_id);
+            tracing::info!(
+                "Found existing description for '{}', node_id: {}",
+                report_type,
+                node_id
+            );
 
             // Convert to JSON format
             let desc_json = self
                 .build_description_json_response(image_desc, &object_name, &node_id, lang_code)
-                .await.map_err(|e| AgentError::internal(e))?;
-            return Ok(Some((desc_json,Some(0))));
+                .await
+                .map_err(|e| AgentError::internal(e))?;
+            return Ok(Some((desc_json, Some(0))));
         }
 
         // No existing description found - need to generate one
-        tracing::info!("Generating new description for {}, node_id {}",report_type , node_id);
+        tracing::info!(
+            "Generating new description for {}, node_id {}",
+            report_type,
+            node_id
+        );
 
         // Get the image URL from database
         let storage_path = match resolve_node_storage_path(&state.db, &node_id).await {
             Ok(path) => path,
             Err(e) => {
-                tracing::error!("Failed to get image URL for node {}: {}", node_id, e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Failed to get image URL: {}", e),
-                })
-                .await;
-                return Ok(None);
+                let err_msg = format!("Failed to resolve storage path for node {}: {}", node_id, e);
+                tracing::error!("{}",err_msg);
+                let err = AgentError::internal(err_msg.clone());
+                return Err(err);
             }
         };
 
@@ -203,13 +222,13 @@ impl DescriptionAgent {
         {
             Ok(url) => url,
             Err(e) => {
-                let msg = format!("Failed to generate presigned URL for {}: {}", &storage_path, e);
+                let msg = format!(
+                    "Failed to generate presigned URL for {}: {}",
+                    &storage_path, e
+                );
                 tracing::error!(msg);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: msg,
-                }).await;
-                return Ok(None);
+                let err = AgentError::internal(msg.clone());
+                return Err(err);
             }
         };
         // Download image from storage
@@ -218,13 +237,10 @@ impl DescriptionAgent {
         let image_bytes = match self.download_image_from_url(&image_url).await {
             Ok(bytes) => bytes,
             Err(e) => {
-                tracing::error!("Failed to download image {}: {}", image_url, e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Failed to download image: {}", e),
-                })
-                .await;
-                return Ok(None);
+                let err_msg = format!("Failed to download image from URL {}: {}", image_url, e);
+                tracing::error!("{}",err_msg);
+                let err = AgentError::internal(err_msg.clone());
+                return Err(err);
             }
         };
 
@@ -241,13 +257,10 @@ impl DescriptionAgent {
         let resized_bytes = match resize_image_to_bytes(&image_bytes, 1200, 1200) {
             Ok(bytes) => bytes,
             Err(e) => {
-                tracing::error!("Failed to resize image: {}", e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Failed to resize image: {}", e),
-                })
-                .await;
-                return Ok(None);
+                let err_msg = format!("Failed to resize image for node {}: {}", node_id, e);
+                tracing::error!("{}",err_msg);
+                let err = AgentError::internal(err_msg.clone());
+                return Err(err);
             }
         };
 
@@ -263,7 +276,8 @@ impl DescriptionAgent {
         let system_prompt = self
             .lang_manager
             .get_prompt(&lang, "description-system-prompt")
-            .map_err(|e| format!("Failed to get system prompt: {}", e)).map_err(|e| AgentError::internal(e))?;
+            .map_err(|e| format!("Failed to get system prompt: {}", e))
+            .map_err(|e| AgentError::internal(e))?;
 
         // Create the prompt for description generation
         // The prompt should be in the requested language
@@ -281,13 +295,10 @@ impl DescriptionAgent {
         {
             Ok(text) => text,
             Err(e) => {
-                tracing::error!("Failed to generate description: {}", e);
-                self.send_event(StreamEvent::TextChunk {
-                    request_id: self.context.request_id.clone(),
-                    chunk: format!("Failed to generate description: {}", e),
-                })
-                .await;
-                return Ok(None);
+                let err_msg = format!("Failed to generate description for node {}: {}", node_id, e);
+                tracing::error!("{}",err_msg);
+                let err = AgentError::internal(err_msg.clone());
+                return Err(err);
             }
         };
 
@@ -297,7 +308,8 @@ impl DescriptionAgent {
             Err(e) => {
                 tracing::error!("Failed to parse description content: {}", e);
                 // Even if parsing fails, we can still save the raw text
-                let content_str = serde_json::to_string(&description_text).map_err(|e| AgentError::internal(e))?;
+                let content_str = serde_json::to_string(&description_text)
+                    .map_err(|e| AgentError::internal(e))?;
                 let create_data = CreateImageDescription {
                     node_id,
                     model_name: state.ai_config.vision_model.clone(),
@@ -313,7 +325,8 @@ impl DescriptionAgent {
         };
 
         // Convert back to JSON string for storage
-        let description_json = serde_json::to_string(&content).map_err(|e| AgentError::internal(e))?;
+        let description_json =
+            serde_json::to_string(&content).map_err(|e| AgentError::internal(e))?;
 
         // Save to database
         let create_data = CreateImageDescription {
@@ -344,8 +357,9 @@ impl DescriptionAgent {
         // Build and return the JSON response
         let desc_json = self
             .build_description_json_response(&saved_data, &object_name, &node_id, lang_code)
-            .await.map_err(|e| AgentError::internal(e))?;
-        Ok(Some((desc_json,tokens)))
+            .await
+            .map_err(|e| AgentError::internal(e))?;
+        Ok(Some((desc_json, tokens)))
     }
 
     /// Build JSON response from ImageDescription
@@ -362,7 +376,7 @@ impl DescriptionAgent {
 
         // Build DescriptionData
         let object_str = object_name.to_string();
-        let date_str = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let date_str = image_desc.created_at.format("%Y-%m-%d %H:%M:%S").to_string();
 
         let desc_data = DescriptionData {
             object: object_str,
@@ -376,7 +390,7 @@ impl DescriptionAgent {
             openings: content.openings,
             model_name: image_desc.model_name.clone(),
             confidence: image_desc.confidence,
-            created_at: chrono::Utc::now(),
+            created_at: image_desc.created_at,
         };
 
         // Convert to JSON

@@ -14,7 +14,7 @@
 // use crate::agents::agent_error::AgentError;
 //
 // // Return from any agent:
-// return Err(AgentError::MissingObjectId.into());
+// return Err( AgentError::MissingObjectId.into());
 //
 // // Or send directly and continue / stop:
 // AgentError::NoDocumentsFound
