@@ -136,21 +136,12 @@ impl IntentRouter {
             lang,
         )?;
         
-        tracing::info!("User prompt:\n{}", user_prompt);
-        
         // TODO: According to plan.md Section 5 "Voice Command Handling", add:
         // - Noise filtering for voice input
         // - Language detection and validation against context.language
         // - Normalization of date/time expressions and ambiguous numbers
         // This preprocessing should occur before LLM classification.
 
-/*        let agent = self.client
-            .agent(&self.model)
-            .preamble(&system_prompt)
-            .temperature(0.1)  // Low temperature for consistent classification
-            .max_tokens(2048)
-            .build();
-*/
         let model = self.client.completion_model(&self.model);
         let request = model
             .completion_request(&user_prompt)

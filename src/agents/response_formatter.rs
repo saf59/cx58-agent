@@ -1,13 +1,12 @@
 use super::types::*;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
-use anyhow::Result;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
 use rig::providers::ollama;
 use std::sync::Arc;
 use tera::Context;
-use crate::agents::agents_helper::clean_json_response;
+use crate::agents::agent_error::AgentError;
 
 pub struct ResponseFormatter {
     client: Arc<ollama::Client>,
@@ -31,14 +30,13 @@ impl ResponseFormatter {
             template_manager,
         }
     }
-    
-    /// Format vision analysis into natural description
+    #[cfg(test)]
     pub async fn format_description(
         &self,
         worker_data: &serde_json::Value,
         language: &Language,
         report_id: &str,
-    ) -> Result<String> {
+    ) -> Result<String,AgentError> {
         let lang = language.to_code();
         
         // Get system prompt
@@ -47,7 +45,11 @@ impl ResponseFormatter {
         
         // Build user prompt using template
         let mut ctx = Context::new();
-        ctx.insert("raw_analysis", &serde_json::to_string_pretty(worker_data)?);
+        ctx.insert("raw_analysis", &serde_json::to_string_pretty(worker_data)
+            .map_err(|_| AgentError::LlmJsonParseError {
+                detail: "raw_analysis".to_string(),
+            })?
+        );
         ctx.insert("report_id", report_id);
         ctx.insert("report_date", "2024-01-30"); // Should come from metadata
         ctx.insert("object_name", "Construction Site"); // Should come from metadata
@@ -64,7 +66,9 @@ impl ResponseFormatter {
             .temperature(0.4)
             .build();
         
-        let response = agent.prompt(&prompt).await?;
+        let response = agent.prompt(&prompt).await.map_err(|_| AgentError::Internal {
+            detail: "format_description prompt".to_string(),
+        })?;
         
         tracing::info!("Formatter description response:\n{}", response);
         
@@ -72,6 +76,7 @@ impl ResponseFormatter {
     }
     
     /// Format comparison between two reports
+    #[cfg(test)]
     pub async fn format_comparison(
         &self,
         report1_desc: &str,
@@ -79,7 +84,9 @@ impl ResponseFormatter {
         language: &Language,
         report_id_1: &str,
         report_id_2: &str,
-    ) -> Result<serde_json::Value> {
+    ) -> Result<serde_json::Value,AgentError> {
+        use crate::agents::agents_helper::clean_json_response;
+
         let lang = language.to_code();
         
         // Get system prompt
@@ -107,7 +114,9 @@ impl ResponseFormatter {
             .temperature(0.3)
             .build();
         
-        let response = agent.prompt(&prompt).await?;
+        let response = agent.prompt(&prompt).await.map_err(|_| AgentError::Internal {
+            detail: "format_comparison prompt".to_string(),
+        })?;
         
         tracing::info!("Formatter comparison response:\n{}", response);
         
@@ -128,7 +137,7 @@ impl ResponseFormatter {
         &self,
         language: &Language,
         original_query: &str,
-    ) -> Result<String> {
+    ) -> Result<String,AgentError> {
         let lang = language.to_code();
         
         // Get system prompt
@@ -150,7 +159,9 @@ impl ResponseFormatter {
             .temperature(0.5)
             .build();
         
-        let response = agent.prompt(&prompt).await?;
+        let response = agent.prompt(&prompt).await.map_err(|_| AgentError::Internal {
+            detail: "format_out_of_scope prompt".to_string(),
+        })?;
         
         tracing::info!("Formatter out of scope response:\n{}", response);
         

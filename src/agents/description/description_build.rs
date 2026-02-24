@@ -6,32 +6,6 @@ use rig::providers::ollama;
 use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
 use std::sync::Arc;
 use crate::agents::agent_error::AgentError;
-/*
-// Generate the system prompt for LLM to produce DescriptionContent format
-
-// Extract and parse DescriptionContent from LLM response
-pub fn extract_description_content(
-    llm_response: &str,
-) -> Result<DescriptionContent, Box<dyn std::error::Error + Send + Sync>> {
-    // Clean the response - remove potential markdown code blocks
-    let cleaned = llm_response
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
-
-    // Parse JSON
-    let content: DescriptionContent = serde_json::from_str(cleaned)?;
-
-    // Validate that description is not empty
-    if content.description.trim().is_empty() {
-        return Err("Description field is empty".into());
-    }
-
-    Ok(content)
-}
-*/
 /// More robust extraction with fallback parsing
 pub fn extract_description_content_robust(
     llm_response: &str,
@@ -75,23 +49,6 @@ pub fn extract_description_content_robust(
     )
     .into())
 }
-/*
-// Validate DescriptionContent structure
-pub fn validate_description_content(
-    content: &DescriptionContent,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if content.description.trim().is_empty() {
-        return Err("Description cannot be empty".into());
-    }
-
-    // Optional: Add more validation rules
-    if content.description.len() < 10 {
-        return Err("Description is too short".into());
-    }
-
-    Ok(())
-}
-*/
 
 /// Generate description content from image bytes using LLM
 /// The image should already be resized to the target dimensions
@@ -153,28 +110,6 @@ pub async fn generate_description_from_image(
 
     Ok((text,tokens))
 }
-
-/*
-// Generate description content from image file path
-// This function handles loading, resizing, and LLM call
-pub async fn generate_description(
-    client: &Arc<ollama::Client>,
-    model: &str,
-    image_path: &str,
-    user_prompt: &str,
-    system_prompt: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    // Load image bytes
-    let image_bytes = tokio::fs::read(image_path).await
-        .map_err(|e| format!("Failed to read image: {}", e))?;
-
-    // Resize to 1200x1200
-    let resized_bytes = resize_image_to_bytes(&image_bytes, 1200, 1200)?;
-
-    // Generate description
-    generate_description_from_image(client, model, &resized_bytes, user_prompt, system_prompt).await
-}
-*/
 
 /// Resize image to maximum dimensions while maintaining aspect ratio
 /// Returns resized image as bytes

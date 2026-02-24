@@ -87,34 +87,3 @@ pub fn build_description_json(
 
     Ok(content)
 }
-
-/*
-// Example usage in SSE streaming context
-pub async fn send_description_via_sse(
-    image_desc: ImageDescription,
-    object: &str,
-    object_id: &Uuid,
-    date: &str,
-    _request_id: String,
-    // sender: your SSE sender type
-) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-    // Build the complete description data
-    let description_data = build_description_data(
-        &image_desc,
-        object,
-        object_id,
-        date,
-    )?;
-
-    // Convert to JSON
-    let json_data = serde_json::to_value(description_data)?;
-
-    // Send via SSE (example - adapt to your actual SSE implementation)
-    // self.send_event(StreamEvent::DescriptionChunk {
-    //     request_id,
-    //     data: json_data,
-    // }).await;
-
-    Ok(json_data)
-}
- */

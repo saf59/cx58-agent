@@ -89,7 +89,7 @@ impl ComparisonAgent {
     ///
     /// # Arguments
     /// * `state`        – AppState with AI config.
-    /// * `descriptions` – first row in it is exactly two Value objects from DescriptionAgent,
+    /// * `descriptions` – expects a Vec<Value> where the first element is an array of two objects
     ///                    ordered [earlier, later] by date.
     pub async fn execute_comparison(
         &self,
@@ -107,6 +107,11 @@ impl ComparisonAgent {
             let err = AgentError::InsufficientDescriptions {
                 found: descriptions.len(),
             };
+            tracing::error!(
+                found = descriptions.len(),
+                request_id = %self.context.request_id,
+                "ComparisonAgent: insufficient descriptions, need 2"
+            );
             err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
                 .await;
             return Err(err.into());
@@ -215,8 +220,14 @@ impl ComparisonAgent {
         tracing::debug!("ComparisonAgent cleaned JSON:\n{}", cleaned);
 
         let mut parsed: ComparisonData = serde_json::from_str(&cleaned).map_err(|e| {
-            tracing::error!("ComparisonAgent: failed to parse LLM response: {}\nCleaned: {}",e, cleaned);
-            AgentError::LlmJsonParseError { detail: e.to_string() }
+            tracing::error!(
+                "ComparisonAgent: failed to parse LLM response: {}\nCleaned: {}",
+                e,
+                cleaned
+            );
+            AgentError::LlmJsonParseError {
+                detail: e.to_string(),
+            }
         })?;
 
         // Override dates with the values we computed (LLM may have got them wrong).

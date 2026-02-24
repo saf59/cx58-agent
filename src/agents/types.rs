@@ -104,7 +104,9 @@ pub struct UserContext {
     pub chat_id: String,
     pub language: Language,
     pub object_id: Option<String>,
+    #[doc = "Maps to current_report_id (inverted from AgentRequest.prev_leaf)"]
     pub current_report_id: Option<String>,
+    #[doc = "Maps to previous_report_id (inverted from AgentRequest.next_leaf)"]
     pub previous_report_id: Option<String>,
 }
 

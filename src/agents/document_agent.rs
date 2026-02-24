@@ -5,19 +5,20 @@
 // Used to request 1-2 or several specific leafs/photos for a period.
 // Result: 1 owner with leaves
 
-use std::sync::Arc;
 use chrono::Utc;
 use rig::providers::ollama;
+use serde_json::{Value, json};
+use std::sync::Arc;
 use tokio::sync::mpsc;
-use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
-use crate::agents::agent_error::AgentError;
 use crate::agents::LocalizationManager;
-use crate::db::{get_node_with_leafs, NodeType};
+use crate::agents::agent_error::AgentError;
+use crate::db::{NodeType, get_node_with_leafs};
 use crate::storage::set_storage_url;
+use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
+const MAX_DOCUMENTS_ALL: i32 = 100;
 pub struct DocumentAgent {
     #[allow(unused)]
     client: Arc<ollama::Client>,
@@ -60,7 +61,7 @@ impl DocumentAgent {
             raw: node_id_str.to_string(),
         })?;
 
-        let limit = if parameters.all { 100 } else { 2 };
+        let limit = if parameters.all { MAX_DOCUMENTS_ALL } else { 2 };
 
         let mut data = if let Some(period) = &parameters.period {
             let to = Utc::now().naive_utc();
@@ -74,8 +75,13 @@ impl DocumentAgent {
 
         // No results — send a localized info message and return empty.
         if data.is_empty() {
+            tracing::warn!(
+                node_id = ?node_id,
+                user_id = %self.context.user_id,
+                "DocumentAgent: no documents found for node"
+            );
             let err = AgentError::NoDocumentsFound;
-               err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
+            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
                 .await;
             return Err(err.into());
         }

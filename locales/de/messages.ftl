@@ -75,10 +75,6 @@ processing-results = Verarbeite Ergebnisse
 # Progress messages
 # ------------------------------------------------------------
 
-progress-analyzing = Anfrage wird analysiert…
-progress-context-validation = Kontext wird geprüft…
-progress-formatting = Antwort wird aufbereitet…
-
 # ------------------------------------------------------------
 # Info / status messages
 # ------------------------------------------------------------

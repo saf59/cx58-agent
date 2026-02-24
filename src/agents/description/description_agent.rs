@@ -1,4 +1,3 @@
-use crate::agents::ReportPair;
 use crate::agents::agent_error::AgentError;
 use crate::agents::description::description_build::generate_description_from_image;
 use crate::agents::description::description_build::{
@@ -8,12 +7,14 @@ use crate::agents::description::description_helper::{
     resolve_node_full_name, resolve_node_storage_path,
 };
 use crate::agents::description::description_json::DescriptionData;
+use crate::agents::{Language, ReportPair};
 use crate::db_description::{
     CreateImageDescription, ImageDescription, get_descriptions_by_node, upsert_description,
 };
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use tokio::task::spawn_blocking;
 use rig::providers::ollama;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -76,12 +77,12 @@ impl DescriptionAgent {
         let mut calls: u32 = 0;
 
         // Process prev report
-        if let Some((desc, tokens)) = self
+        if let Some((desc, prev_tokens)) = self
             .process_single_report(state, &reports.prev, "prev")
             .await?
         {
             descriptions.push(desc);
-            if let Some(n) = tokens {
+            if let Some(n) = prev_tokens {
                 if n > 0 {
                     calls += 1;
                     total_tokens += n;
@@ -91,10 +92,10 @@ impl DescriptionAgent {
 
         // Process next report if provided
         if let Some(ref next_id) = reports.next {
-            if let Some((desc, tokens)) = self.process_single_report(state, next_id, "next").await?
+            if let Some((desc, next_tokens)) = self.process_single_report(state, next_id, "next").await?
             {
                 descriptions.push(desc);
-                if let Some(n) = tokens {
+                if let Some(n) = next_tokens {
                     if n > 0 {
                         calls += 1;
                         total_tokens += n;
@@ -103,14 +104,13 @@ impl DescriptionAgent {
             }
         }
         if descriptions.is_empty() {
-            tracing::warn!(
+            tracing::error!(
                 "DescriptionAgent: no descriptions generated for reports {:?}",
                 reports
             );
             let err = AgentError::InsufficientDescriptions { found: 0 };
             err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
                 .await;
-            tracing::error!("DescriptionAgent: insufficient descriptions for reports {:?}, found 0", reports);
             return Err(err);
         }
 
@@ -132,20 +132,22 @@ impl DescriptionAgent {
             Ok(id) => id,
             Err(e) => {
                 tracing::error!(report_id = %report_id, error = %e, "Failed to parse report_id as UUID");
-                let err = AgentError::InvalidUuid{    
+                let err = AgentError::InvalidUuid {
                     raw: report_id.to_string(),
-                };       
+                };
                 return Err(err);
             }
         };
 
         // Get the language code from context
-        let lang = self.context.language.clone();
-        let lang_code = if lang.to_lowercase() == "de" {
-            "de"
-        } else {
-            "en"
-        };
+        let lang = Language::from_short(&self.context.language);
+        let lang_code = lang.to_code();
+        tracing::info!(
+            raw_language = %self.context.language,
+            lang_code = %lang_code,
+            node_id = %node_id,
+            "DescriptionAgent language resolved"
+        );
 
         // First, try to get existing description from database
         let descriptions = match get_descriptions_by_node(&state.db, &node_id, lang_code).await {
@@ -162,7 +164,7 @@ impl DescriptionAgent {
             Ok(object_name) => object_name,
             Err(e) => {
                 let err_msg = format!("Failed to resolve full name for node {}: {}", node_id, e);
-                tracing::error!("{}",err_msg);
+                tracing::error!("{}", err_msg);
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
             }
@@ -200,7 +202,7 @@ impl DescriptionAgent {
             Ok(path) => path,
             Err(e) => {
                 let err_msg = format!("Failed to resolve storage path for node {}: {}", node_id, e);
-                tracing::error!("{}",err_msg);
+                tracing::error!("{}", err_msg);
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
             }
@@ -238,7 +240,7 @@ impl DescriptionAgent {
             Ok(bytes) => bytes,
             Err(e) => {
                 let err_msg = format!("Failed to download image from URL {}: {}", image_url, e);
-                tracing::error!("{}",err_msg);
+                tracing::error!("{}", err_msg);
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
             }
@@ -254,13 +256,20 @@ impl DescriptionAgent {
         .await;
 
         // Resize to 1200x1200
-        let resized_bytes = match resize_image_to_bytes(&image_bytes, 1200, 1200) {
-            Ok(bytes) => bytes,
-            Err(e) => {
+        let resized_bytes = match tokio::task::spawn_blocking(move || {
+            resize_image_to_bytes(&image_bytes, 1200, 1200)
+        }).await {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(e)) => {
                 let err_msg = format!("Failed to resize image for node {}: {}", node_id, e);
-                tracing::error!("{}",err_msg);
-                let err = AgentError::internal(err_msg.clone());
-                return Err(err);
+                tracing::error!("{}", err_msg);
+                return Err(AgentError::internal(err_msg));
+            }
+            Err(e) => {
+                // JoinError — spawn_blocking task panicked
+                let err_msg = format!("Image resize task panicked for node {}: {}", node_id, e);
+                tracing::error!("{}", err_msg);
+                return Err(AgentError::internal(err_msg));
             }
         };
 
@@ -275,9 +284,22 @@ impl DescriptionAgent {
 
         let system_prompt = self
             .lang_manager
-            .get_prompt(&lang, "description-system-prompt")
+            .get_prompt(lang_code, "description-system-prompt")
             .map_err(|e| format!("Failed to get system prompt: {}", e))
-            .map_err(|e| AgentError::internal(e))?;
+            .map_err(|e| {
+                let err = AgentError::internal(e);
+                tracing::error!(
+                    "Failed to get system prompt for language {}: {}",
+                    lang_code,
+                    err
+                );
+                err
+            })?;
+        tracing::info!(
+            "Using system prompt for language {}: {}",
+            lang_code,
+            system_prompt
+        );
 
         // Create the prompt for description generation
         // The prompt should be in the requested language
@@ -296,7 +318,7 @@ impl DescriptionAgent {
             Ok(text) => text,
             Err(e) => {
                 let err_msg = format!("Failed to generate description for node {}: {}", node_id, e);
-                tracing::error!("{}",err_msg);
+                tracing::error!("{}", err_msg);
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
             }
@@ -307,6 +329,13 @@ impl DescriptionAgent {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!("Failed to parse description content: {}", e);
+                self.send_event(StreamEvent::Progress {
+                    request_id: self.context.request_id.clone(),
+                    status: "warning".to_string(),
+                    percent: 0,
+                    message: format!("Description parse failed for {}, saved raw", report_type),
+                })
+                .await;
                 // Even if parsing fails, we can still save the raw text
                 let content_str = serde_json::to_string(&description_text)
                     .map_err(|e| AgentError::internal(e))?;
@@ -376,13 +405,16 @@ impl DescriptionAgent {
 
         // Build DescriptionData
         let object_str = object_name.to_string();
-        let date_str = image_desc.created_at.format("%Y-%m-%d %H:%M:%S").to_string();
+        let date_str = image_desc
+            .created_at
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
 
         let desc_data = DescriptionData {
             object: object_str,
             object_id: *node_id,
             date: date_str,
-            date_id: *node_id,
+            date_id: image_desc.node_id.clone(),
             description: content.description,
             windows: content.windows,
             doors: content.doors,

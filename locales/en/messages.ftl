@@ -80,10 +80,6 @@ processing-results = Processing results
 # Progress messages  (used in MasterAgent / Orchestrator)
 # ------------------------------------------------------------
 
-progress-analyzing = Analyzing your query…
-progress-context-validation = Validating context…
-progress-formatting = Formatting response…
-
 # Template variant (rendered via TemplateManager with {worker_type} variable)
 # progress-executing-worker.tera → kept as a Tera template; no Fluent key needed.
 

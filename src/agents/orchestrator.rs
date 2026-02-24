@@ -256,6 +256,9 @@ impl Orchestrator {
 
         tracing::info!("Orchestrator - Prompt: {}", prompt);
         let model = self.client.completion_model(&self.model);
+
+        // Create LLM agent with low temperature (0.2) for consistent, predictable decisions
+        // Low temperature is critical for structured orchestration decisions
         let request = model
             .completion_request(&prompt)
             .preamble(system_prompt)
@@ -285,18 +288,6 @@ impl Orchestrator {
                 + response.raw_response.eval_count.unwrap_or(0),
         );
 
-        // Create LLM agent with low temperature (0.2) for consistent, predictable decisions
-        // Low temperature is critical for structured orchestration decisions
-        /*        let agent = self
-                    .client
-                    .agent(&self.model)
-                    .preamble(&system_prompt)
-                    .temperature(0.2) // Low temperature = more deterministic decisions
-                    .build();
-
-                // Get decision from LLM
-                let response = agent.completion_request(&prompt).await?;
-        */
         tracing::info!("Orchestrator raw response:\n{}", text);
 
         // Clean markdown code fences and extract pure JSON
@@ -405,11 +396,11 @@ impl Orchestrator {
 
         ctx.insert(
             "extracted_parameters",
-            &serde_json::to_string_pretty(&classification.extracted_parameters).unwrap(),
+            &serde_json::to_string_pretty(&classification.extracted_parameters).unwrap_or_else(|_| "{}".to_string()),
         );
         ctx.insert(
             "missing_context",
-            &format!("{:?}", classification.missing_context),
+            &serde_json::to_string(&classification.missing_context).unwrap_or_default(),
         );
 
         let results: Vec<serde_json::Value> = worker_results

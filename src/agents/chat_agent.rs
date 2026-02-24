@@ -65,7 +65,7 @@ impl ChatAgent {
 
         if text.is_empty() {
             let err_msg = format!(
-                "Orchestrator LLM returned no text content. Response: {:?}",
+                "ChatAgent LLM returned no text content. Response: {:?}",
                 response.choice
             );
             tracing::error!("{}", err_msg);
@@ -95,7 +95,7 @@ impl ChatAgent {
             .await;
 
             // Small delay for streaming effect
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(4)).await;
         }
 
         Ok((text, tokens))

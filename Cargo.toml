@@ -6,8 +6,6 @@ edition = "2024"
 [dependencies]
 # Core async runtime
 tokio = { version = "1", features = ["full"] }
-# tokio = { version = "1", default-features = false, features = [] } 
-#  , features = ["macros", "rt", "time"] }
 
 # Web framework
 axum = { version = "0.8.8", features = ["multipart"] }
@@ -38,7 +36,7 @@ sqlx = { version = "0.8", features = [
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-native-tls"] }
 
 # AI/LLM
-rig-core = "0.30"
+rig-core = "0.31"
 
 # Utilities
 uuid = { version = "1", features = ["serde", "v7"] }
@@ -73,8 +71,8 @@ fluent-bundle = "0.16"
 unic-langid = { version = "0.9", features = ["macros"] }
 # schemars = "1.2.0"
 aho-corasick = "1.1"
-strum = "0.27"
-strum_macros = "0.27"
+strum = "0.28"
+strum_macros = "0.28"
 tracing = "0.1"
 hmac = "0.12"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
@@ -82,6 +80,7 @@ tera = "1.20"
 anyhow = "1"
 fluent-syntax = "0.12"
 rand = "0.9.2"
+unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
 # tokio-test = "0.4"
