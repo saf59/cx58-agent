@@ -66,8 +66,7 @@
 //! - Request lifecycle terminates on first error
 //!
 
-//use anyhow::Result;
-use futures::StreamExt;
+//use futures::StreamExt;
 use rig::providers::ollama;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -183,6 +182,7 @@ impl MasterAgent {
         let state = state.clone();
         let agent = self.clone();
         let start_time = Instant::now();
+        let stats = AgentStats::start();
 
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
@@ -202,7 +202,7 @@ impl MasterAgent {
                 .await;
 
             if let Err(e) = agent
-                .process_request(state, context.clone(), tx.clone())
+                .process_request(state, context.clone(), tx.clone(), stats)
                 .await
             {
                 // Determine the user's language for the error message.
@@ -229,7 +229,7 @@ impl MasterAgent {
                     .send(StreamEvent::Completed {
                         request_id: context.request_id.clone(),
                         total_time_ms: start_time.elapsed().as_millis() as u64,
-                        stats: AgentStats::default(), // или пустой stats
+                        stats : AgentStats::default()
                     })
                     .await;
             }
@@ -242,10 +242,11 @@ impl MasterAgent {
         &self,
         state: Arc<AppState>,
         context: AgentContext,
-        tx: mpsc::Sender<StreamEvent>,
+        tx: Sender<StreamEvent>,
+        mut stats: AgentStats
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start_time = Instant::now();
-        let mut stats = AgentStats::start();
+        //let mut stats = AgentStats::start();
 
         let lang = Language::from_short(&context.language);
         let lang_code = lang.to_code();
@@ -488,7 +489,7 @@ impl MasterAgent {
                 }
 
                 OrchestratorDecision::FormatAndReturn {
-                    worker_results: decision_results,
+                    worker_results: _decision_results,
                 } => {
                     // For structured intents (DescribeReport, CompareReports, GetObjectTree,
                     // GetReportList) — formatting is handled exclusively by intent_ready check
@@ -552,7 +553,7 @@ impl MasterAgent {
         state: Arc<AppState>,
         context: AgentContext,
         worker_request: WorkerRequest,
-        event_tx: mpsc::Sender<StreamEvent>,
+        event_tx: Sender<StreamEvent>,
         previous_results: &[WorkerResponse],
     ) -> Result<WorkerResponse, Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
@@ -644,7 +645,7 @@ impl MasterAgent {
     }
     async fn format_and_stream_response(
         &self,
-        tx: &mpsc::Sender<StreamEvent>,
+        tx: &Sender<StreamEvent>,
         intent: &Intent,
         worker_results: &[WorkerResponse],
         context: &AgentContext,
@@ -727,7 +728,7 @@ impl MasterAgent {
 
     async fn send_text_chunks(
         &self,
-        tx: &mpsc::Sender<StreamEvent>,
+        tx: &Sender<StreamEvent>,
         text: &str,
         request_id: &str,
         _language: &Language,

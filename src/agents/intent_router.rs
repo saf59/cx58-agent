@@ -146,7 +146,7 @@ impl IntentRouter {
         let request = model
             .completion_request(&user_prompt)
             .preamble(system_prompt)
-            .temperature(0.2)
+            .temperature(0.1)
             .build();
 
         // TODO: According to plan.md "Advanced Recommendations - Hybrid Routing",
