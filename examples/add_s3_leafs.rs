@@ -1,5 +1,6 @@
 mod common;
 
+use std::path::PathBuf;
 use cx58_agent::db::get_id_by_name;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -12,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL")
         .expect("DATABASE_URL must be set");
     let base_url = std::env::var("BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+        .unwrap_or_else(|_| "http://localhost:3050".to_string());
 
     let pool = PgPool::connect(&database_url).await?;
     let client = reqwest::Client::new();
@@ -81,10 +82,11 @@ async fn insert_leafs_for_node(
     println!("Inserting leafs for {}...", node_name);
 
     for (filename, shift) in images {
-        let file_path = format!("{}/{}", DATA_DIR, filename);
+        let file_path = PathBuf::from(DATA_DIR).join(filename);
+        //let file_path = format!("{}/{}", DATA_DIR, filename);
 
-        if !std::path::Path::new(&file_path).exists() {
-            eprintln!("⚠ File not found: {}", file_path);
+        if !file_path.exists() {
+            eprintln!("⚠ File not found: {:?}", file_path);
             continue;
         }
 

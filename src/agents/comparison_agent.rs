@@ -15,17 +15,18 @@
 //   - Temperature 0.2 for consistent structured output
 
 use crate::agents::agent_error::AgentError;
-use crate::agents::agents_helper::clean_json_response;
+use crate::agents::agents_helper::{clean_json_response, extract_text_from_choice};
 use crate::agents::{Language, LocalizationManager};
 use crate::templating::TemplateManager;
 use crate::{AgentContext, AppState, StreamEvent};
 
 use chrono::NaiveDateTime;
-use rig::completion::{AssistantContent, CompletionModel};
+use rig::completion::CompletionModel;
 use rig::prelude::CompletionClient;
 use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
+use sqlx::PgPool;
 use std::sync::Arc;
 use tera::Context;
 use tokio::sync::mpsc;
@@ -117,7 +118,7 @@ impl ComparisonAgent {
             return Err(err.into());
         }
 
-        tracing::info!("ComparisonAgent descriptions: {:#?}", descriptions);
+        tracing::debug!("ComparisonAgent descriptions: {:#?}", descriptions);
 
         let lang = Language::from_short(&self.context.language);
         let lang_code = lang.to_code();
@@ -136,11 +137,11 @@ impl ComparisonAgent {
 
         // Parse dates for chronological ordering.
         let native_date_0 =
-            Self::to_native_date(&date_0).map_err(|_| AgentError::DateParseError {
+            Self::str_to_native_date(&date_0).map_err(|_| AgentError::DateParseError {
                 raw: date_0.clone(),
             })?;
         let native_date_1 =
-            Self::to_native_date(&date_1).map_err(|_| AgentError::DateParseError {
+            Self::str_to_native_date(&date_1).map_err(|_| AgentError::DateParseError {
                 raw: date_1.clone(),
             })?;
 
@@ -154,6 +155,17 @@ impl ComparisonAgent {
         } else {
             (date_1, date_0)
         };
+
+        let model_name = &state.ai_config.text_model;
+        let prev_id = prev["date_id"].as_str().unwrap_or("");
+        let next_id = next["date_id"].as_str().unwrap_or("");
+        // --- Cache lookup ---
+        if let Some(cached) = self.get_cached_comparison(
+            &state.db, prev_id, next_id, lang_code, model_name
+        ).await? {
+            tracing::info!(prev_id, next_id, "Comparison cache HIT");
+            return Ok((cached, None));
+        }
 
         // Load system prompt.
         let system_prompt = self
@@ -179,8 +191,7 @@ impl ComparisonAgent {
             })?;
 
         tracing::info!("ComparisonAgent user_prompt:\n{}", user_prompt);
-
-        let model = self.client.completion_model(&state.ai_config.text_model);
+        let model = self.client.completion_model(&model_name.clone());
         let request = model
             .completion_request(&user_prompt)
             .preamble(system_prompt)
@@ -188,15 +199,8 @@ impl ComparisonAgent {
             .build();
         let response = model.completion(request).await?;
 
-        let text = response
-            .choice
-            .iter()
-            .filter_map(|c| match c {
-                AssistantContent::Text(t) => Some(t.text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let choice = response.choice.clone();
+        let text = extract_text_from_choice(choice);
 
         if text.is_empty() {
             let err_msg = format!(
@@ -233,8 +237,13 @@ impl ComparisonAgent {
         // Override dates with the values we computed (LLM may have got them wrong).
         parsed.prev_date = prev_date.to_string();
         parsed.next_date = next_date.to_string();
+        let result_json = json!(parsed);
+        // --- Cache store ---
+        self.save_comparison(
+            &state.db, prev_id, next_id, lang_code, model_name, &result_json
+        ).await?;
 
-        Ok((json!(parsed), tokens))
+        Ok((result_json, tokens))
     }
 
     // -----------------------------------------------------------------------
@@ -251,7 +260,60 @@ impl ComparisonAgent {
         (object_name, report_name)
     }
 
-    fn to_native_date(date: &str) -> Result<NaiveDateTime, chrono::ParseError> {
+    fn str_to_native_date(date: &str) -> Result<NaiveDateTime, chrono::ParseError> {
         NaiveDateTime::parse_from_str(date, "%d.%m.%Y %H:%M:%S")
     }
+    async fn get_cached_comparison(
+        &self,
+        pool: &PgPool,
+        prev_id: &str,
+        next_id: &str,
+        lang: &str,
+        model: &str,
+    ) -> Result<Option<Value>, AgentError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT data
+            FROM comparison
+            WHERE prev_id   = $1
+              AND next_id   = $2
+              AND lang      = $3
+              AND model     = $4
+            "#,
+            prev_id, next_id, lang, model
+        )
+            .fetch_optional(pool)
+            .await?;
+
+        Ok(row.map(|r| r.data))
+    }
+
+    async fn save_comparison(
+        &self,
+        pool: &PgPool,
+        prev_id: &str,
+        next_id: &str,
+        lang: &str,
+        model: &str,
+        data: &Value,
+    ) -> Result<(), AgentError> {
+/*        let expires_at = chrono::Utc::now()
+            + chrono::Duration::days(COMPARISON_CACHE_TTL_DAYS);
+*/
+        sqlx::query!(
+            r#"
+            INSERT INTO comparison
+                (prev_id, next_id, lang, model, data)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (prev_id, next_id, lang, model)
+                DO UPDATE SET data = EXCLUDED.data
+            "#,
+            prev_id, next_id, lang, model, data
+        )
+            .execute(pool)
+            .await?;
+
+        Ok(())
+    }
+
 }

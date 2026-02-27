@@ -14,7 +14,6 @@ use crate::db_description::{
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
-use tokio::task::spawn_blocking;
 use rig::providers::ollama;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -148,9 +147,9 @@ impl DescriptionAgent {
             node_id = %node_id,
             "DescriptionAgent language resolved"
         );
-
+        let model = state.ai_config.vision_model.clone();
         // First, try to get existing description from database
-        let descriptions = match get_descriptions_by_node(&state.db, &node_id, lang_code).await {
+        let descriptions = match get_descriptions_by_node(&state.db, &node_id, &model, lang_code).await {
             Ok(descriptions) => descriptions,
             Err(e) => {
                 let err_msg = format!("Database query failed for node {}: {}", node_id, e);
@@ -295,7 +294,7 @@ impl DescriptionAgent {
                 );
                 err
             })?;
-        tracing::info!(
+        tracing::debug!(
             "Using system prompt for language {}: {}",
             lang_code,
             system_prompt
@@ -342,7 +341,6 @@ impl DescriptionAgent {
                 let create_data = CreateImageDescription {
                     node_id,
                     model_name: state.ai_config.vision_model.clone(),
-                    prompt: description_prompt.clone(),
                     description: content_str,
                     confidence: None,
                 };
@@ -361,7 +359,6 @@ impl DescriptionAgent {
         let create_data = CreateImageDescription {
             node_id,
             model_name: state.ai_config.vision_model.clone(),
-            prompt: description_prompt.clone(),
             description: description_json.clone(),
             confidence: None,
         };

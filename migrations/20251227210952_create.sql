@@ -34,18 +34,15 @@ CREATE TABLE image_descriptions (
     id UUID PRIMARY KEY DEFAULT uuidv7(), -- uuid_generate_v4(),
     node_id UUID NOT NULL REFERENCES tree_nodes(id) ON DELETE CASCADE,
     model_name TEXT NOT NULL,
-    prompt TEXT NOT NULL,
     description TEXT NOT NULL,
     confidence FLOAT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    lang TEXT NOT NULL DEFAULT 'en',
     
-    UNIQUE(node_id, model_name, prompt)
+    UNIQUE(node_id, model_name, lang)
 );
 
 CREATE INDEX idx_image_descriptions_node_id ON image_descriptions(node_id);
-
-
-
 
 -- Function to update materialized path on insert/update
 CREATE OR REPLACE FUNCTION update_tree_path()
@@ -90,3 +87,15 @@ CREATE TRIGGER tree_nodes_circular_check
     EXECUTE FUNCTION prevent_circular_tree();
 
 
+CREATE TABLE comparison (
+    prev_id     TEXT        NOT NULL,
+    next_id     TEXT        NOT NULL,
+    lang        TEXT        NOT NULL,
+    model       TEXT        NOT NULL,
+    data        JSONB       NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (prev_id, next_id, lang, model)
+);
+
+CREATE INDEX idx_comparison_cache_created_at ON comparison (created_at);

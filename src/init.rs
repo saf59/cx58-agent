@@ -2,9 +2,11 @@ use std::error::Error;
 use std::sync::Arc;
 use rig::client::Nothing;
 use rig::providers::ollama;
+use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use crate::{AiConfig, AppState};
 use crate::agents::master_agent::MasterAgent;
+use crate::db::evict_expired_cache;
 use crate::error::AppError;
 use crate::handlers::{StorageService};
 
@@ -101,6 +103,8 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     //let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
     let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
 
+    spawn_cache_eviction_task(db.clone());
+
     // Application state
     let state = Arc::new(AppState {
         db,
@@ -110,6 +114,7 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
         master_agent,
         ai_config
     });
+
     Ok((config, state))
 }
 
@@ -141,4 +146,19 @@ pub(crate) fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, Ap
     )?;
 
     Ok(Arc::new(storage))
+}
+
+fn spawn_cache_eviction_task(pool: PgPool) {
+    tokio::spawn(async move {
+        let interval_hours = 6u64;
+        let mut ticker = tokio::time::interval(
+            std::time::Duration::from_secs(interval_hours * 3600)
+        );
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            ticker.tick().await;
+            evict_expired_cache(&pool).await;
+        }
+    });
 }

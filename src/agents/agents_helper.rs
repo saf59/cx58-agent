@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use rig::completion::AssistantContent;
+use rig::OneOrMany;
 use crate::templating::TemplateManager;
 
 /// Formats optional context values for display in prompts
@@ -23,11 +25,12 @@ use crate::templating::TemplateManager;
 /// ```
 pub fn format_optional(_template_manager:Arc<TemplateManager>, opt: &Option<String>, _lang: &str) -> String {
     match opt {
-        Some(val) => val.to_string(),  // просто возвращаем значение
+        Some(val) => val.to_string(),  // just result
         None => String::new(),
     }
 }
 
+//noinspection ALL
 /// Cleans LLM response to extract pure JSON
 ///
 /// LLMs often wrap JSON in markdown code fences or add explanatory text.
@@ -84,4 +87,15 @@ pub fn clean_json_response(response: &str) -> String {
     }
 
     cleaned.trim().to_string()
+}
+
+pub fn extract_text_from_choice(choice: OneOrMany<AssistantContent>) -> String {
+    choice
+        .iter()
+        .filter_map(|c| match c {
+            AssistantContent::Text(t) => Some(t.text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("")
 }

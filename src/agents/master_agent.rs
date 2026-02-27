@@ -182,7 +182,6 @@ impl MasterAgent {
         let state = state.clone();
         let agent = self.clone();
         let start_time = Instant::now();
-        let stats = AgentStats::start();
 
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
@@ -202,7 +201,7 @@ impl MasterAgent {
                 .await;
 
             if let Err(e) = agent
-                .process_request(state, context.clone(), tx.clone(), stats)
+                .process_request(state, context.clone(), tx.clone())
                 .await
             {
                 // Determine the user's language for the error message.
@@ -243,10 +242,9 @@ impl MasterAgent {
         state: Arc<AppState>,
         context: AgentContext,
         tx: Sender<StreamEvent>,
-        mut stats: AgentStats
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start_time = Instant::now();
-        //let mut stats = AgentStats::start();
+        let mut stats = AgentStats::start();
 
         let lang = Language::from_short(&context.language);
         let lang_code = lang.to_code();
@@ -491,6 +489,17 @@ impl MasterAgent {
                 OrchestratorDecision::FormatAndReturn {
                     worker_results: _decision_results,
                 } => {
+                    if matches!(classification.intent, Intent::RagQuery) {
+                        tracing::info!("RagQuery completed");
+                        stats.finalize();
+                        tx.send(StreamEvent::Completed {
+                            request_id: context.request_id.clone(),
+                            total_time_ms: start_time.elapsed().as_millis() as u64,
+                            stats: stats.clone(),
+                        }).await?;
+
+                        break;
+                    }
                     // For structured intents (DescribeReport, CompareReports, GetObjectTree,
                     // GetReportList) — formatting is handled exclusively by intent_ready check
                     // at the top of the loop. Worker results are already correct JSON objects
@@ -519,7 +528,7 @@ impl MasterAgent {
         tx.send(StreamEvent::Completed {
             request_id: context.request_id.clone(),
             total_time_ms: start_time.elapsed().as_millis() as u64,
-            stats,
+            stats: stats.clone(),
         })
         .await?;
 

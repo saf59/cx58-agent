@@ -2,7 +2,7 @@
 use chrono::{Local, Duration, NaiveTime};
 use sqlx::PgPool;
 use std::path::PathBuf;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 pub const DATA_DIR: &str = "data";
 
@@ -71,6 +71,7 @@ pub fn check_files_exist(dir: &str, filenames: &[&str]) -> Result<(), Box<dyn st
     for filename in filenames {
         let path = PathBuf::from(dir).join(filename);
         if !path.exists() {
+            eprintln!("⚠ File not found: {:?}", path);
             missing_files.push(filename.to_string());
         }
     }

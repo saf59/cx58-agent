@@ -8,7 +8,6 @@ pub struct ImageDescription {
     pub id: Uuid,
     pub node_id: Uuid,
     pub model_name: String,
-    pub prompt: String,
     pub description: String,
     pub confidence: Option<f32>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -19,7 +18,6 @@ pub struct ImageDescription {
 pub struct CreateImageDescription {
     pub node_id: Uuid,
     pub model_name: String,
-    pub prompt: String,
     pub description: String,
     pub confidence: Option<f32>,
 }
@@ -31,7 +29,6 @@ impl From<CreateImageDescription> for ImageDescription {
             id: Uuid::now_v7(),
             node_id: create.node_id,
             model_name: create.model_name,
-            prompt: create.prompt,
             description: create.description,
             confidence: create.confidence,
             created_at: chrono::Utc::now(),
@@ -43,17 +40,19 @@ impl From<CreateImageDescription> for ImageDescription {
 pub async fn get_descriptions_by_node(
     pool: &PgPool,
     node_id: &Uuid,
+    model: &str,
     lang_id: &str,
 ) -> Result<Vec<ImageDescription>, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
-        SELECT id, node_id, model_name, prompt, description, confidence, created_at
+        SELECT id, node_id, model_name, description, confidence, created_at
         FROM image_descriptions
-        WHERE node_id = $1 and lang = $2
+        WHERE node_id = $1 and model_name = $2 and lang = $3
         ORDER BY created_at DESC
         "#,
     )
         .bind(node_id)
+        .bind(model)
         .bind(lang_id)
         .fetch_all(pool)
         .await
@@ -64,18 +63,18 @@ pub async fn get_description(
     pool: &PgPool,
     node_id: &Uuid,
     model_name: &str,
-    prompt: &str,
+    lang_code: &str
 ) -> Result<Option<ImageDescription>, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
-        SELECT id, node_id, model_name, prompt, description, confidence, created_at
+        SELECT id, node_id, model_name,  description, confidence, created_at
         FROM image_descriptions
-        WHERE node_id = $1 AND model_name = $2 AND prompt = $3
+        WHERE node_id = $1 AND model_name = $2 AND lang = $3
         "#,
     )
         .bind(node_id)
         .bind(model_name)
-        .bind(prompt)
+        .bind(lang_code)
         .fetch_optional(pool)
         .await
 }
@@ -88,21 +87,19 @@ pub async fn upsert_description(
 ) -> Result<ImageDescription, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
-        INSERT INTO image_descriptions (node_id, model_name, prompt, description, confidence, lang)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (node_id, lang)
+        INSERT INTO image_descriptions (node_id, model_name, description, confidence, lang)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (node_id, model_name, lang)
         DO UPDATE SET
             description = EXCLUDED.description,
             confidence = EXCLUDED.confidence,
             model_name = EXCLUDED.model_name,
-            prompt = EXCLUDED.prompt,
             created_at = NOW()
-        RETURNING id, node_id, model_name, prompt, description, confidence, created_at
+        RETURNING id, node_id, model_name, description, confidence, created_at
         "#,
     )
         .bind(&data.node_id)
         .bind(&data.model_name)
-        .bind(&data.prompt)
         .bind(&data.description)
         .bind(data.confidence)
         .bind(lang_code)
@@ -117,14 +114,13 @@ pub async fn create_description(
 ) -> Result<ImageDescription, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
-        INSERT INTO image_descriptions (node_id, model_name, prompt, description, confidence)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, node_id, model_name, prompt, description, confidence, created_at
+        INSERT INTO image_descriptions (node_id, model_name, description, confidence)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, node_id, model_name, description, confidence, created_at
         "#,
     )
         .bind(&data.node_id)
         .bind(&data.model_name)
-        .bind(&data.prompt)
         .bind(&data.description)
         .bind(data.confidence)
         .fetch_one(pool)
@@ -154,17 +150,17 @@ pub async fn delete_description(
     pool: &PgPool,
     node_id: &Uuid,
     model_name: &str,
-    prompt: &str,
+    lang_code: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
         DELETE FROM image_descriptions
-        WHERE node_id = $1 AND model_name = $2 AND prompt = $3
+        WHERE node_id = $1 AND model_name = $2 AND lang = $3
         "#,
     )
         .bind(node_id)
         .bind(model_name)
-        .bind(prompt)
+        .bind(lang_code)
         .execute(pool)
         .await?;
 

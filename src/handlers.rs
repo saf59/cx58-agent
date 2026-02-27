@@ -160,7 +160,7 @@ pub async fn chat_stream_cancel(
     let cancelled = state.master_agent.cancel_request(&request_id).await;
 
     if cancelled {
-        tracing::info!("Request cancelled successfully");
+        tracing::debug!("Request cancelled successfully");
         Ok(Json(CancelResponse {
             success: true,
             request_id: request_id.clone(),

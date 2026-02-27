@@ -45,7 +45,7 @@ use crate::agents::LocalizationManager;
 #[derive(Debug, Clone)]
 pub enum AgentError {
     // --- Context / input errors ---
-    /// The request was cancelled by the client.
+    /// The request was canceled by the client.
     Cancelled,
 
     /// `object_id` was not provided in `AgentContext`.
@@ -278,5 +278,12 @@ impl From<rig::completion::CompletionError> for AgentError {
 impl From<anyhow::Error> for AgentError {
     fn from(e: anyhow::Error) -> Self {
         AgentError::internal(e)
+    }
+}
+impl From<sqlx::Error> for AgentError {
+    fn from(e: sqlx::Error) -> Self {
+        AgentError::Internal {
+            detail: e.to_string(),
+        }
     }
 }

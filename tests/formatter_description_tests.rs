@@ -11,7 +11,7 @@ async fn test_format_description_english() -> Result<()> {
     
     let vision_data = ctx.create_vision_data();
     
-    let description = ctx.formatter
+    let description: /* Type */ = ctx.formatter
         .format_description(
             &vision_data,
             &Language::English,

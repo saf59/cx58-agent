@@ -1,11 +1,13 @@
+use crate::agents::agent_error::AgentError;
+use crate::agents::agents_helper::extract_text_from_choice;
 use crate::agents::description::DescriptionContent;
-use rig::completion::{AssistantContent, CompletionModel};
-use rig::prelude::CompletionClient;
+use rig::completion::CompletionModel;
 use rig::message::{DocumentSourceKind, Message, UserContent};
+use rig::prelude::CompletionClient;
 use rig::providers::ollama;
 use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
 use std::sync::Arc;
-use crate::agents::agent_error::AgentError;
+
 /// More robust extraction with fallback parsing
 pub fn extract_description_content_robust(
     llm_response: &str,
@@ -84,14 +86,9 @@ pub async fn generate_description_from_image(
         .build();
     let response = model.completion(request).await?;
 
-    let text = response.choice
-        .iter()
-        .filter_map(|c| match c {
-            AssistantContent::Text(t) => Some(t.text.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let choice = response.choice.clone();
+    let text = extract_text_from_choice(choice);
+
 
     if text.is_empty() {
         let err_msg = format!(

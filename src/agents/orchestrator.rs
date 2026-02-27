@@ -37,17 +37,18 @@
 
 use super::types::*;
 use crate::agents::agent_error::AgentError;
-use crate::agents::agents_helper::{clean_json_response, format_optional};
+use crate::agents::agents_helper::{clean_json_response, extract_text_from_choice, format_optional};
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use rig::client::CompletionClient;
-use rig::completion::{AssistantContent, CompletionModel};
+use rig::completion::CompletionModel;
 use rig::providers::ollama;
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 use tera::Context;
 use uuid::Uuid;
 
+//noinspection ALL
 /// # Orchestrator - Coordination Agent
 ///
 /// The central coordination component that manages workflow execution in the
@@ -192,11 +193,8 @@ impl Orchestrator {
     /// - Response cannot be parsed as JSON
     /// - Decision contains invalid worker type or parameters
     ///
-    /// ## TODO
-    ///
     /// - [ ] Current implementation doesn't retry on failure
-    /// - [ ] No explicit SSE streaming implementation visible (likely handled by caller)
-    /// - [ ] Missing conversation memory integration
+
     pub async fn decide_next_step(
         &self,
         classification: &ClassificationResult,
@@ -254,7 +252,7 @@ impl Orchestrator {
             lang,
         )?;
 
-        tracing::info!("Orchestrator - Prompt: {}", prompt);
+        tracing::debug!("Orchestrator - Prompt: {}", prompt);
         let model = self.client.completion_model(&self.model);
 
         // Create LLM agent with low temperature (0.2) for consistent, predictable decisions
@@ -266,15 +264,8 @@ impl Orchestrator {
             .build();
         let response = model.completion(request).await?;
 
-        let text = response
-            .choice
-            .iter()
-            .filter_map(|c| match c {
-                AssistantContent::Text(t) => Some(t.text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
+        let choice = response.choice; 
+        let text = extract_text_from_choice(choice);
 
         if text.is_empty() {
             let msg = "Orchestrator LLM returned no text content";
@@ -288,7 +279,7 @@ impl Orchestrator {
                 + response.raw_response.eval_count.unwrap_or(0),
         );
 
-        tracing::info!("Orchestrator raw response:\n{}", text);
+        tracing::debug!("Orchestrator raw response:\n{}", text);
 
         // Clean markdown code fences and extract pure JSON
         let cleaned = clean_json_response(&text);
@@ -296,7 +287,7 @@ impl Orchestrator {
         tracing::debug!("Orchestrator cleaned JSON:\n{}", cleaned);
 
         // Parse JSON response
-        let decision_json: serde_json::Value = serde_json::from_str(&cleaned).map_err(|e| {
+        let decision_json: Value = serde_json::from_str(&cleaned).map_err(|e| {
             let err  =AgentError::internal(format!(
                 "Failed to parse orchestrator decision: {}\nCleaned: {}\nOriginal: {}",
                 e, cleaned, text
@@ -309,6 +300,8 @@ impl Orchestrator {
 
         Ok((decision, tokens))
     }
+
+    
 
     /// Builds the user prompt for LLM-based orchestration decision
     ///
@@ -403,7 +396,7 @@ impl Orchestrator {
             &serde_json::to_string(&classification.missing_context).unwrap_or_default(),
         );
 
-        let results: Vec<serde_json::Value> = worker_results
+        let results: Vec<Value> = worker_results
             .iter()
             .map(|r| {
                 serde_json::json!({
@@ -534,7 +527,7 @@ impl Orchestrator {
     ///       but this is not implemented here
     fn parse_decision(
         &self,
-        decision_json: serde_json::Value,
+        decision_json: Value,
         lang: &str,
         context: &UserContext,
         worker_results: &[WorkerResponse],
@@ -642,7 +635,7 @@ impl Orchestrator {
                     // Comparison Worker: Analyzes differences between two reports
                     "CompareReports" | "COMPARE_REPORTS" => {
                         WorkerParameters::CompareReports {
-                            reports: serde_json::Value::Null,
+                            reports: Value::Null,
                         }
                     }
 

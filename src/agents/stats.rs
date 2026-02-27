@@ -9,6 +9,7 @@ pub struct WorkerStat {
     pub tokens_used: Option<u64>,
 }
 
+//noinspection ALL
 /// Accumulated statistics for a single agent request lifecycle.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AgentStats {

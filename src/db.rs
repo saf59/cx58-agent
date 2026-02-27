@@ -114,6 +114,35 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for NodeWithLeaf {
 // ============================================================================
 // Database Functions
 // ============================================================================
+pub async fn evict_expired_cache(pool: &PgPool) {
+    // Descriptions older than N days
+    match sqlx::query!(
+        "DELETE FROM image_descriptions WHERE created_at <= (NOW() - INTERVAL '30 days')"
+    )
+        .execute(pool)
+        .await
+    {
+        Ok(r) => tracing::info!(
+            deleted = r.rows_affected(),
+            "Cache eviction: descriptions"
+        ),
+        Err(e) => tracing::error!("Cache eviction failed (descriptions): {e}"),
+    }
+
+    // Comparisons older than N days
+    match sqlx::query!(
+        "DELETE FROM comparison WHERE created_at <= (NOW() - INTERVAL '30 days')"
+    )
+        .execute(pool)
+        .await
+    {
+        Ok(r) => tracing::info!(
+            deleted = r.rows_affected(),
+            "Cache eviction: comparisons"
+        ),
+        Err(e) => tracing::error!("Cache eviction failed (comparisons): {e}"),
+    }
+}
 
 /// Get users node tree
 ///
@@ -399,4 +428,6 @@ mod tests {
         tracing::info!("Full name: {}", full_name.unwrap_or("<none>".to_string()));
     }
 }
+
+
 
