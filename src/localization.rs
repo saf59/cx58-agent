@@ -92,54 +92,27 @@ impl LocalizationManager {
             .map(String::from)
             .collect()
     }
-
-    /// Returns localized message with one parameter (p1).
-    pub fn get_msg1(&self, lang: &str, msg_id: &str, param1: &str) -> String {
-        self.send_message(
-            lang,
-            msg_id,
-            vec![("p1".into(), param1.into())],
-        )
-    }
-
-    /// Returns localized message with two parameters (p1, p2).
-    pub fn get_msg2(
+    /// Convenience wrapper for the common case of a single variable substitution.
+    ///
+    /// Equivalent to calling `get_msg_with_args` with a one-entry `FluentArgs`.
+    ///
+    /// # Example
+    /// ```
+    /// // messages.ftl:  context-not-set = not set
+    /// // messages.ftl:  progress-executing-worker = Executing { $worker }...
+    /// let msg = lang_manager.get_msg_with_arg("en", "progress-executing-worker", "worker", "DescribeReport");
+    /// ```
+    pub fn get_msg_with_arg(
         &self,
         lang: &str,
         msg_id: &str,
-        param1: &str,
-        param2: &str,
+        key: &str,
+        value: &str,
     ) -> String {
-        self.send_message(
-            lang,
-            msg_id,
-            vec![
-                ("p1".into(), param1.into()),
-                ("p2".into(), param2.into()),
-            ],
-        )
+        let mut args  = FluentArgs::new();
+        args.set(key, value);
+        self.get_msg_with_args(lang, msg_id, args)
     }
-
-    /// Returns localized message with three parameters (p1, p2, p3).
-    pub fn get_msg3(
-        &self,
-        lang: &str,
-        msg_id: &str,
-        param1: &str,
-        param2: &str,
-        param3: &str,
-    ) -> String {
-        self.send_message(
-            lang,
-            msg_id,
-            vec![
-                ("p1".into(), param1.into()),
-                ("p2".into(), param2.into()),
-                ("p3".into(), param3.into()),
-            ],
-        )
-    }
-
     /// Formats message with provided FluentArgs.
     pub fn get_msg_with_args(
         &self,
@@ -310,7 +283,7 @@ fn load_prompt_file(lang: &str, filename: &str) -> Result<String> {
 }
 
 /// Formats message inside worker thread.
-fn format_message(
+pub fn format_message(
     bundles: &HashMap<String, FluentBundle<FluentResource>>,
     lang: &str,
     msg_id: &str,

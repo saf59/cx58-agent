@@ -190,7 +190,7 @@ impl ComparisonAgent {
                 template: "comparison-user-prompt".to_string(),
             })?;
 
-        tracing::info!("ComparisonAgent user_prompt:\n{}", user_prompt);
+        tracing::debug!("ComparisonAgent user_prompt:\n{}", user_prompt);
         let model = self.client.completion_model(&model_name.clone());
         let request = model
             .completion_request(&user_prompt)
@@ -217,7 +217,7 @@ impl ComparisonAgent {
                 + response.raw_response.eval_count.unwrap_or(0),
         );
 
-        tracing::info!("ComparisonAgent raw response:\n{}", &text);
+        tracing::debug!("ComparisonAgent raw response:\n{}", &text);
 
         // Parse structured output.
         let cleaned = clean_json_response(&text);
@@ -297,9 +297,7 @@ impl ComparisonAgent {
         model: &str,
         data: &Value,
     ) -> Result<(), AgentError> {
-/*        let expires_at = chrono::Utc::now()
-            + chrono::Duration::days(COMPARISON_CACHE_TTL_DAYS);
-*/
+
         sqlx::query!(
             r#"
             INSERT INTO comparison

@@ -1,6 +1,7 @@
 use chrono::{NaiveDateTime, Utc};
 use sqlx::types::Uuid;
 use std::collections::HashSet;
+use crate::agents::agent_error::AgentError;
 use crate::agents::Period;
 use crate::db::{NodeType, TreeNode};
 use crate::TaskParameters;
@@ -22,7 +23,7 @@ impl Period {
 pub async fn get_filtered_tree(
     tree: Vec<TreeNode>,
     parameters: &TaskParameters,
-) -> Result<Vec<TreeNode>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<TreeNode>, AgentError> {
     // Treat last and all as equivalent
     let all = parameters.all || parameters.last;
 
@@ -57,7 +58,7 @@ pub async fn get_filtered_tree(
 fn filter_by_period(
     tree: Vec<TreeNode>,
     max_updated_at: NaiveDateTime,
-) -> Result<Vec<TreeNode>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<TreeNode>, AgentError> {
     // Find ImageLeaf nodes with updated_at >= max_updated_at (recent updates)
     let selected_leaves: Vec<_> = tree
         .iter()

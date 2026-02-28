@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use crate::agents::LocalizationManager;
 use rig::completion::AssistantContent;
 use rig::OneOrMany;
-use crate::templating::TemplateManager;
+use std::sync::Arc;
 
 /// Formats optional context values for display in prompts
 ///
@@ -23,30 +23,34 @@ use crate::templating::TemplateManager;
 /// Some("building-123") → "building-123"
 /// None                 → "Not set" (or "Nicht gesetzt" in German)
 /// ```
-pub fn format_optional(_template_manager:Arc<TemplateManager>, opt: &Option<String>, _lang: &str) -> String {
-    match opt {
-        Some(val) => val.to_string(),  // just result
-        None => String::new(),
+pub fn format_optional(
+    lang_manager: &Arc<LocalizationManager>,
+    value: &Option<String>,
+    lang: &str,
+) -> String {
+    match value {
+        Some(v) => v.clone(),
+        None => lang_manager.get_msg(lang, "context-not-set"),
     }
 }
 
 //noinspection ALL
 /// Cleans LLM response to extract pure JSON
 ///
-/// LLMs often wrap JSON in markdown code fences or add explanatory text.
+/// LLMs often wrap JSON inMarkdown code fences or add explanatory text.
 /// This function strips all formatting to get the raw JSON object.
 ///
 /// ## Cleaning Steps
 ///
 /// 1. Remove leading/trailing whitespace
-/// 2. Strip markdown code fences (```json or ```)
+/// 2. StripMarkdown code fences (```json or ```)
 /// 3. Find first `{` character (start of JSON object)
 /// 4. Find last `}` character (end of JSON object)
 /// 5. Extract only the JSON portion
 ///
 /// ## Arguments
 ///
-/// * `response` - Raw LLM response potentially containing markdown or extra text
+/// * `response` - Raw LLM response potentially containingMarkdown or extra text
 ///
 /// ## Returns
 ///
@@ -64,14 +68,14 @@ pub fn format_optional(_template_manager:Arc<TemplateManager>, opt: &Option<Stri
 pub fn clean_json_response(response: &str) -> String {
     let mut cleaned = response.trim().to_string();
 
-    // Remove opening markdown code fence
+    // Remove openingMarkdown code fence
     if cleaned.starts_with("```json") {
         cleaned = cleaned.trim_start_matches("```json").trim_start().to_string();
     } else if cleaned.starts_with("```") {
         cleaned = cleaned.trim_start_matches("```").trim_start().to_string();
     }
 
-    // Remove closing markdown code fence
+    // Remove closingMarkdown code fence
     if cleaned.ends_with("```") {
         cleaned = cleaned.trim_end_matches("```").trim_end().to_string();
     }

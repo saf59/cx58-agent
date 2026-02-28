@@ -22,7 +22,7 @@
 //! making intelligent decisions about:
 //! - Which workers to execute
 //! - When to request missing context from users
-//! - How to handle multi-step scenarios
+//! - How to handle multistep scenarios
 //! - When to send progress updates
 //! - When to format and return results
 //!
@@ -99,14 +99,9 @@ impl Orchestrator {
     ///
     /// # Arguments
     ///
-    /// * `_api_base` - API base URL (currently unused, preserved for future extensions)
     /// * `model` - LLM model identifier to use for orchestration decisions
     /// * `lang_manager` - Shared localization manager for multi-language support
     /// * `template_manager` - Shared template manager for prompt generation
-    ///
-    /// # Environment Variables
-    ///
-    /// * `OLLAMA_LOCAL` - Set to "true" to use local Ollama instance, "false" for remote
     ///
     /// # Returns
     ///
@@ -116,7 +111,6 @@ impl Orchestrator {
     ///
     /// ```no_run
     /// let orchestrator = Orchestrator::new(
-    ///     "http://localhost:11434".to_string(),
     ///     "llama3.2".to_string(),
     ///     lang_manager,
     ///     template_manager,
@@ -224,8 +218,6 @@ impl Orchestrator {
                 .map(|s| vec![s])
                 .unwrap_or_default();
 
-            // TODO: CurrentReportId is used as a dummy value here to trigger user request.
-            // This should be refactored to use a more semantic field like "Clarification"
             return Ok((
                 OrchestratorDecision::RequestContextFromUser {
                     missing_field: ContextField::CurrentReportId,
@@ -281,7 +273,7 @@ impl Orchestrator {
 
         tracing::debug!("Orchestrator raw response:\n{}", text);
 
-        // Clean markdown code fences and extract pure JSON
+        // CleanMarkdown code fences and extract pure JSON
         let cleaned = clean_json_response(&text);
 
         tracing::debug!("Orchestrator cleaned JSON:\n{}", cleaned);
@@ -343,10 +335,7 @@ impl Orchestrator {
     ///
     /// Returns error if template rendering fails or JSON serialization fails
     ///
-    /// ## TODO
-    ///
-    /// - [ ] "conversation memory" - should include previous conversation
-    ///       context from memory retrieval
+
     fn build_orchestrator_prompt(
         &self,
         classification: &ClassificationResult,
@@ -368,12 +357,12 @@ impl Orchestrator {
         // Insert optional context fields with localized "Not set" message
         ctx.insert(
             "object_id",
-            &format_optional(self.template_manager.clone(), &context.object_id, lang),
+            &format_optional(&self.lang_manager.clone(), &context.object_id, lang),
         );
         ctx.insert(
             "current_report_id",
             &format_optional(
-                self.template_manager.clone(),
+                &self.lang_manager.clone(),
                 &context.current_report_id,
                 lang,
             ),
@@ -381,7 +370,7 @@ impl Orchestrator {
         ctx.insert(
             "previous_report_id",
             &format_optional(
-                self.template_manager.clone(),
+                &self.lang_manager.clone(),
                 &context.previous_report_id,
                 lang,
             ),
@@ -519,12 +508,7 @@ impl Orchestrator {
     /// - Required fields are missing
     /// - Worker type is invalid
     /// - Parameters are malformed
-    ///
-    /// ## TODO
-    ///
-    /// - [ ] Add validation for worker parameter completeness
-    /// - [ ] Evaluator pattern for quality control on photo comparisons
-    ///       but this is not implemented here
+    
     fn parse_decision(
         &self,
         decision_json: Value,
@@ -578,14 +562,6 @@ impl Orchestrator {
 
                     // Report List Worker: Retrieves photo reports with date filtering
                     "GetReportList" | "GET_REPORT_LIST" => {
-                        let object_id = action_data["parameters"]["object_id"]
-                            .as_str()
-                            .ok_or_else(|| {
-                                let err = AgentError::internal("Missing object_id");
-                                tracing::error!("Orchestrator parse parameters: {}", err);
-                                err
-                            })?
-                            .to_string();
                         let task_params: TaskParameters = serde_json::from_value(
                             action_data["parameters"]["task_params"].clone(),
                         ).map_err(|e| {
@@ -594,7 +570,6 @@ impl Orchestrator {
                                 err
                             })?;
                         WorkerParameters::GetReportList {
-                            object_id,
                             task_params,
                         }
                     }
@@ -707,9 +682,6 @@ impl Orchestrator {
                         return Err(err);
                     }
 
-                    // Take the first field from comma-separated list
-                    // TODO: Should handle multiple missing fields properly rather than
-                    // just taking the first one
                     let first_field = s.split(',').next().unwrap_or("");
 
                     match first_field.trim() {
@@ -789,18 +761,15 @@ impl Orchestrator {
             // - fetching_data (40%)
             // - processing_images (70%)
             //
-            // TODO: Must shows progress percentages at specific stages, but current
-            // implementation allows arbitrary percent values. Should enforce standard
-            // progress milestones for consistency.
             "SendProgress" => Ok(OrchestratorDecision::SendProgress {
                 status: action_data["status"]
                     .as_str()
-                    .unwrap_or("processing")
+                    .unwrap_or(&self.lang_manager.get_msg(lang, "processing"))
                     .to_string(),
                 percent: action_data["percent"].as_u64().unwrap_or(50) as u8,
                 message: action_data["message"]
                     .as_str()
-                    .unwrap_or("Processing...")
+                    .unwrap_or(&self.lang_manager.get_msg(lang, "processing"))
                     .to_string(),
             }),
 
@@ -816,11 +785,11 @@ impl Orchestrator {
             "Reject" => Ok(OrchestratorDecision::Reject {
                 reason: action_data["reason"]
                     .as_str()
-                    .unwrap_or("Unknown")
+                    .unwrap_or(&self.lang_manager.get_msg(lang, "unknown"))
                     .to_string(),
                 message: action_data["message"]
                     .as_str()
-                    .unwrap_or("Cannot process this request")
+                    .unwrap_or(&self.lang_manager.get_msg(lang, "orchestrator-cannot-process"))
                     .to_string(),
             }),
 
@@ -828,13 +797,8 @@ impl Orchestrator {
             _ => {
                 let mut ctx = Context::new();
                 ctx.insert("decision_type", decision_type);
-                let msg = self
-                    .template_manager
-                    .render(lang, "error-unknown-decision", ctx)
-                    .unwrap_or_else(|_| {
-                        self.lang_manager
-                            .get_msg(lang, "error-unknown-decision-type")
-                    });
+                let msg = self.lang_manager
+                    .get_msg_with_arg(lang, "error-unknown-decision", "decision_type", decision_type);
                 let err = AgentError::internal(msg);
                 tracing::error!("Orchestrator parse decision_type: {}", err);
                 Err(err.into())
@@ -842,37 +806,3 @@ impl Orchestrator {
         }
     }
 }
-
-// ===== ARCHITECTURAL COMPLIANCE SUMMARY =====
-//
-// ✅ Implements Orchestrator-Worker pattern correctly
-// ✅ Supports all 5 specialized workers
-// ✅ Handles context validation and missing context requests
-// ✅ Supports multi-language (English/German) via LocalizationManager
-// ✅ Uses structured prompts via TemplateManager
-// ✅ Low temperature (0.2) for deterministic decisions
-// ✅ Proper error handling with localized messages
-// ✅ JSON response cleaning for robust LLM parsing
-//
-// ## Areas for Enhancement
-//
-// TODO: Implement retry logic for failed LLM calls
-// TODO: Add conversation memory integration
-// TODO: Implement caching strategy for worker results
-// TODO: Add evaluator pattern for critical operations like photo comparisons
-// TODO: Support multiple missing context fields simultaneously instead of just first one
-// TODO: Add progress milestone validation to enforce consistent SSE progress updates
-// TODO: Implement multi-step scenario handling explicitly
-// TODO: Add explicit SSE streaming coordination (currently delegated to caller)
-// TODO: Implement access control validation
-// TODO: Add RAG database context for better knowledge-based responses
-//
-// ## Missing:
-//
-// ⚠️ No RAG worker implementation visible
-// ⚠️ Database and storage access is delegated to workers
-//    (This is actually correct - orchestrator should not directly access storage)
-//
-// ## Overall Assessment
-//
-// Main gaps are advanced features (memory, caching, evaluator) and retry logic.

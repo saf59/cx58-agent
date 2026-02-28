@@ -6,22 +6,19 @@
 // Result: 1 owner with leaves
 
 use chrono::Utc;
-use rig::providers::ollama;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::agents::LocalizationManager;
 use crate::agents::agent_error::AgentError;
-use crate::db::{NodeType, get_node_with_leafs};
+use crate::agents::LocalizationManager;
+use crate::db::{get_node_with_leafs, NodeType};
 use crate::storage::set_storage_url;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 const MAX_DOCUMENTS_ALL: i32 = 100;
 pub struct DocumentAgent {
-    #[allow(unused)]
-    client: Arc<ollama::Client>,
     context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
     lang_manager: Arc<LocalizationManager>,
@@ -29,13 +26,11 @@ pub struct DocumentAgent {
 
 impl DocumentAgent {
     pub fn new(
-        client: Arc<ollama::Client>,
         context: AgentContext,
         event_tx: mpsc::Sender<StreamEvent>,
         lang_manager: Arc<LocalizationManager>,
     ) -> Self {
         Self {
-            client,
             context,
             event_tx,
             lang_manager,

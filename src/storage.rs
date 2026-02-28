@@ -52,14 +52,10 @@ impl AiConfig {
 pub struct AppState {
     pub db: sqlx::PgPool,
     pub storage: Arc<StorageService>,
-    //pub image_resolver: Arc<ImageUrlResolver>,
-    //pub image_processor: Arc<ImageProcessor>,
     pub master_agent: Arc<MasterAgent>,
     pub ai_config: AiConfig,
 }
 //pub redis: redis::aio::ConnectionManager,
-//pub agent: Arc<RwLock<AgentExecutor>>,
-//pub orchestrator: Arc<crate::rig_integration::AgentOrchestrator>,
 
 // ============================================================================
 // Storage Service with rust-s3

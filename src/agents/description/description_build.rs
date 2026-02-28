@@ -19,7 +19,7 @@ pub fn extract_description_content_robust(
         }
     }
 
-    // Step 2: Remove markdown code blocks and try again
+    // Step 2: RemoveMarkdown code blocks and try again
     let cleaned = llm_response
         .trim()
         .trim_start_matches("```json")
@@ -193,7 +193,7 @@ Hope this helps!"#;
     fn extract_description_content(
         llm_response: &str,
     ) -> Result<DescriptionContent, Box<dyn std::error::Error + Send + Sync>> {
-        // Clean the response - remove potential markdown code blocks
+        // Clean the response - remove potentialMarkdown code blocks
         let cleaned = llm_response
             .trim()
             .trim_start_matches("```json")

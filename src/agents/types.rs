@@ -132,7 +132,6 @@ pub struct ReportPair {
 pub enum WorkerParameters {
     GetObjectTree(TaskParameters),
     GetReportList {
-        object_id: String,
         task_params: TaskParameters,
     },
     DescribeReport {

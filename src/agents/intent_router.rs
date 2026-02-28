@@ -52,7 +52,6 @@ impl IntentRouter {
     /// Creates a new IntentRouter instance.
     ///
     /// # Arguments
-    /// * `_api_base` - API base URL (currently unused, marked with underscore)
     /// * `model` - The Ollama model name to use for classification
     /// * `lang_manager` - Shared localization manager for multi-language support
     /// * `template_manager` - Shared template manager for prompt generation
@@ -85,14 +84,7 @@ impl IntentRouter {
     ///
     /// # Returns
     /// A `ClassificationResult` containing the determined intent and extracted parameters
-    ///
-    /// # Architecture Compliance
-    /// This method implements the classification phase from plan.md Phase 1: Input Processing
-    ///
-    /// # Current Gaps
-    /// - Does not implement explicit scope checking (in-scope vs out-of-scope)
-    /// - Does not handle ambiguity with clarification requests
-    /// - Does not validate optional context availability before classification
+
     pub async fn classify(
         &self,
         message: &str,
@@ -104,7 +96,6 @@ impl IntentRouter {
         //   - Determine if query is in-scope (construction/monitoring related)
         //   - If out-of-scope, route to Rejection Handler
         //   - Only proceed with intent classification if in-scope
-        // Current implementation goes straight to LLM classification.
 
         let lang = context.language.to_code();
 
@@ -157,16 +148,13 @@ impl IntentRouter {
         // Parse JSON response
         let cleaned = clean_json_response(&text);
 
-        //tracing::info!("Cleaned JSON:\n{}", cleaned);
-
         let result: ClassificationResult = serde_json::from_str(&cleaned)
             .map_err(|e| {
                 // Use FTL for error messages (they're short)
                 let mut ctx = Context::new();
                 ctx.insert("error", &e.to_string());
-                let error_msg = self.template_manager
-                    .render(lang, "error-classification", ctx)
-                    .unwrap_or_else(|_| self.lang_manager.get_msg(lang, "error-classification-fallback"));
+                let error_msg = self.lang_manager
+                    .get_msg_with_arg(lang, "error-classification", "error", &e.to_string());
                 tracing::error!("IntentRouter: failed to parse ClassificationResult: {}\nRaw response: {}", e, text);
                 AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
             })?;
@@ -206,9 +194,9 @@ impl IntentRouter {
         ctx.insert("user_id", &context.user_id);
         ctx.insert("chat_id", &context.chat_id);
         ctx.insert("language", context.language.as_str());
-        ctx.insert("object_id", &format_optional(self.template_manager.clone(),&context.object_id, lang));
-        ctx.insert("current_report_id", &format_optional(self.template_manager.clone(),&context.current_report_id, lang));
-        ctx.insert("previous_report_id", &format_optional(self.template_manager.clone(),&context.previous_report_id, lang));
+        ctx.insert("object_id", &format_optional(&self.lang_manager.clone(),&context.object_id, lang));
+        ctx.insert("current_report_id", &format_optional(&self.lang_manager.clone(),&context.current_report_id, lang));
+        ctx.insert("previous_report_id", &format_optional(&self.lang_manager.clone(),&context.previous_report_id, lang));
 
         let history_text = if history.is_empty() {
             self.lang_manager.get_msg(lang, "no-conversation-history")
@@ -223,107 +211,3 @@ impl IntentRouter {
     }
        
 }
-
-// ============================================================================
-// ARCHITECTURAL DISCREPANCIES SUMMARY
-// ============================================================================
-//
-// CRITICAL MISSING COMPONENTS (from plan.md):
-//
-// 1. CONTEXT VALIDATION (Phase 1: Input Processing)
-//    - No explicit validation of required context before LLM call
-//    - Missing: user_id, chat_id, language validation
-//    - Missing: Error handling for missing required context
-//    - Should implement: Context validator that runs before classify()
-//
-// 2. SCOPE CHECKING (Section 1: Intent Classification Strategy)
-//    - No in-scope vs out-of-scope determination before classification
-//    - Missing: Keyword-based scope detection
-//    - Missing: Routing to Rejection Handler for out-of-scope queries
-//    - Current: Relies entirely on LLM for scope determination
-//
-// 3. CONVERSATION MEMORY (Advanced Recommendations - Section B)
-//    - No conversation state storage
-//    - Missing: Last selected object_id tracking
-//    - Missing: Last selected report_ids tracking
-//    - Missing: Last query intent storage for follow-ups
-//    - Missing: User preferences caching
-//
-// 4. AMBIGUITY HANDLING (Component Definition)
-//    - Router should "handle ambiguity by requesting clarification"
-//    - Missing: Logic to detect low-confidence classifications
-//    - Missing: Mechanism to request user clarification
-//    - Missing: Integration with Orchestrator for multi-turn clarification
-//
-// 5. MULTI-STEP SCENARIO DETECTION (Advanced Recommendations - Section A)
-//    - No detection of queries requiring multiple workers
-//    - Example: "Compare last two reports for Building A" needs:
-//      * Object identification → Report listing → Vision analysis → Comparison
-//    - Missing: Flag in ClassificationResult for multi-step workflows
-//
-// 6. VOICE COMMAND HANDLING (Section 4: Voice Command Handling)
-//    - No STT noise filtering
-//    - No language detection/validation against context
-//    - No normalization of ambiguous voice input ("to" vs "two")
-//    - No date/time expression normalization ("last week" variants)
-//
-// 7. OPTIONAL CONTEXT AWARENESS (Section 2: Context Management Strategy)
-//    - classify() doesn't determine if optional context is needed
-//    - Missing: Logic to request object_id when needed for query
-//    - Missing: Logic to request report_ids when needed
-//    - Should: Return context requirements in ClassificationResult
-//
-// RECOMMENDED ENHANCEMENTS:
-//
-// 8. KEYWORD-BASED PRE-FILTERING
-//    - Add fast keyword matching before LLM call for common patterns
-//    - Benefits: Reduced latency, lower LLM costs, more consistent routing
-//    - Scope keywords: "object", "building", "construction", "site", etc.
-//    - Action keywords per intent type (see plan.md Section 1)
-//
-// 9. CONFIDENCE SCORING
-//    - Request confidence scores from LLM in ClassificationResult
-//    - Implement threshold-based clarification requests
-//    - High confidence → Execute directly
-//    - Medium confidence → Request clarification
-//    - Low confidence → Suggest related topics
-//
-// 10. LANGUAGE-SPECIFIC PROMPT OPTIMIZATION (Multi-Language Support)
-//     - Separate prompt templates per language for better quality
-//     - Construction terminology translation guides
-//     - Language-specific classification examples
-//
-// 11. CACHING (Performance Optimization)
-//     - Cache common query patterns and their classifications
-//     - TTL-based invalidation for dynamic content
-//     - Per-user preference caching
-//
-// 12. METRICS AND LOGGING
-//     - Classification success/failure rates
-//     - Intent distribution analytics
-//     - Average classification latency
-//     - Clarification request frequency
-//
-// ============================================================================
-// IMPLEMENTATION PRIORITY:
-// ============================================================================
-// Priority 1 (Core Functionality):
-// - Context validation (#1)
-// - Scope checking (#2)
-// - Optional context awareness (#7)
-//
-// Priority 2 (Enhanced Reliability):
-// - Conversation memory (#3)
-// - Ambiguity handling (#4)
-// - Multi-step detection (#5)
-//
-// Priority 3 (User Experience):
-// - Voice command handling (#6)
-// - Keyword pre-filtering (#8)
-// - Confidence scoring (#9)
-//
-// Priority 4 (Optimization):
-// - Language-specific prompts (#10)
-// - Caching (#11)
-// - Metrics and logging (#12)
-// ============================================================================

@@ -66,22 +66,18 @@ analyzing-query = Analyzing query
 fetching-data = Fetching data
 processing-results = Processing results
 
-# locales/en/messages.ftl
-# ============================================================
-# English localisation for cx58-agent
-#
-# Convention
-#   progress-*  →  UI progress bar messages
-#   error-*     →  AgentError localized messages
-#   info-*      →  informational text chunks sent to client
-# ============================================================
-
+context-not-set = not_set
+error-unknown-decision = Unknown orchestrator decision type: { $decision_type }
+error-classification   = Failed to classify intent: { $error }
+progress-executing-worker = Executing { $worker }...
 # ------------------------------------------------------------
-# Progress messages  (used in MasterAgent / Orchestrator)
-# ------------------------------------------------------------
-
-# Template variant (rendered via TemplateManager with {worker_type} variable)
-# progress-executing-worker.tera → kept as a Tera template; no Fluent key needed.
+progress-downloading-image = Downloading '{ $report_type }' image...
+progress-processing-image = Processing '{ $report_type }' image...
+progress-generating-description = Generating '{ $report_type }' description...
+progress-description-parse-warning = Description parse failed for '{ $report_type }', saved raw
+progress-generate-err = Failed to generate description for '{ $report_type }'
+processing = Processing...
+unknown = Unknown
 
 # ------------------------------------------------------------
 # Info / status messages
@@ -139,3 +135,19 @@ error-insufficient-descriptions =
 error-internal =
     An internal error occurred: { $detail }
     Please try again or contact support.
+
+# Context request — object selection
+context-request-select-object = Please select an object from the tree to continue.
+context-request-select-object-hint = Open the object tree and tap the item you want to work with.
+
+# Context request — current report selection (DescribeReport, no reports in context)
+context-request-select-report = Please select a report to describe.
+context-request-select-report-hint = Choose a report from the list to view its description.
+
+# Context request — previous report selection (CompareReports, both IDs absent)
+context-request-select-previous-report = Please select two reports to compare.
+context-request-select-previous-report-hint = Select an earlier and a later report from the list.
+
+# Context request — second report missing (CompareReports, previous_report_id absent)
+context-request-select-second-report = A second report is needed to run a comparison.
+context-request-select-second-report-hint = Please select another report to compare with the current one.

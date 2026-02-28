@@ -1,19 +1,11 @@
-Compare the following two construction site inspection reports for the same object.
-
 Object: {{ object_name }}
-Earlier inspection date: {{ prev_date }}
-Later inspection date:   {{ next_date }}
-
 User request: {{ user_message }}
 
----
 EARLIER INSPECTION ({{ prev_date }}):
 {{ prev_description | json_encode(pretty=true) }}
 
 LATER INSPECTION ({{ next_date }}):
 {{ next_description | json_encode(pretty=true) }}
----
-Based on both descriptions above, produce a single comparative JSON report.
-Focus on: windows, doors, radiators, openings.
-Highlight what changed, what was installed, what remains incomplete.
-Return ONLY valid JSON — no markdown, no extra text.
+
+Produce a comparative JSON report for the two inspections above.
+Return ONLY valid JSON.

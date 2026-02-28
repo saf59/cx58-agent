@@ -9,23 +9,24 @@ use crate::agents::description::description_helper::{
 use crate::agents::description::description_json::DescriptionData;
 use crate::agents::{Language, ReportPair};
 use crate::db_description::{
-    CreateImageDescription, ImageDescription, get_descriptions_by_node, upsert_description,
+    get_descriptions_by_node, upsert_description, CreateImageDescription, ImageDescription,
 };
 use crate::localization::LocalizationManager;
-use crate::templating::TemplateManager;
-use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
+use crate::{AgentContext, AppState, StreamEvent};
 use rig::providers::ollama;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
+use tera::Context;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+use crate::templating::TemplateManager;
 
 pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
     context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
     lang_manager: Arc<LocalizationManager>,
-    _template_manager: Arc<TemplateManager>,
+    template_manager: Arc<TemplateManager>,
 }
 
 impl DescriptionAgent {
@@ -41,27 +42,12 @@ impl DescriptionAgent {
             context,
             event_tx,
             lang_manager,
-            _template_manager: template_manager,
+            template_manager
         }
     }
 
     async fn send_event(&self, event: StreamEvent) {
         let _ = self.event_tx.send(event).await;
-    }
-
-    pub async fn execute(
-        &self,
-        state: Arc<AppState>,
-        _parameters: &TaskParameters,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let report_id = self.context.prev_leaf.clone().unwrap_or_default();
-        let report_pair = ReportPair {
-            prev: report_id.clone(),
-            next: self.context.next_leaf.clone(),
-        };
-
-        let (result, _tokens, _calls) = self.execute_by_id(&state, &report_pair).await?;
-        Ok(result.to_string())
     }
 
     /// Main execution method - processes prev and next report IDs
@@ -206,13 +192,14 @@ impl DescriptionAgent {
                 return Err(err);
             }
         };
-
+        let executing_msg = self.lang_manager
+            .get_msg_with_arg(lang_code, "progress-downloading-image", "report_type", &report_type);
         // Download and resize image
         self.send_event(StreamEvent::Progress {
             request_id: self.context.request_id.clone(),
             status: "downloading_image".to_string(),
             percent: 30,
-            message: format!("Downloading '{}' image...", report_type),
+            message: executing_msg,
         })
         .await;
 
@@ -245,12 +232,15 @@ impl DescriptionAgent {
             }
         };
 
+        let executing_msg = self.lang_manager
+            .get_msg_with_arg(lang_code, "progress-processing-image", "report_type", &report_type);
+
         // Validate and resize image
         self.send_event(StreamEvent::Progress {
             request_id: self.context.request_id.clone(),
             status: "processing_image".to_string(),
             percent: 50,
-            message: format!("Processing '{}' image...", report_type),
+            message: executing_msg,
         })
         .await;
 
@@ -272,12 +262,15 @@ impl DescriptionAgent {
             }
         };
 
+        let executing_msg = self.lang_manager
+            .get_msg_with_arg(lang_code, "progress-generating-description", "report_type", &report_type);
+
         // Get system prompt from localization
         self.send_event(StreamEvent::Progress {
             request_id: self.context.request_id.clone(),
             status: "generating_description".to_string(),
             percent: 70,
-            message: format!("Generating '{}' description...", report_type),
+            message: executing_msg,
         })
         .await;
 
@@ -301,8 +294,14 @@ impl DescriptionAgent {
         );
 
         // Create the prompt for description generation
-        // The prompt should be in the requested language
-        let description_prompt = format!("Describe the construction image: {}", object_name);
+        let mut ctx = Context::new();
+        ctx.insert("object_name", &object_name);
+        let description_prompt = self
+            .template_manager
+            .render(lang_code, "descriptor-user-prompt", ctx)
+            .map_err(|_| AgentError::TemplateRenderError {
+                template: "descriptor-user-prompt".to_string(),
+            })?;
 
         // Generate description using LLM
         let (description_text, tokens) = match generate_description_from_image(
@@ -316,8 +315,9 @@ impl DescriptionAgent {
         {
             Ok(text) => text,
             Err(e) => {
-                let err_msg = format!("Failed to generate description for node {}: {}", node_id, e);
-                tracing::error!("{}", err_msg);
+                let err_msg = self.lang_manager
+                    .get_msg_with_arg(lang_code, "progress-generate-err", "report_type", &report_type);
+                tracing::error!("{} {}", err_msg, e);
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
             }
@@ -328,11 +328,14 @@ impl DescriptionAgent {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!("Failed to parse description content: {}", e);
+                let err_msg = self.lang_manager
+                    .get_msg_with_arg(lang_code, "progress-description-parse-warning", "report_type", &report_type);
+
                 self.send_event(StreamEvent::Progress {
                     request_id: self.context.request_id.clone(),
                     status: "warning".to_string(),
                     percent: 0,
-                    message: format!("Description parse failed for {}, saved raw", report_type),
+                    message: err_msg,
                 })
                 .await;
                 // Even if parsing fails, we can still save the raw text

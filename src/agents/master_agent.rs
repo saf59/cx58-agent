@@ -61,17 +61,15 @@
 //!
 //! ## Error Handling
 //!
-//! - Errors during processing send `StreamChunk::Error` to SSE
+//! - Errors during processing send `StreamEvent::Error`, `StreamEvent::Completed` to SSE
 //! - Tera template fallback used for error messages
 //! - Request lifecycle terminates on first error
 //!
 
-//use futures::StreamExt;
 use rig::providers::ollama;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Instant;
-use tera::Context;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use unicode_segmentation::UnicodeSegmentation;
@@ -113,13 +111,6 @@ use crate::{AgentContext, AgentRequest, AiConfig, AppState, RequestManager, Stre
 ///                        │  (Progress + Data)    │
 ///                        └───────────────────────┘
 /// ```
-///
-/// TODO (Architecture Gap):
-/// - Rejection Handler as a specialized worker.
-///   Here, rejection is handled inline via OrchestratorDecision::Reject.
-/// - Knowledge Base Worker (RAG) as a first-class worker.
-///   RagQuery worker_type exists but is not fully formatted downstream.
-/// - No Evaluator/Compliance agent layer for quality control.
 
 const MAX_ORCHESTRATION_STEPS: u32 = 5;
 pub struct MasterAgent {
@@ -129,8 +120,6 @@ pub struct MasterAgent {
     intent_router: Arc<IntentRouter>,
     orchestrator: Arc<Orchestrator>,
     formatter: Arc<ResponseFormatter>,
-    //description_agent: Arc<DescriptionAgent>, // много send_event через event_tx
-    //comparison_agent: Arc<ComparisonAgent>
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
 }
@@ -246,7 +235,8 @@ impl MasterAgent {
         let start_time = Instant::now();
         let mut stats = AgentStats::start();
 
-        let lang = Language::from_short(&context.language);
+        let user_context = context.to_user_context();
+        let lang = user_context.language.clone();
         let lang_code = lang.to_code();
 
         let analyzing_msg = self.lang_manager.get_msg(lang_code, "progress-analyzing");
@@ -257,27 +247,18 @@ impl MasterAgent {
             message: analyzing_msg,
         })
         .await?;
-
-        let user_context = UserContext {
-            user_id: context.user_id.clone(),
-            chat_id: context.chat_id.clone(),
-            language: lang.clone(),
-            object_id: context.object_id.clone(),
-            current_report_id: context.next_leaf.clone(),
-            previous_report_id: context.prev_leaf.clone(),
-        };
-
+        let intent_start = Instant::now();
         let (classification, router_tokens) = self
             .intent_router
             .classify(&context.message, &user_context, &[])
             .await?;
         tracing::info!("Intent classification result: {:?}", &classification.intent);
-        stats.record_router(router_tokens);
+        stats.record_router(router_tokens, Some(intent_start.elapsed().as_millis() as u64));
         context.cancellation_token.check().await?;
 
-        // TODO (Ambiguity Gap):
         // Intent::Ambiguous handling path.
         // No explicit branch for Intent::Ambiguous here.
+        // intentional: Orchestrator handles this via RequestContextFromUser
 
         if matches!(classification.intent, Intent::OutOfScope) {
             let message = self
@@ -285,8 +266,7 @@ impl MasterAgent {
                 .format_out_of_scope(&user_context.language, &context.message)
                 .await?;
 
-            self.send_text_chunks(&tx, &message, &context.request_id, &user_context.language)
-                .await?;
+            self.send_text_chunks(&tx, &message, &context.request_id).await?;
             stats.finalize();
             tx.send(StreamEvent::Completed {
                 request_id: context.request_id.clone(),
@@ -309,6 +289,47 @@ impl MasterAgent {
         })
         .await?;
 
+        // Early context validation: check required fields before entering the
+        // orchestration loop. Workers panic with internal errors when context is
+        // missing; catching it here turns those crashes into a clean ContextRequest.
+        if let Some((msg_key, hint_key, field)) =
+            Self::missing_context_for_intent(&classification.intent, &user_context)
+        {
+            let prompt = {
+                let ftl = self.lang_manager.get_msg(lang_code, msg_key);
+                if ftl.is_empty() || ftl.starts_with("Missing message:") {
+                    msg_key.to_string()
+                } else {
+                    ftl
+                }
+            };
+            let hint = self.lang_manager.get_msg(lang_code, hint_key);
+            let suggestions = if hint.is_empty() || hint.starts_with("Missing message:") {
+                vec![]
+            } else {
+                vec![hint]
+            };
+            tracing::info!(
+                intent = ?classification.intent,
+                ?field,
+                "Context validation failed before orchestration loop"
+            );
+            tx.send(StreamEvent::ContextRequest {
+                request_id: context.request_id.clone(),
+                prompt,
+                suggestions,
+            })
+            .await?;
+            stats.finalize();
+            tx.send(StreamEvent::Completed {
+                request_id: context.request_id.clone(),
+                total_time_ms: start_time.elapsed().as_millis() as u64,
+                stats,
+            })
+            .await?;
+            return Ok(());
+        }
+
         let mut worker_results: Vec<WorkerResponse> = Vec::new();
         let current_context = user_context.clone();
         let mut step_count = 0u32;
@@ -329,12 +350,15 @@ impl MasterAgent {
                     .any(|r| r.worker_type == WorkerType::DescribeReport);
 
                 if !has_describe {
-                    // Force DescribeReport execution without going through LLM orchestration
+                    // Force DescribeReport execution without going through LLM orchestration.
+                    // Safety: current_report_id is guaranteed present by
+                    // missing_context_for_intent() which runs before this loop.
+                    #[allow(clippy::expect_used)]
                     let reports = ReportPair {
                         prev: current_context
                             .current_report_id
                             .clone()
-                            .ok_or("Missing current_report_id")?,
+                            .expect("current_report_id guaranteed by context validation"),
                         next: current_context.previous_report_id.clone(),
                     };
                     let worker_req = WorkerRequest {
@@ -387,7 +411,7 @@ impl MasterAgent {
                 .await?;
                 break;
             }
-
+            let orch_start = Instant::now();
             let (decision, orch_tokens) = self
                 .orchestrator
                 .decide_next_step(
@@ -397,7 +421,7 @@ impl MasterAgent {
                     &worker_results,
                 )
                 .await?;
-            stats.record_orchestrator(orch_tokens);
+            stats.record_orchestrator(orch_tokens, Some(orch_start.elapsed().as_millis() as u64));
             context.cancellation_token.check().await?;
 
             match decision {
@@ -410,12 +434,9 @@ impl MasterAgent {
                         &worker_req.worker_type
                     );
 
-                    let mut ctx = Context::new();
-                    ctx.insert("worker_type", &format!("{:?}", worker_req.worker_type));
-                    let executing_msg = self
-                        .template_manager
-                        .render(lang_code, "progress-executing-worker", ctx)
-                        .unwrap_or_else(|_| format!("Executing {:?}...", worker_req.worker_type));
+                    let worker_name = format!("{:?}", worker_req.worker_type);
+                    let executing_msg = self.lang_manager
+                        .get_msg_with_arg(lang_code, "progress-executing-worker", "worker", &worker_name);
 
                     tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
@@ -444,22 +465,59 @@ impl MasterAgent {
                 }
 
                 OrchestratorDecision::RequestContextFromUser {
-                    missing_field: _,
-                    prompt,
-                    suggestions,
+                    missing_field,
+                    prompt: orchestrator_prompt,
+                    suggestions: orchestrator_suggestions,
                 } => {
-                    // TODO:
-                    // structured clarification flow.
-                    // Current implementation concatenates suggestions as plain text.
-
-                    let prompt_with_suggestions = if !suggestions.is_empty() {
-                        format!("{} Suggestions: {}", prompt, suggestions.join(", "))
-                    } else {
-                        prompt
+                    // Resolve the canonical localized prompt for the missing field.
+                    // The orchestrator may supply its own prompt/suggestions, but we
+                    // prefer the FTL-sourced messages for consistency and i18n.
+                    //
+                    // Three cases where this branch fires:
+                    //  1. object_id missing  (any intent)
+                    //  2. DescribeReport: no current_report_id AND no previous_report_id
+                    //  3. CompareReports: both report IDs absent
+                    let (msg_key, suggestions_key) = match missing_field {
+                        ContextField::ObjectId => (
+                            "context-request-select-object",
+                            "context-request-select-object-hint",
+                        ),
+                        ContextField::CurrentReportId => (
+                            "context-request-select-report",
+                            "context-request-select-report-hint",
+                        ),
+                        ContextField::PreviousReportId => (
+                            "context-request-select-previous-report",
+                            "context-request-select-previous-report-hint",
+                        ),
                     };
-                    tx.send(StreamEvent::TextChunk {
+
+                    let prompt = {
+                        let ftl = self.lang_manager.get_msg(lang_code, msg_key);
+                        if ftl.is_empty() || ftl.starts_with("Missing message:") {
+                            orchestrator_prompt
+                        } else {
+                            ftl
+                        }
+                    };
+
+                    // Suggestions: prefer orchestrator-supplied list (it is context-aware);
+                    // fall back to a single FTL hint string when the list is empty.
+                    let suggestions = if !orchestrator_suggestions.is_empty() {
+                        orchestrator_suggestions
+                    } else {
+                        let hint = self.lang_manager.get_msg(lang_code, suggestions_key);
+                        if hint.is_empty() || hint.starts_with("Missing message:") {
+                            vec![]
+                        } else {
+                            vec![hint]
+                        }
+                    };
+
+                    tx.send(StreamEvent::ContextRequest {
                         request_id: context.request_id.clone(),
-                        chunk: prompt_with_suggestions,
+                        prompt,
+                        suggestions,
                     })
                     .await?;
                     stats.finalize();
@@ -568,19 +626,14 @@ impl MasterAgent {
         let start = Instant::now();
         let (result_data, tokens, llm_calls) = match worker_request.parameters {
             WorkerParameters::GetObjectTree(task_params) => {
-                let agent =
-                    ObjectAgent::new(self.client.clone(), context.clone(), event_tx.clone());
-
+                let agent = ObjectAgent::new(context.clone());
                 let result = agent.execute(state, &task_params).await?;
                 (result, None, 0u32)
             }
-
             WorkerParameters::GetReportList {
-                object_id: _,
                 task_params,
             } => {
                 let agent = DocumentAgent::new(
-                    self.client.clone(),
                     context.clone(),
                     event_tx.clone(),
                     self.lang_manager.clone(),
@@ -588,24 +641,21 @@ impl MasterAgent {
 
                 let result = agent
                     .execute(state, &task_params)
-                    //.execute_with_object(state, &object_id, &task_params)
                     .await?;
                 (result, None, 0u32)
             }
-
             WorkerParameters::DescribeReport { reports } => {
                 let agent = DescriptionAgent::new(
                     self.client.clone(),
                     context.clone(),
                     event_tx.clone(),
                     self.lang_manager.clone(),
-                    self.template_manager.clone(),
+                    self.template_manager.clone()
                 );
 
                 let (result, tokens, calls) = agent.execute_by_id(&state, &reports).await?;
                 (result, tokens, calls)
             }
-
             WorkerParameters::CompareReports { reports: _ } => {
                 let descriptions: Vec<Value> = previous_results
                     .iter()
@@ -630,7 +680,6 @@ impl MasterAgent {
                 let (result, tokens) = agent.execute_comparison(&state, descriptions).await?;
                 (result, tokens, 1u32)
             }
-
             WorkerParameters::RagQuery { query: _ } => {
                 let agent = ChatAgent::new(self.client.clone(), context.clone(), event_tx.clone());
 
@@ -730,7 +779,7 @@ impl MasterAgent {
     }
     fn failed_to_send(context: &AgentContext) {
         tracing::error!(
-            "Failed to send description response for request_id: {}",
+            "Failed to send response for request_id: {}",
             context.request_id
         );
     }
@@ -740,7 +789,6 @@ impl MasterAgent {
         tx: &Sender<StreamEvent>,
         text: &str,
         request_id: &str,
-        _language: &Language,
     ) -> Result<(), AgentError> {
         let sentences: Vec<&str> = text.unicode_sentences().collect();
 
@@ -785,6 +833,72 @@ impl MasterAgent {
             )
         });
         Ok(())
+    }
+
+    /// Checks whether the context contains all fields required for `intent`.
+    ///
+    /// Called **before** the orchestration loop so missing context is caught early
+    /// and returned as `StreamEvent::ContextRequest` instead of crashing inside a
+    /// worker with an opaque internal error.
+    ///
+    /// # Validation rules
+    /// - `GetReportList`, `DescribeReport`, `CompareReports` all require `object_id`.
+    /// - `DescribeReport` requires at least one of the two report IDs.
+    /// - `CompareReports` requires **both** `current_report_id` and `previous_report_id`
+    ///   because the comparison worker always describes two images. Missing either ID
+    ///   causes `InsufficientDescriptions` inside `ComparisonAgent`.
+    ///
+    /// Returns `Some((msg_key, hint_key, field))` when something is missing,
+    /// `None` when all required context is present.
+    fn missing_context_for_intent(
+        intent: &Intent,
+        ctx: &UserContext,
+    ) -> Option<(&'static str, &'static str, ContextField)> {
+        let needs_object = matches!(
+            intent,
+            Intent::GetReportList | Intent::DescribeReport | Intent::CompareReports
+        );
+        if needs_object && ctx.object_id.is_none() {
+            return Some((
+                "context-request-select-object",
+                "context-request-select-object-hint",
+                ContextField::ObjectId,
+            ));
+        }
+
+        match intent {
+            Intent::DescribeReport => {
+                if ctx.current_report_id.is_none() && ctx.previous_report_id.is_none() {
+                    return Some((
+                        "context-request-select-report",
+                        "context-request-select-report-hint",
+                        ContextField::CurrentReportId,
+                    ));
+                }
+            }
+            Intent::CompareReports => {
+                // Comparison requires exactly two reports to describe and then diff.
+                // Check current_report_id first; if that is present but previous is
+                // absent, ask specifically for the second (older) report.
+                if ctx.current_report_id.is_none() {
+                    return Some((
+                        "context-request-select-previous-report",
+                        "context-request-select-previous-report-hint",
+                        ContextField::CurrentReportId,
+                    ));
+                }
+                if ctx.previous_report_id.is_none() {
+                    return Some((
+                        "context-request-select-second-report",
+                        "context-request-select-second-report-hint",
+                        ContextField::PreviousReportId,
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        None
     }
 }
 

@@ -49,6 +49,26 @@ pub enum StreamEvent {
         total_time_ms: u64,
         stats: AgentStats,
     },
+    /// Sent when the agent needs missing context from the user before it can proceed.
+    ///
+    /// Triggered in exactly three situations:
+    /// 1. `object_id` is absent from context (any intent that needs a tree node).
+    /// 2. Intent is `DescribeReport` and neither `current_report_id` nor
+    ///    `previous_report_id` is present.
+    /// 3. Intent is `CompareReports` and both `current_report_id` and
+    ///    `previous_report_id` are absent.
+    ///
+    /// The UI should render `prompt` as the main message and `suggestions` as a
+    /// selectable list (e.g. chips / buttons).  Both fields are already
+    /// localized to the request language.
+    ContextRequest {
+        request_id: String,
+        /// Localized human-readable question for the user.
+        prompt: String,
+        /// Ordered list of localized hint strings the user can pick from.
+        /// Empty when no suggestions are available.
+        suggestions: Vec<String>,
+    },
     // Error events
     Error {
         request_id: String,

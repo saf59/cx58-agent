@@ -1,40 +1,44 @@
-CURRENT TASK:
+## CURRENT TASK
+
 Intent: {{ intent }}
 Confidence: {{ confidence }}
-Original Message: "{{ original_message }}"
+User message: "{{ original_message }}"
 
-CONTEXT STATUS:
-User ID: {{ user_id }} 
-Chat ID: {{ chat_id }} 
-Language: {{ language }} 
-{% if object_id -%}
-- Object ID: {{ object_id }} 
-{% endif -%}
-{% if current_report_id -%}
-- Current Report ID: {{ current_report_id }} 
-{% endif -%}
-{% if previous_report_id -%}
-- Previous Report ID: {{ previous_report_id }}                                                   
-{% endif %}
+---
 
-EXTRACTED PARAMETERS:
+## CONTEXT
+
+| Field               | Value                    |
+|---------------------|--------------------------|
+| Language            | {{ language }}           |
+| object_id           | {{ object_id }}          |
+| current_report_id   | {{ current_report_id }}  |
+| previous_report_id  | {{ previous_report_id }} |
+
+> "not_set" means the value was not provided. Treat it as absent.
+
+---
+
+## EXTRACTED PARAMETERS
+
+```json
 {{ extracted_parameters }}
+```
 
-MISSING CONTEXT FIELDS:
-{{ missing_context }}
+Missing context fields declared by router: {{ missing_context }}
 
-WORKER RESULTS SO FAR:
+---
+
+## WORKERS COMPLETED SO FAR
+
+{% if worker_results | length == 0 -%}
+None.
+{%- else -%}
 {% for result in worker_results %}
-Worker: {{ result.worker_type }}
-Status: {{ result.status }}
+- {{ result.worker_type }}: {{ result.status }}
 {% endfor %}
+{%- endif %}
 
-Based on this information, what is your next decision? Consider:
-1. Do we have all required context for this intent?
-2. Can we infer missing context from extracted parameters?
-3. If we need to ask the user, what specifically should we ask?
-4. Are we ready to execute a worker?
-5. Do we need multiple workers in sequence?
-6. Should we send a progress update?
+---
 
-Return your decision as valid JSON matching the specified format.
+Decide the single next action. Return valid JSON only.

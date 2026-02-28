@@ -66,15 +66,10 @@ analyzing-query = Analysiere Anfrage
 fetching-data = Lade Daten
 processing-results = Verarbeite Ergebnisse
 
-# locales/de/messages.ftl
-# ============================================================
-# German localisation for cx58-agent
-# ============================================================
-
-# ------------------------------------------------------------
-# Progress messages
-# ------------------------------------------------------------
-
+context-not-set = nicht_gesetzt
+error-unknown-decision = Unbekannter Entscheidungstyp: { $decision_type }
+error-classification   = Intent-Klassifizierung fehlgeschlagen: { $error }
+progress-executing-worker = Führe { $worker } aus...
 # ------------------------------------------------------------
 # Info / status messages
 # ------------------------------------------------------------
@@ -129,3 +124,19 @@ error-insufficient-descriptions =
 error-internal =
     Ein interner Fehler ist aufgetreten: { $detail }
     Bitte versuchen Sie es erneut oder wenden Sie sich an den Support.
+
+# Context request — object selection
+context-request-select-object = Bitte wählen Sie ein Objekt aus dem Baum aus, um fortzufahren.
+context-request-select-object-hint = Öffnen Sie den Objektbaum und tippen Sie auf das gewünschte Element.
+
+# Context request — current report selection
+context-request-select-report = Bitte wählen Sie einen Bericht aus, den Sie beschreiben möchten.
+context-request-select-report-hint = Wählen Sie einen Bericht aus der Liste aus, um die Beschreibung anzuzeigen.
+
+# Context request — previous report selection
+context-request-select-previous-report = Bitte wählen Sie zwei Berichte zum Vergleichen aus.
+context-request-select-previous-report-hint = Wählen Sie einen älteren und einen neueren Bericht aus der Liste.
+
+# Context request — second report missing
+context-request-select-second-report = Für den Vergleich wird ein zweiter Bericht benötigt.
+context-request-select-second-report-hint = Bitte wählen Sie einen anderen Bericht aus, um ihn mit dem aktuellen zu vergleichen.

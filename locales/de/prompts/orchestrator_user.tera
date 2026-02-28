@@ -1,40 +1,44 @@
-AKTUELLE AUFGABE:
-Absicht: {{ intent }}
-Konfidenz: {{ confidence }}
-Ursprüngliche Nachricht: "{{ original_message }}"
+## AKTUELLE AUFGABE
 
-KONTEXTSTATUS:
-Benutzer-ID: {{ user_id }} 
-Chat-ID: {{ chat_id }} 
-Sprache: {{ language }} 
-{% if object_id -%}
-- Objekt-ID: {{ object_id }} 
-{% endif -%}
-{% if current_report_id -%}
-- Aktuelle Bericht-ID: {{ current_report_id }} 
-{% endif -%}
-{% if previous_report_id -%}
-- Vorherige Bericht-ID: {{ previous_report_id }}                                                   
-{% endif %}
+Intent: {{ intent }}
+Confidence: {{ confidence }}
+Benutzeranfrage: "{{ original_message }}"
 
-EXTRAHIERTE PARAMETER:
+---
+
+## KONTEXT
+
+| Feld                | Wert                     |
+|---------------------|--------------------------|
+| Sprache             | {{ language }}           |
+| object_id           | {{ object_id }}          |
+| current_report_id   | {{ current_report_id }}  |
+| previous_report_id  | {{ previous_report_id }} |
+
+> "not_set" bedeutet, dass der Wert nicht bereitgestellt wurde. Behandeln Sie ihn als nicht vorhanden.
+
+---
+
+## EXTRAHIERTE PARAMETER
+
+```json
 {{ extracted_parameters }}
+```
 
-FEHLENDE KONTEXTFELDER:
-{{ missing_context }}
+Fehlende Kontextfelder laut Router: {{ missing_context }}
 
-BISHERIGE WORKER-ERGEBNISSE:
+---
+
+## BISHER AUSGEFÜHRTE WORKER
+
+{% if worker_results | length == 0 -%}
+Keine.
+{%- else -%}
 {% for result in worker_results %}
-Worker: {{ result.worker_type }}
-Status: {{ result.status }}
+- {{ result.worker_type }}: {{ result.status }}
 {% endfor %}
+{%- endif %}
 
-Welche Entscheidung triffst du auf Basis dieser Informationen? Berücksichtige dabei:
-1. Liegt für diese Absicht der gesamte erforderliche Kontext vor?
-2. Kann der fehlende Kontext aus den extrahierten Parametern abgeleitet werden?
-3. Falls der Benutzer befragt werden muss – was genau soll gefragt werden?
-4. Sind wir bereit, einen Worker auszuführen?
-5. Werden mehrere Worker nacheinander benötigt?
-6. Soll ein Fortschrittsupdate gesendet werden?
+---
 
-Gib deine Entscheidung als gültiges JSON zurück, das dem angegebenen Format entspricht.
+Entscheiden Sie die einzelne nächste Aktion. Geben Sie nur gültiges JSON zurück.

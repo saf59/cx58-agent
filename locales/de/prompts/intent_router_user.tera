@@ -1,25 +1,16 @@
 AKTUELLER KONTEXT:
 - Benutzer-ID: {{ user_id }}
 - Chat-ID: {{ chat_id }}
-- Antwortsprache: {{ language }}
-{% if object_id -%}
-- Objekt-ID: {{ object_id }} 
-{% endif -%}
-{% if current_report_id -%}
-- Aktuelle Bericht-ID: {{ current_report_id }} 
-{% endif -%}
-{% if previous_report_id -%}
-- Vorherige Bericht-ID: {{ previous_report_id }}                                                   
-{% endif %}
+- Sprache: {{ language }}
+- Objekt-ID: {{ object_id }}
+- Aktuelle Report-ID: {{ current_report_id }}
+- Vorherige Report-ID: {{ previous_report_id }}
 
 GESPRÄCHSVERLAUF:
 {{ conversation_history }}
 
 BENUTZERNACHRICHT:
-"{{ user_message }}"
+„{{ user_message }}"
 
-Analysiere diese Nachricht und klassifiziere die Absicht.
-Prüfe, welcher Kontext fehlt, und trage ihn in das Feld „missing_context" ein, sofern er für die klassifizierte Absicht erforderlich ist.
-„missing_context" MUSS eine Liste aller fehlenden Eigenschaften enthalten.
-Wenn kein bestimmtes Objekt oder kein bestimmter Bericht erwähnt wird, sind die Werte aus dem AKTUELLEN KONTEXT zu verwenden.
-Gib NUR gültiges JSON zurück, das dem angegebenen Format entspricht.
+Klassifiziere den Intent. Füge in missing_context alle Kontextfelder ein, die oben fehlen und für den klassifizierten Intent benötigt werden.
+Nur gültiges JSON zurückgeben.
