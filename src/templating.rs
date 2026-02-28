@@ -6,7 +6,7 @@ const TEMPLATE_FILES: &[(&str, &str)] = &[
     ("intent-router-user-prompt", "intent_router_user.tera"),
     ("orchestrator-user-prompt", "orchestrator_user.tera"),
     ("comparison-user-prompt", "comparison_user.tera"),
-    ("description-system-prompt", "descriptor_user.tera"),
+    ("descriptor-user-prompt", "descriptor_user.tera"),
     ("formatter-description-prompt", "formatter_description.tera"),
     ("formatter-comparison-prompt", "formatter_comparison.tera"),
     ("formatter-out-of-scope-prompt", "formatter_out_of_scope.tera"),

@@ -42,7 +42,7 @@ impl ResponseFormatter {
         // Get system prompt
         let system_prompt = self.lang_manager
             .get_prompt(lang, "formatter-system-prompt")?;
-        
+
         // Build user prompt using template
         let mut ctx = Context::new();
         ctx.insert("original_query", original_query);

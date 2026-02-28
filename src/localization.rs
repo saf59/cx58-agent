@@ -14,6 +14,7 @@ const PROMPT_FILES: &[(&str, &str)] = &[
     ("comparison-system-prompt", "comparison_system.txt"),
     ("formatter-system-prompt", "formatter_system.txt"),
     ("description-system-prompt", "descriptor_system.txt"),
+    ("chat-system-prompt", "chat-system-prompt.txt"),
 ];
 
 /// Internal request sent to localization worker thread
@@ -269,12 +270,14 @@ fn load_prompt_file(lang: &str, filename: &str) -> Result<String> {
         ("en", "comparison_system.txt") => include_str!("../locales/en/prompts/comparison_system.txt"),
         ("en", "formatter_system.txt") => include_str!("../locales/en/prompts/formatter_system.txt"),
         ("en", "descriptor_system.txt") => include_str!("../locales/en/prompts/descriptor_system.txt"),
+        ("en", "chat-system-prompt.txt") => include_str!("../locales/en/prompts/chat-system-prompt.txt"),
 
         ("de", "intent_router_system.txt") => include_str!("../locales/de/prompts/intent_router_system.txt"),
         ("de", "orchestrator_system.txt") => include_str!("../locales/de/prompts/orchestrator_system.txt"),
         ("de", "comparison_system.txt") => include_str!("../locales/de/prompts/comparison_system.txt"),
         ("de", "formatter_system.txt") => include_str!("../locales/de/prompts/formatter_system.txt"),
         ("de", "descriptor_system.txt") => include_str!("../locales/de/prompts/descriptor_system.txt"),
+        ("de", "chat-system-prompt.txt") => include_str!("../locales/de/prompts/chat-system-prompt.txt"),
 
         _ => return Err(anyhow::anyhow!("Unknown prompt")),
     };

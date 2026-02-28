@@ -34,7 +34,7 @@ use tera::Context;
 //   * Reports: "reports", "photos", "images", "dates"
 //   * Description: "describe", "what", "show me", "analyze"
 //   * Comparison: "compare", "difference", "changes", "vs", "between"
-//   * RAG: "why", "how", "explain", "what is", "purpose"
+//   * Chat: "why", "how", "explain", "what is", "purpose"
 // Current implementation relies on LLM classification. Consider adding keyword-based
 // pre-filtering or confidence scoring.
 

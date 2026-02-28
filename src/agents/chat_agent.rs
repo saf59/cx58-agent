@@ -1,6 +1,6 @@
 use crate::agents::agent_error::AgentError;
 use crate::agents::agents_helper::extract_text_from_choice;
-use crate::agents::StreamEvent;
+use crate::agents::{Language, LocalizationManager, StreamEvent};
 use crate::{AgentContext, AppState};
 use rig::completion::CompletionModel;
 use rig::prelude::CompletionClient;
@@ -11,21 +11,23 @@ use tokio::sync::mpsc;
 pub struct ChatAgent {
     client: Arc<ollama::Client>,
     context: AgentContext,
+    lang_manager: Arc<LocalizationManager>,
     event_tx: mpsc::Sender<StreamEvent>,
 }
 
 /// Interacts directly with the ollama text model.
-// RAG will be added later.
 // Must have  context that say "I'm only targeting the cx58".
 impl ChatAgent {
     pub fn new(
         client: Arc<ollama::Client>,
         context: AgentContext,
+        lang_manager: Arc<LocalizationManager>,
         event_tx: mpsc::Sender<StreamEvent>,
     ) -> Self {
         Self {
             client,
             context,
+            lang_manager,
             event_tx,
         }
     }
@@ -41,16 +43,20 @@ impl ChatAgent {
     ) -> Result<(String, Option<u64>), AgentError> {
         self.context.cancellation_token.check().await?;
 
-        let system_prompt = format!(
-            "You are a helpful assistant. Respond in {} language. Only answer the question based on the provided context. If you don't know the answer, say you don't know.",
-            self.context.language
-        );
+        let lang = Language::from_short(&self.context.language);
+        let lang_code = lang.to_code();
+        // Load system prompt.
+        let system_prompt = self
+            .lang_manager
+            .get_prompt(lang_code, "chat-system-prompt")
+            .map_err(|e| AgentError::internal(e))?;
+
 
         let model = self.client.completion_model(&state.ai_config.text_model);
         let request = model
             .completion_request(message)
             .preamble(system_prompt)
-            .temperature(0.2)
+            .temperature(0.5)
             .build();
         let response = model.completion(request).await?;
 

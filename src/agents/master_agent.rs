@@ -418,6 +418,7 @@ impl MasterAgent {
                     &classification,
                     &current_context,
                     &context.message,
+                    &context.request_id.to_string(),
                     &worker_results,
                 )
                 .await?;
@@ -548,7 +549,7 @@ impl MasterAgent {
                     worker_results: _decision_results,
                 } => {
                     if matches!(classification.intent, Intent::RagQuery) {
-                        tracing::info!("RagQuery completed");
+                        tracing::info!("Query completed");
                         stats.finalize();
                         tx.send(StreamEvent::Completed {
                             request_id: context.request_id.clone(),
@@ -681,7 +682,7 @@ impl MasterAgent {
                 (result, tokens, 1u32)
             }
             WorkerParameters::RagQuery { query: _ } => {
-                let agent = ChatAgent::new(self.client.clone(), context.clone(), event_tx.clone());
+                let agent = ChatAgent::new(self.client.clone(), context.clone(), self.lang_manager.clone(), event_tx.clone());
 
                 let (result, tokens) = agent.execute(state, &context.message).await?;
                 (json!({ "answer": result }), tokens, 1u32)

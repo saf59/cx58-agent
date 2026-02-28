@@ -46,7 +46,6 @@ use rig::providers::ollama;
 use serde_json::Value;
 use std::sync::Arc;
 use tera::Context;
-use uuid::Uuid;
 
 //noinspection ALL
 /// # Orchestrator - Coordination Agent
@@ -194,6 +193,7 @@ impl Orchestrator {
         classification: &ClassificationResult,
         context: &UserContext,
         original_message: &str,
+        request_id: &str,
         worker_results: &[WorkerResponse],
     ) -> Result<(OrchestratorDecision, Option<u64>), AgentError> {
         let lang = context.language.to_code();
@@ -288,7 +288,7 @@ impl Orchestrator {
             err
         })?;
 
-        let decision = self.parse_decision(decision_json, lang, context, worker_results)?;
+        let decision = self.parse_decision(decision_json, lang, context, request_id, worker_results)?;
 
         Ok((decision, tokens))
     }
@@ -514,10 +514,9 @@ impl Orchestrator {
         decision_json: Value,
         lang: &str,
         context: &UserContext,
+        request_id: &str,
         worker_results: &[WorkerResponse],
     ) -> Result<OrchestratorDecision, AgentError> {
-        // Generate unique request ID for tracking
-        let request_id = Uuid::now_v7().to_string();
 
         // Extract decision type from JSON
         let decision_type = decision_json["decision"]
@@ -614,7 +613,7 @@ impl Orchestrator {
                         }
                     }
 
-                    // Knowledge Base Worker: RAG retrieval for project questions
+                    // Knowledge Base Worker: Chat retrieval for project questions
                     "RagQuery" | "RAG_QUERY" => {
                         let query = action_data["parameters"]["query"]
                             .as_str()
@@ -658,7 +657,7 @@ impl Orchestrator {
                     context: WorkerContext {
                         user_id: context.user_id.clone(),
                         language: context.language.clone(),
-                        request_id,
+                        request_id: request_id.to_string(),
                     },
                 }))
             }
