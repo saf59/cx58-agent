@@ -556,7 +556,7 @@ impl Orchestrator {
                             tracing::error!("Orchestrator parse task_params: {} {}", err, e);
                             err
                         })?;
-                        WorkerParameters::GetObjectTree(task_params)
+                        WorkerParameters::GetObjectTree{task_params}
                     }
 
                     // Report List Worker: Retrieves photo reports with date filtering

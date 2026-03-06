@@ -32,11 +32,10 @@ sqlx = { version = "0.8", features = [
 
 # S3 Storage - ULTRA LIGHTWEIGHT! 🚀
 # Only ~50KB + reqwest (~200KB) = Total ~250KB
-
 rust-s3 = { version = "0.37", default-features = false, features = ["tokio-native-tls"] }
 
 # AI/LLM
-rig-core = "0.31"
+rig-core = "0.32"
 
 # Utilities
 uuid = { version = "1", features = ["serde", "v7"] }

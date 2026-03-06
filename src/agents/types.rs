@@ -13,6 +13,8 @@ pub struct ClassificationResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Intent {
+    GetObjectId,
+    GetDocumentsId,
     GetObjectTree,
     GetReportList,
     DescribeReport,
@@ -130,7 +132,9 @@ pub struct ReportPair {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 //#[serde(tag = "chunk_type", content = "data")]
 pub enum WorkerParameters {
-    GetObjectTree(TaskParameters),
+    GetObjectTree {
+        task_params:TaskParameters
+    },
     GetReportList {
         task_params: TaskParameters,
     },
@@ -139,6 +143,13 @@ pub enum WorkerParameters {
     },
     CompareReports {
         reports: Value,
+    },
+    DocumentsIdFinder {
+        task_params: TaskParameters,
+        object_id: String,
+    },
+    ObjectIdFinder {
+        object_name: String,
     },
     RagQuery {
         query: String,
@@ -169,6 +180,8 @@ pub enum OrchestratorDecision {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 //#[serde(tag = "chunk_type", content = "data")]
 pub enum WorkerType {
+    ObjectIdFinder,
+    DocumentsIdFinder,
     GetObjectTree,
     GetReportList,
     DescribeReport,

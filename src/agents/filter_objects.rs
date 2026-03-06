@@ -12,7 +12,7 @@ impl Period {
             Period::Day => 1,
             Period::Week => 7,
             Period::Month => 30,
-            Period::Quarter => 90,
+            Period::Quarter => 91,
             Period::Year => 365,
         }
     }

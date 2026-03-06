@@ -19,6 +19,9 @@ pub mod agent_context;
 pub mod agents_helper;
 pub mod agent_error;
 pub mod stats;
+pub mod object_id_finder;
+pub mod documents_id_finder;
+
 pub use crate::localization::LocalizationManager;
 pub use agent_context::AgentContext;
 pub use cancellation::{CancellationToken, RequestManager};

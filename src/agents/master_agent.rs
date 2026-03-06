@@ -67,7 +67,7 @@
 //!
 
 use rig::providers::ollama;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -76,12 +76,14 @@ use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
 
 use super::{
-    ChatAgent, ComparisonAgent, DescriptionAgent, DocumentAgent, ObjectAgent,
-    intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter,
-    types::*,
+    intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter, types::*, ChatAgent,
+    ComparisonAgent, DescriptionAgent, DocumentAgent,
+    ObjectAgent,
 };
 
 use crate::agents::agent_error::AgentError;
+use crate::agents::documents_id_finder::DocumentsIdFinder;
+use crate::agents::object_id_finder::ObjectIdFinder;
 use crate::agents::stats::AgentStats;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
@@ -217,7 +219,7 @@ impl MasterAgent {
                     .send(StreamEvent::Completed {
                         request_id: context.request_id.clone(),
                         total_time_ms: start_time.elapsed().as_millis() as u64,
-                        stats : AgentStats::default()
+                        stats: AgentStats::default(),
                     })
                     .await;
             }
@@ -253,7 +255,10 @@ impl MasterAgent {
             .classify(&context.message, &user_context, &[])
             .await?;
         tracing::info!("Intent classification result: {:?}", &classification.intent);
-        stats.record_router(router_tokens, Some(intent_start.elapsed().as_millis() as u64));
+        stats.record_router(
+            router_tokens,
+            Some(intent_start.elapsed().as_millis() as u64),
+        );
         context.cancellation_token.check().await?;
 
         // Intent::Ambiguous handling path.
@@ -266,7 +271,8 @@ impl MasterAgent {
                 .format_out_of_scope(&user_context.language, &context.message)
                 .await?;
 
-            self.send_text_chunks(&tx, &message, &context.request_id).await?;
+            self.send_text_chunks(&tx, &message, &context.request_id)
+                .await?;
             stats.finalize();
             tx.send(StreamEvent::Completed {
                 request_id: context.request_id.clone(),
@@ -436,8 +442,12 @@ impl MasterAgent {
                     );
 
                     let worker_name = format!("{:?}", worker_req.worker_type);
-                    let executing_msg = self.lang_manager
-                        .get_msg_with_arg(lang_code, "progress-executing-worker", "worker", &worker_name);
+                    let executing_msg = self.lang_manager.get_msg_with_arg(
+                        lang_code,
+                        "progress-executing-worker",
+                        "worker",
+                        &worker_name,
+                    );
 
                     tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
@@ -555,7 +565,8 @@ impl MasterAgent {
                             request_id: context.request_id.clone(),
                             total_time_ms: start_time.elapsed().as_millis() as u64,
                             stats: stats.clone(),
-                        }).await?;
+                        })
+                        .await?;
 
                         break;
                     }
@@ -596,6 +607,8 @@ impl MasterAgent {
 
     fn intent_ready(intent: Intent, worker_results: &[WorkerResponse]) -> Vec<WorkerResponse> {
         let worker_type = match intent {
+            Intent::GetObjectId => Some(WorkerType::ObjectIdFinder),
+            Intent::GetDocumentsId => Some(WorkerType::DocumentsIdFinder),
             Intent::DescribeReport => Some(WorkerType::DescribeReport),
             Intent::CompareReports => Some(WorkerType::CompareReports),
             Intent::GetObjectTree => Some(WorkerType::GetObjectTree),
@@ -626,23 +639,35 @@ impl MasterAgent {
     ) -> Result<WorkerResponse, Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
         let (result_data, tokens, llm_calls) = match worker_request.parameters {
-            WorkerParameters::GetObjectTree(task_params) => {
+            WorkerParameters::GetObjectTree {task_params} => {
                 let agent = ObjectAgent::new(context.clone());
+                // get object tree is a simple lookup, no LLM calls, so tokens and calls are 0
                 let result = agent.execute(state, &task_params).await?;
                 (result, None, 0u32)
             }
-            WorkerParameters::GetReportList {
+            WorkerParameters::ObjectIdFinder {object_name} => {
+                let agent = ObjectIdFinder::new(context.clone());
+                // get object id by name is a simple lookup, no LLM calls, so tokens and calls are 0
+                let result: String = agent.execute(state, &object_name).await?;
+                (json!(result), None, 0u32)
+            }
+            WorkerParameters::DocumentsIdFinder {
                 task_params,
+                object_id,
             } => {
+                let agent = DocumentsIdFinder::new(context.clone());
+                // get documents id by object id is a simple lookup, no LLM calls, so tokens and calls are 0
+                let result:ReportPair = agent.execute(state, &task_params, &object_id).await?;
+                (json!(result), None, 0u32)
+            }
+            WorkerParameters::GetReportList { task_params } => {
                 let agent = DocumentAgent::new(
                     context.clone(),
                     event_tx.clone(),
                     self.lang_manager.clone(),
                 );
-
-                let result = agent
-                    .execute(state, &task_params)
-                    .await?;
+                // get report list is a simple lookup, no LLM calls, so tokens and calls are 0
+                let result = agent.execute(state, &task_params).await?;
                 (result, None, 0u32)
             }
             WorkerParameters::DescribeReport { reports } => {
@@ -651,9 +676,9 @@ impl MasterAgent {
                     context.clone(),
                     event_tx.clone(),
                     self.lang_manager.clone(),
-                    self.template_manager.clone()
+                    self.template_manager.clone(),
                 );
-
+                // it is heavy operation with LLM calls, so we count tokens and calls
                 let (result, tokens, calls) = agent.execute_by_id(&state, &reports).await?;
                 (result, tokens, calls)
             }
@@ -677,12 +702,17 @@ impl MasterAgent {
                     self.lang_manager.clone(),
                     self.template_manager.clone(),
                 );
-                //let descriptions_value = Value::Array(descriptions);
+                // it is heavy operation with LLM calls, so we count tokens
                 let (result, tokens) = agent.execute_comparison(&state, descriptions).await?;
                 (result, tokens, 1u32)
             }
             WorkerParameters::RagQuery { query: _ } => {
-                let agent = ChatAgent::new(self.client.clone(), context.clone(), self.lang_manager.clone(), event_tx.clone());
+                let agent = ChatAgent::new(
+                    self.client.clone(),
+                    context.clone(),
+                    self.lang_manager.clone(),
+                    event_tx.clone(),
+                );
 
                 let (result, tokens) = agent.execute(state, &context.message).await?;
                 (json!({ "answer": result }), tokens, 1u32)

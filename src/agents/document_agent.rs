@@ -8,16 +8,17 @@
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use sqlx::PgPool;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::agents::agent_error::AgentError;
 use crate::agents::LocalizationManager;
-use crate::db::{get_node_with_leafs, NodeType};
+use crate::db::{get_node_with_leafs, NodeType, NodeWithLeaf};
 use crate::storage::set_storage_url;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
-const MAX_DOCUMENTS_ALL: i32 = 100;
+pub const MAX_DOCUMENTS_ALL: i32 = 366;
 pub struct DocumentAgent {
     context: AgentContext,
     event_tx: mpsc::Sender<StreamEvent>,
@@ -41,7 +42,7 @@ impl DocumentAgent {
         &self,
         state: Arc<AppState>,
         parameters: &TaskParameters,
-    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Value, AgentError> {
         let pool = &state.db;
 
         // Validate object_id presence.
@@ -56,17 +57,7 @@ impl DocumentAgent {
             raw: node_id_str.to_string(),
         })?;
 
-        let limit = if parameters.all { MAX_DOCUMENTS_ALL } else { 2 };
-
-        let mut data = if let Some(period) = &parameters.period {
-            let to = Utc::now().naive_utc();
-            let amount = parameters.amount.unwrap_or(1);
-            let days = period.to_days() * amount as i64;
-            let from = to - chrono::Duration::days(days);
-            get_node_with_leafs(pool, node_id, Some(limit), Some(from), Some(to)).await?
-        } else {
-            get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
-        };
+        let mut data = get_documents(&parameters, pool, node_id).await?;
 
         // No results — send a localized info message and return empty.
         if data.is_empty() {
@@ -94,3 +85,22 @@ impl DocumentAgent {
         Ok(json!(data))
     }
 }
+    pub async fn get_documents(parameters: &&TaskParameters, pool: &PgPool, node_id: Uuid) -> Result<Vec<NodeWithLeaf>, AgentError> {
+        let limit = if parameters.all { MAX_DOCUMENTS_ALL } else { 2 };
+        let amount = if parameters.all {
+            MAX_DOCUMENTS_ALL as usize
+        } else {
+            parameters.amount.unwrap_or(1)
+        };
+
+        let data = if let Some(period) = &parameters.period {
+            let to = Utc::now().naive_utc();
+            let days = period.to_days() * amount as i64;
+            let from = to - chrono::Duration::days(days);
+            get_node_with_leafs(pool, node_id, Some(limit), Some(from), Some(to)).await?
+        } else {
+            get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
+        };
+        Ok(data)
+    }
+
