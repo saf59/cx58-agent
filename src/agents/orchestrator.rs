@@ -384,6 +384,16 @@ impl Orchestrator {
             "missing_context",
             &serde_json::to_string(&classification.missing_context).unwrap_or_default(),
         );
+        // Surface object_identifier as a top-level field so the LLM can decide
+        // to dispatch ObjectIdFinder without having to parse the extracted_parameters blob.
+        ctx.insert(
+            "object_identifier",
+            classification
+                .extracted_parameters
+                .object_identifier
+                .as_deref()
+                .unwrap_or("not_set"),
+        );
 
         let results: Vec<Value> = worker_results
             .iter()
@@ -592,10 +602,20 @@ impl Orchestrator {
                             tracing::error!("Orchestrator parse current_report_id: {}", err);
                             return Err(err);
                         }
+                        // Validate that prev is a valid UUID, not a placeholder like "not_set".
+                        if uuid::Uuid::parse_str(&current_report_id).is_err() {
+                            let err = AgentError::internal(format!(
+                                "Invalid UUID: '{}'", current_report_id
+                            ));
+                            tracing::error!("Orchestrator parse current_report_id: {}", err);
+                            return Err(err);
+                        }
 
-                        // Previous report is optional (for comparing with previous)
+                        // Previous report is optional — filter out "not_set" placeholders that
+                        // the LLM may copy verbatim from the context table.
                         let previous_report_id = action_data["parameters"]["reports"]["next"]
                             .as_str()
+                            .filter(|s| uuid::Uuid::parse_str(s).is_ok())
                             .map(|s| s.to_string());
 
                         let reports = ReportPair {
@@ -626,6 +646,53 @@ impl Orchestrator {
                         WorkerParameters::RagQuery { query }
                     }
 
+                    // Object resolution worker: finds object UUID by human-readable name.
+                    // Dispatched automatically when object_id is absent but
+                    // object_identifier was extracted from the user message.
+                    "ObjectIdFinder" | "OBJECT_ID_FINDER" => {
+                        let object_name = action_data["parameters"]["object_name"]
+                            .as_str()
+                            .ok_or_else(|| {
+                                let err = AgentError::internal(
+                                    "Missing object_name for ObjectIdFinder",
+                                );
+                                tracing::error!("Orchestrator parse parameters: {}", err);
+                                err
+                            })?
+                            .to_string();
+                        WorkerParameters::ObjectIdFinder { object_name }
+                    }
+
+                    // Document resolution worker: finds report UUIDs by object_id and
+                    // task_params. Dispatched automatically after ObjectIdFinder resolves
+                    // object_id, when report IDs are absent but task_params are present.
+                    "DocumentsIdFinder" | "DOCUMENTS_ID_FINDER" => {
+                        let task_params: TaskParameters = serde_json::from_value(
+                            action_data["parameters"]["task_params"].clone(),
+                        )
+                        .map_err(|e| {
+                            let err = AgentError::internal(format!(
+                                "Missing or invalid TaskParameters for DocumentsIdFinder: {}",
+                                e
+                            ));
+                            tracing::error!("Orchestrator parse task_params: {}", err);
+                            err
+                        })?;
+                        // object_id must already be present in context — either supplied
+                        // by the client or written back by ObjectIdFinder in a prior step.
+                        let object_id = context.object_id.clone().ok_or_else(|| {
+                            let err = AgentError::internal(
+                                "DocumentsIdFinder requires object_id — ObjectIdFinder must run first",
+                            );
+                            tracing::error!("Orchestrator parse context: {}", err);
+                            err
+                        })?;
+                        WorkerParameters::DocumentsIdFinder {
+                            task_params,
+                            object_id,
+                        }
+                    }
+
                     // Unknown worker type - return error
                     _ => {
                         let msg = self.lang_manager.get_msg(lang, "error-unknown-worker");
@@ -642,6 +709,8 @@ impl Orchestrator {
                     "DescribeReport" | "DESCRIBE_REPORT" => WorkerType::DescribeReport,
                     "CompareReports" | "COMPARE_REPORTS" => WorkerType::CompareReports,
                     "RagQuery" | "RAG_QUERY" => WorkerType::RagQuery,
+                    "ObjectIdFinder" | "OBJECT_ID_FINDER" => WorkerType::ObjectIdFinder,
+                    "DocumentsIdFinder" | "DOCUMENTS_ID_FINDER" => WorkerType::DocumentsIdFinder,
                     _ => {
                         let msg = self.lang_manager.get_msg(lang, "error-unknown-worker");
                         let err = AgentError::internal(msg);

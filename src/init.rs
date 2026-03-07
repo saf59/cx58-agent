@@ -32,7 +32,7 @@ pub struct S3Config {
     pub public_url_base: String,
 }
 impl S3Config {
-    pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_env() -> Result<Self, Box<dyn Error>> {
         Ok(S3Config {
             bucket: std::env::var("S3_BUCKET").expect("S3_BUCKET must be set"),
             region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
@@ -45,7 +45,7 @@ impl S3Config {
 }
 
 impl Config {
-    pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_env() -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             database_url: std::env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
             s3: S3Config::from_env()?,
@@ -98,8 +98,7 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     let client = Arc::new(ollama::Client::builder()
         .api_key(Nothing)
         .base_url(ai_config.url.clone())
-        .build()
-        .unwrap());
+        .build()?);
     //let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
     let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
 
@@ -122,9 +121,10 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
 // Setup Functions
 // ============================================================================
 
-async fn setup_database(config: &Config) -> Result<sqlx::PgPool, sqlx::Error> {
+async fn setup_database(config: &Config) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(50)
+        .acquire_timeout(std::time::Duration::from_secs(30))
         .connect(&config.database_url)
         .await
 }

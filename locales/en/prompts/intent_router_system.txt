@@ -36,7 +36,7 @@ OUTPUT — return ONLY valid JSON, no markdown fences:
     "task_params": { "last": true, "all": false, "period": null, "amount": null },
     "object_identifier": "Building A or null",
     "time_reference": "last week or null",
-    "report_references": []
+    "report_references": ["latest", "from last week"]
   },
   "missing_context": [],
   "reasoning": "one sentence"
@@ -50,3 +50,12 @@ RULES:
 5. Use CURRENT CONTEXT values when the user does not specify an object or report.
 6. confidence ≥ 0.9 for clear queries · 0.6–0.8 for moderate · < 0.6 for ambiguous.
 7. Prefer specific intent over general (DESCRIBE > GET_REPORT_LIST).
+8. If the user names a specific object in the message, ALWAYS populate object_identifier
+   in extracted_parameters — even when object_id is already set in CURRENT CONTEXT.
+9. Never classify intent as GET_OBJECT_ID or GET_DOCUMENTS_ID — these are internal
+   orchestrator steps, not user-facing intents.
+10. report_references must be an array of plain strings (e.g. "latest", "current", "previous").
+    Never use objects — wrong: [{"id":"...","type":"..."}], correct: ["latest"].
+11. object_identifier: if object_id is already set in CURRENT CONTEXT and the user did not
+    explicitly name a different object, set object_identifier to null — never copy "not_set"
+    or the existing UUID into object_identifier.

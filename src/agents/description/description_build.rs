@@ -32,6 +32,25 @@ pub fn extract_description_content_robust(
     {
         return Ok(content);
     }
+    // Step 2.5: LLM wrapped the JSON in quotes — unescape and try again
+    if let Ok(inner) = serde_json::from_str::<String>(llm_response.trim()) {
+        if let Ok(content) = serde_json::from_str::<DescriptionContent>(inner.trim())  {
+            if !content.description.trim().is_empty() {
+                return Ok(content);
+            }
+        }
+        // Also try find { } inside the unescaped string
+        if let Some(start) = inner.find('{') {
+            if let Some(end) = inner.rfind('}') {
+                let json_str = &inner[start..=end];
+                if let Ok(content) = serde_json::from_str::<DescriptionContent>(json_str) {
+                    if !content.description.trim().is_empty() {
+                        return Ok(content);
+                    }
+                }
+            }
+        }
+    }
 
     // Step 3: Try to find JSON object in the text
     if let Some(start) = llm_response.find('{') {

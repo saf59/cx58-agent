@@ -19,11 +19,14 @@ impl ObjectIdFinder {
         object_name: &str,
     ) -> Result<String, AgentError> {
         let tree = get_tree(&state.db, &self.context.user_id, true).await?;
+        let object_name_lower = object_name.to_lowercase();
+
         let branch = tree.iter().find(|it| {
             it.own
                 && it.node_type == crate::db::NodeType::Branch
-                && it.name.as_deref() == Some(object_name)
+                && it.name.as_deref().map(|n| n.to_lowercase()) == Some(object_name_lower.clone())
         });
+
         if branch.is_none() {
             tracing::warn!("ObjectIdFinder: object with name {} not found", object_name);
             return Err(AgentError::ObjectNotFound {

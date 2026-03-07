@@ -29,7 +29,31 @@ pub struct ExtractedParameters {
     pub task_params: Option<TaskParameters>,
     pub object_identifier: Option<String>, // "Building A", "Site 123", etc.
     pub time_reference: Option<String>, // "last week", "yesterday", etc.
+    #[serde(deserialize_with = "deserialize_report_references")]
     pub report_references: Vec<String>, // "latest", "from Monday", etc.
+}
+
+fn deserialize_report_references<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(values
+        .into_iter()
+        .map(|v| match v {
+            // Plain string: "latest", "current"
+            serde_json::Value::String(s) => s,
+            // Object: {"id": "uuid", "type": "current"} — extract "id" if present
+            serde_json::Value::Object(map) => {
+                map.get("id")
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            }
+            other => other.to_string(),
+        })
+        .filter(|s| !s.is_empty())
+        .collect())
 }
 
 /// Custom deserializer for Optional TaskParameters
@@ -112,11 +136,25 @@ pub struct UserContext {
     pub previous_report_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ContextField {
     ObjectId,
     CurrentReportId,
     PreviousReportId,
+}
+impl<'de> serde::Deserialize<'de> for ContextField {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        match s.replace(' ', "").as_str() {
+            "ObjectId" | "ObjectID" => Ok(ContextField::ObjectId),
+            "CurrentReportId" | "CurrentReportID" => Ok(ContextField::CurrentReportId),
+            "PreviousReportId" | "PreviousReportID" => Ok(ContextField::PreviousReportId),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["ObjectId", "CurrentReportId", "PreviousReportId"],
+            )),
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct WorkerRequest {

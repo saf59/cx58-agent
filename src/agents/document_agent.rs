@@ -97,6 +97,10 @@ impl DocumentAgent {
             let to = Utc::now().naive_utc();
             let days = period.to_days() * amount as i64;
             let from = to - chrono::Duration::days(days);
+            tracing::info!(
+                "DocumentAgent: fetching documents with period filter - from {} to {}, limit {}, amount {}, period {:?}, days {}",
+                from, to, limit, amount , period, days
+            );
             get_node_with_leafs(pool, node_id, Some(limit), Some(from), Some(to)).await?
         } else {
             get_node_with_leafs(pool, node_id, Some(limit), None, None).await?

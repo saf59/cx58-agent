@@ -87,7 +87,7 @@ use crate::agents::object_id_finder::ObjectIdFinder;
 use crate::agents::stats::AgentStats;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
-use crate::{AgentContext, AgentRequest, AiConfig, AppState, RequestManager, StreamEvent};
+use crate::{load_session, save_session, AgentContext, AgentRequest, AiConfig, AppState, RequestManager, StreamEvent};
 
 /// # MasterAgent
 ///
@@ -114,7 +114,7 @@ use crate::{AgentContext, AgentRequest, AiConfig, AppState, RequestManager, Stre
 ///                        └───────────────────────┘
 /// ```
 
-const MAX_ORCHESTRATION_STEPS: u32 = 5;
+const MAX_ORCHESTRATION_STEPS: u32 = 8;
 pub struct MasterAgent {
     client: Arc<ollama::Client>,
     config: AiConfig,
@@ -167,6 +167,8 @@ impl MasterAgent {
         state: Arc<AppState>,
         request: AgentRequest,
     ) -> mpsc::Receiver<StreamEvent> {
+        tracing::debug!("\nMessage: {:?}, object_id: {:?}, prev_leaf:{:?},next_leaf:{:?}",
+            &request.message, &request.object_id, &request.prev_leaf, &request.next_leaf);
         let (tx, rx) = mpsc::channel(100);
 
         let lang_manager = self.lang_manager.clone();
@@ -176,6 +178,21 @@ impl MasterAgent {
 
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
+            let mut request = request;
+
+            // Load session and fill missing fields from previous request
+            if let Some(session) = load_session(&state.db, &request.user_id, &request.chat_id).await {
+                if request.object_id.is_none() {
+                    request.object_id = session.object_id;
+                }
+                if request.prev_leaf.is_none() {
+                    request.prev_leaf = session.prev_leaf;
+                }
+                if request.next_leaf.is_none() {
+                    request.next_leaf = session.next_leaf;
+                }
+            }
+
             let cancellation_token = agent.request_manager.register(request_id.clone()).await;
             let context = AgentContext::from_request(
                 request_id.clone(),
@@ -298,8 +315,15 @@ impl MasterAgent {
         // Early context validation: check required fields before entering the
         // orchestration loop. Workers panic with internal errors when context is
         // missing; catching it here turns those crashes into a clean ContextRequest.
+        // Fields that can be auto-resolved (object_identifier present in extracted
+        // parameters, or task_params available for report resolution) are skipped —
+        // the orchestrator loop will handle them via ObjectIdFinder / DocumentsIdFinder.
         if let Some((msg_key, hint_key, field)) =
-            Self::missing_context_for_intent(&classification.intent, &user_context)
+            Self::missing_context_for_intent(
+                &classification.intent,
+                &user_context,
+                &classification.extracted_parameters,
+            )
         {
             let prompt = {
                 let ftl = self.lang_manager.get_msg(lang_code, msg_key);
@@ -337,7 +361,9 @@ impl MasterAgent {
         }
 
         let mut worker_results: Vec<WorkerResponse> = Vec::new();
-        let current_context = user_context.clone();
+        // Mutable so ObjectIdFinder / DocumentsIdFinder results can be written
+        // back into context before the next orchestrator call.
+        let mut current_context = user_context.clone();
         let mut step_count = 0u32;
 
         loop {
@@ -350,7 +376,10 @@ impl MasterAgent {
             context.cancellation_token.check().await?;
 
             // Guard: CompareReports require DescribeReport
-            if matches!(classification.intent, Intent::CompareReports) {
+            if matches!(classification.intent, Intent::CompareReports)
+                && current_context.current_report_id.is_some()
+                && current_context.previous_report_id.is_some() {
+
                 let has_describe = worker_results
                     .iter()
                     .any(|r| r.worker_type == WorkerType::DescribeReport);
@@ -359,12 +388,44 @@ impl MasterAgent {
                     // Force DescribeReport execution without going through LLM orchestration.
                     // Safety: current_report_id is guaranteed present by
                     // missing_context_for_intent() which runs before this loop.
-                    #[allow(clippy::expect_used)]
+                    let Some(current_report_id) = current_context.current_report_id.clone() else {
+                        // Orchestrator bypassed DocumentsIdFinder — emit ContextRequest safely.
+                        let prompt = {
+                            let ftl = self.lang_manager.get_msg(lang_code, "context-request-select-report");
+                            if ftl.is_empty() || ftl.starts_with("Missing message:") {
+                                "context-request-select-report".to_string()
+                            } else {
+                                ftl
+                            }
+                        };
+                        let hint = self.lang_manager.get_msg(lang_code, "context-request-select-report-hint");
+                        let suggestions = if hint.is_empty() || hint.starts_with("Missing message:") {
+                            vec![]
+                        } else {
+                            vec![hint]
+                        };
+                        tracing::warn!(
+                            "CompareReports guard: current_report_id missing after orchestration — \
+                             emitting ContextRequest instead of panicking"
+                        );
+                        tx.send(StreamEvent::ContextRequest {
+                            request_id: context.request_id.clone(),
+                            prompt,
+                            suggestions,
+                        })
+                            .await?;
+                        stats.finalize();
+                        tx.send(StreamEvent::Completed {
+                            request_id: context.request_id.clone(),
+                            total_time_ms: start_time.elapsed().as_millis() as u64,
+                            stats,
+                        })
+                            .await?;
+                        return Ok(());
+                    };
+
                     let reports = ReportPair {
-                        prev: current_context
-                            .current_report_id
-                            .clone()
-                            .expect("current_report_id guaranteed by context validation"),
+                        prev: current_report_id,
                         next: current_context.previous_report_id.clone(),
                     };
                     let worker_req = WorkerRequest {
@@ -377,15 +438,19 @@ impl MasterAgent {
                         },
                     };
 
+                    let mut worker_agent_context = context.clone();
+                    worker_agent_context.object_id = current_context.object_id.clone();
+                    worker_agent_context.prev_leaf = current_context.current_report_id.clone();
+                    worker_agent_context.next_leaf = current_context.previous_report_id.clone();
+
                     let result = self
                         .execute_worker_via_agent(
                             state.clone(),
-                            context.clone(),
+                            worker_agent_context,
                             worker_req,
                             tx.clone(),
                             &worker_results,
-                        )
-                        .await
+                        ).await
                         .map_err(|e| {
                             tracing::error!("Worker execution failed: {}", e);
                             e
@@ -398,10 +463,24 @@ impl MasterAgent {
                         result.metadata.tokens_used,
                     );
                     worker_results.push(result);
+                    // CompareReports guard always pushes DescribeReport results,
+                    // no ID resolution happens here — but call for consistency.
+                    Self::apply_resolution_to_context(
+                        &mut current_context,
+                        worker_results.last().unwrap(),
+                    );
                     continue; // next iteration — DescribeReport result is now available
                 }
             }
             let ready = Self::intent_ready(classification.intent.clone(), &worker_results);
+            save_session(
+                &state.db,
+                &current_context.user_id,
+                &current_context.chat_id,
+                current_context.object_id.as_deref(),
+                current_context.current_report_id.as_deref(),   // = prev_leaf
+                current_context.previous_report_id.as_deref(),  // = next_leaf
+            ).await;
             if !ready.is_empty() {
                 tracing::info!(
                     "Intent ready for response formatting: {:?}",
@@ -441,13 +520,16 @@ impl MasterAgent {
                         &worker_req.worker_type
                     );
 
-                    let worker_name = format!("{:?}", worker_req.worker_type);
-                    let executing_msg = self.lang_manager.get_msg_with_arg(
-                        lang_code,
-                        "progress-executing-worker",
-                        "worker",
-                        &worker_name,
-                    );
+                    let progress_key = match worker_req.worker_type {
+                        WorkerType::ObjectIdFinder      => "progress-worker-finding-object",
+                        WorkerType::DocumentsIdFinder   => "progress-worker-finding-reports",
+                        WorkerType::GetObjectTree       => "progress-worker-loading-tree",
+                        WorkerType::GetReportList       => "progress-worker-loading-reports",
+                        WorkerType::DescribeReport      => "progress-worker-describing-report",
+                        WorkerType::CompareReports      => "progress-worker-comparing-reports",
+                        WorkerType::RagQuery            => "progress-worker-searching-knowledge",
+                    };
+                    let executing_msg = self.lang_manager.get_msg(lang_code, progress_key);
 
                     tx.send(StreamEvent::Progress {
                         request_id: context.request_id.clone(),
@@ -457,8 +539,13 @@ impl MasterAgent {
                     })
                     .await?;
 
+                    let mut worker_agent_context = context.clone();
+                    worker_agent_context.object_id = current_context.object_id.clone();
+                    worker_agent_context.prev_leaf = current_context.current_report_id.clone();
+                    worker_agent_context.next_leaf = current_context.previous_report_id.clone();
+
                     let result = self.execute_worker_via_agent(
-                        state.clone(), context.clone(), worker_req.clone(), tx.clone(),
+                        state.clone(), worker_agent_context, worker_req.clone(), tx.clone(),
                         &worker_results,
                     ).await.map_err(|e| {
                         tracing::error!(worker_type = ?worker_req.worker_type,"Worker execution failed: {}", e);
@@ -473,6 +560,13 @@ impl MasterAgent {
                     );
 
                     worker_results.push(result);
+
+                    // Propagate resolved IDs back into context so subsequent
+                    // orchestrator calls and workers see the updated values.
+                    Self::apply_resolution_to_context(
+                        &mut current_context,
+                        worker_results.last().unwrap(),
+                    );
                 }
 
                 OrchestratorDecision::RequestContextFromUser {
@@ -658,6 +752,7 @@ impl MasterAgent {
                 let agent = DocumentsIdFinder::new(context.clone());
                 // get documents id by object id is a simple lookup, no LLM calls, so tokens and calls are 0
                 let result:ReportPair = agent.execute(state, &task_params, &object_id).await?;
+                tracing::debug!("DocumentsIdFinder result: {:?}", &result);
                 (json!(result), None, 0u32)
             }
             WorkerParameters::GetReportList { task_params } => {
@@ -872,24 +967,36 @@ impl MasterAgent {
     /// and returned as `StreamEvent::ContextRequest` instead of crashing inside a
     /// worker with an opaque internal error.
     ///
-    /// # Validation rules
-    /// - `GetReportList`, `DescribeReport`, `CompareReports` all require `object_id`.
-    /// - `DescribeReport` requires at least one of the two report IDs.
-    /// - `CompareReports` requires **both** `current_report_id` and `previous_report_id`
-    ///   because the comparison worker always describes two images. Missing either ID
-    ///   causes `InsufficientDescriptions` inside `ComparisonAgent`.
+    /// # Auto-resolution bypass
+    /// Fields that the orchestration loop can resolve automatically are skipped:
+    /// - `object_id` is skipped when `extracted.object_identifier` is present —
+    ///   `ObjectIdFinder` will resolve it in the first orchestration step.
+    /// - Report IDs are skipped when `extracted.task_params` is present —
+    ///   `DocumentsIdFinder` will resolve them after `object_id` is known.
+    ///
+    /// # Validation rules (non-resolvable cases only)
+    /// - `GetReportList`, `DescribeReport`, `CompareReports` require `object_id`
+    ///   when no `object_identifier` was extracted from the message.
+    /// - `DescribeReport` requires at least one report ID when no `task_params`
+    ///   were extracted (user gave no time/count hint at all).
+    /// - `CompareReports` requires both report IDs under the same condition.
     ///
     /// Returns `Some((msg_key, hint_key, field))` when something is missing,
-    /// `None` when all required context is present.
+    /// `None` when all required context is present or can be auto-resolved.
     fn missing_context_for_intent(
         intent: &Intent,
         ctx: &UserContext,
+        extracted: &ExtractedParameters,
     ) -> Option<(&'static str, &'static str, ContextField)> {
         let needs_object = matches!(
             intent,
             Intent::GetReportList | Intent::DescribeReport | Intent::CompareReports
         );
-        if needs_object && ctx.object_id.is_none() {
+
+        // ObjectIdFinder can resolve object_id when the user named an object.
+        let can_resolve_object = extracted.object_identifier.is_some();
+
+        if needs_object && ctx.object_id.is_none() && !can_resolve_object {
             return Some((
                 "context-request-select-object",
                 "context-request-select-object-hint",
@@ -897,9 +1004,16 @@ impl MasterAgent {
             ));
         }
 
+        // DocumentsIdFinder can resolve report IDs when task_params carry a
+        // meaningful time / count hint (last, all, period, or amount).
+        let can_resolve_reports = extracted.task_params.is_some();
+
         match intent {
             Intent::DescribeReport => {
-                if ctx.current_report_id.is_none() && ctx.previous_report_id.is_none() {
+                if ctx.current_report_id.is_none()
+                    && ctx.previous_report_id.is_none()
+                    && !can_resolve_reports
+                {
                     return Some((
                         "context-request-select-report",
                         "context-request-select-report-hint",
@@ -909,16 +1023,15 @@ impl MasterAgent {
             }
             Intent::CompareReports => {
                 // Comparison requires exactly two reports to describe and then diff.
-                // Check current_report_id first; if that is present but previous is
-                // absent, ask specifically for the second (older) report.
-                if ctx.current_report_id.is_none() {
+                // Only ask the user when DocumentsIdFinder cannot resolve them.
+                if ctx.current_report_id.is_none() && !can_resolve_reports {
                     return Some((
                         "context-request-select-previous-report",
                         "context-request-select-previous-report-hint",
                         ContextField::CurrentReportId,
                     ));
                 }
-                if ctx.previous_report_id.is_none() {
+                if ctx.previous_report_id.is_none() && !can_resolve_reports {
                     return Some((
                         "context-request-select-second-report",
                         "context-request-select-second-report-hint",
@@ -930,6 +1043,39 @@ impl MasterAgent {
         }
 
         None
+    }
+
+    /// Writes resolved IDs from `ObjectIdFinder` and `DocumentsIdFinder` results
+    /// back into `context` so subsequent orchestrator calls and workers see the
+    /// updated values without an extra round-trip.
+    fn apply_resolution_to_context(context: &mut UserContext, result: &WorkerResponse) {
+        match result.worker_type {
+            WorkerType::ObjectIdFinder => {
+                // ObjectIdFinder returns a plain UUID string as JSON value.
+                if let Some(id) = result.data.as_str() {
+                    tracing::info!(object_id = %id, "ObjectIdFinder: resolved object_id");
+                    context.object_id = Some(id.to_string());
+                }
+            }
+            WorkerType::DocumentsIdFinder => {
+                // DocumentsIdFinder returns ReportPair { prev, next? }.
+                if let Some(prev) = result.data["prev"].as_str() {
+                    tracing::info!(current_report_id = %prev, "DocumentsIdFinder: resolved current_report_id");
+                    context.current_report_id = Some(prev.to_string());
+                } else {
+                    tracing::warn!("DocumentsIdFinder: no 'prev' report_id found in result");
+                }
+                // next is Option<String> — only set when a second report exists.
+                if let Some(next) = result.data["next"].as_str() {
+                    tracing::info!(previous_report_id = %next, "DocumentsIdFinder: resolved previous_report_id");
+                    context.previous_report_id = Some(next.to_string());
+                } else {
+                    tracing::info!("DocumentsIdFinder: no 'next' report_id found in result — this is expected when only one report matches the criteria");
+                }
+            }
+            // All other workers do not affect context.
+            _ => {}
+        }
     }
 }
 

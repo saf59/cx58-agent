@@ -1,8 +1,8 @@
 ## AKTUELLE AUFGABE
 
 Intent: {{ intent }}
-Confidence: {{ confidence }}
-Benutzeranfrage: "{{ original_message }}"
+Konfidenz: {{ confidence }}
+Benutzernachricht: "{{ original_message }}"
 
 ---
 
@@ -15,7 +15,8 @@ Benutzeranfrage: "{{ original_message }}"
 | current_report_id   | {{ current_report_id }}  |
 | previous_report_id  | {{ previous_report_id }} |
 
-> "not_set" bedeutet, dass der Wert nicht bereitgestellt wurde. Behandeln Sie ihn als nicht vorhanden.
+> "not_set" bedeutet, dass der Wert nicht angegeben wurde. Behandle es als nicht vorhanden.
+> WICHTIG: Kopiere niemals "not_set" oder eine Übersetzung davon in Worker-Parameter. Verwende null für fehlende optionale Felder.
 
 ---
 
@@ -29,7 +30,7 @@ Fehlende Kontextfelder laut Router: {{ missing_context }}
 
 ---
 
-## BISHER AUSGEFÜHRTE WORKER
+## BISHER ABGESCHLOSSENE WORKER
 
 {% if worker_results | length == 0 -%}
 Keine.
@@ -41,4 +42,4 @@ Keine.
 
 ---
 
-Entscheiden Sie die einzelne nächste Aktion. Geben Sie nur gültiges JSON zurück.
+Entscheide die einzige nächste Aktion. Gib nur gültiges JSON zurück.

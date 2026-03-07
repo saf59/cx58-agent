@@ -12,7 +12,9 @@ pub mod templating;
 pub mod localization;
 pub mod helper;
 pub mod prompt_context;
+pub mod session;
+
 pub use crate::storage::{AiConfig, AppState};
 pub use crate::agents::{AgentContext, AgentRequest, CancellationToken, RequestManager};
 pub use crate::agents::{StreamEvent, TaskParameters};
-
+pub use crate::session::{ChatSession,load_session,save_session};

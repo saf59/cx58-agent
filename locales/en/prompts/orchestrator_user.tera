@@ -16,6 +16,7 @@ User message: "{{ original_message }}"
 | previous_report_id  | {{ previous_report_id }} |
 
 > "not_set" means the value was not provided. Treat it as absent.
+> IMPORTANT: Never copy "not_set" or any translation of it into worker parameters. Use null for missing optional fields.
 
 ---
 

@@ -49,7 +49,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cx58_agent=info,rig=debug")
+//        .with_env_filter("cx58_agent=info,rig=debug")
         .try_init();
 
     ("Starting AI Agent Server");

@@ -31,14 +31,14 @@ impl DocumentsIdFinder {
         node_id_str: &str,
     ) -> Result<ReportPair, AgentError> {
         let pool = &state.db;
-
+        tracing::info!("TaskParameters received: {:?}", parameters);
         // Validate UUID format.
         let node_id = Uuid::parse_str(node_id_str).map_err(|_| AgentError::InvalidUuid {
             raw: node_id_str.to_string(),
         })?;
 
         let data = get_documents(&parameters, pool, node_id).await?;
-
+        tracing::info!("DocumentsIdFinder: get_documents returned {} records", data.len());
         // No results — send a localized info message and return empty.
         if data.is_empty() || data.len() < 2 {
             tracing::warn!(
