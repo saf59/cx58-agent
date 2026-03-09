@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 
-use cx58_agent::handlers::{chat_stream_cancel, chat_stream_handler, get_tree_handler, health_check};
+use cx58_agent::handlers::{chat_stream_cancel, chat_stream_handler, get_tree_handler, health_check, reports_handler};
 use cx58_agent::hmac::{rate_limit_middleware, verify_signature, RateLimiter};
 use cx58_agent::init::app_init;
 use cx58_agent::storage::{delete_image_handler, get_image_handler, upload_image_handler};
@@ -19,11 +19,14 @@ fn create_app_router(state: Arc<AppState>) -> Router {
         .route("/agent/chat/cancel/{request_id}", axum::routing::delete(chat_stream_cancel))
         .route("/agent/tree/{user_id}", axum::routing::get(get_tree_handler))
         .route("/agent/images/upload/{parent_id}", axum::routing::post(upload_image_handler))
-        .route("/agent/images", axum::routing::get(get_image_handler))
-        .route("/agent/images", axum::routing::delete(delete_image_handler))
+        //.route("/agent/images", axum::routing::get(get_image_handler))
+        .route("/agent/images/{node_id}", axum::routing::delete(delete_image_handler))
         .route("/agent/health", axum::routing::get(health_check))
         // protected routes
         .route("/agent/chat", axum::routing::post(chat_stream_handler)
+            .layer(middleware::from_fn_with_state(state.clone(), verify_signature))
+        )
+        .route("/agent/reports/{node_id}", axum::routing::post(reports_handler)
             .layer(middleware::from_fn_with_state(state.clone(), verify_signature))
         )
         .layer(middleware::from_fn_with_state(rate_limiter.clone(), rate_limit_middleware))
@@ -49,10 +52,9 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
     let _ = tracing_subscriber::fmt()
-//        .with_env_filter("cx58_agent=info,rig=debug")
-        .try_init();
+        .with_env_filter("cx58_agent=debug,rig=warn").try_init();
 
-    ("Starting AI Agent Server");
+    // Starting AI Agent Server;
     let (config, state) = app_init().await?;
     tracing::info!("Application state initialized");
     let app = create_app_router(state);

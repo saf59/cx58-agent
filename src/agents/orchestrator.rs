@@ -692,7 +692,6 @@ impl Orchestrator {
                             object_id,
                         }
                     }
-
                     // Unknown worker type - return error
                     _ => {
                         let msg = self.lang_manager.get_msg(lang, "error-unknown-worker");
@@ -701,7 +700,6 @@ impl Orchestrator {
                         return Err(err);
                     }
                 };
-
                 // Convert worker type string to enum
                 let worker_type = match worker_type_str {
                     "GetObjectTree" | "GET_OBJECT_TREE" => WorkerType::GetObjectTree,
@@ -723,6 +721,30 @@ impl Orchestrator {
                 Ok(OrchestratorDecision::ExecuteWorker(WorkerRequest {
                     worker_type,
                     parameters,
+                    context: WorkerContext {
+                        user_id: context.user_id.clone(),
+                        language: context.language.clone(),
+                        request_id: request_id.to_string(),
+                    },
+                }))
+            }
+
+            // === RagQuery shorthand: LLM sometimes emits "RagQuery" as decision_type
+            // instead of the correct ExecuteWorker { worker_type: "RagQuery" }.
+            // Recover gracefully by treating it as ExecuteWorker(RagQuery).
+            "RagQuery" | "RAG_QUERY" => {
+                let query = action_data["parameters"]["query"]
+                    .as_str()
+                    .or_else(|| action_data["query"].as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                tracing::warn!(
+                    "Orchestrator: LLM used '{}' as decision_type instead of ExecuteWorker — recovering",
+                    decision_type
+                );
+                Ok(OrchestratorDecision::ExecuteWorker(WorkerRequest {
+                    worker_type: WorkerType::RagQuery,
+                    parameters: WorkerParameters::RagQuery { query },
                     context: WorkerContext {
                         user_id: context.user_id.clone(),
                         language: context.language.clone(),

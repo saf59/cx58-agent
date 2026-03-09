@@ -17,24 +17,18 @@ pub async fn load_session(
     user_id: &str,
     chat_id: &str,
 ) -> Option<ChatSession> {
-    let session = sqlx::query_as!(
+    sqlx::query_as!(
         ChatSession,
         r#"SELECT user_id, chat_id, object_id, prev_leaf, next_leaf
            FROM chat_session
-           WHERE user_id = $1"#,
+           WHERE user_id = $1 AND chat_id = $2"#,
         user_id,
+        chat_id,
     )
     .fetch_optional(db)
     .await
     .ok()
-    .flatten()?;
-
-    // Discard session if it belongs to a different chat
-    if session.chat_id != chat_id {
-        return None;
-    }
-
-    Some(session)
+    .flatten()
 }
 
 /// Persist resolved IDs for the given user_id.
@@ -56,16 +50,10 @@ pub async fn save_session(
         r#"INSERT INTO chat_session (user_id, chat_id, object_id, prev_leaf, next_leaf, updated_at)
            VALUES ($1, $2, $3, $4, $5, NOW())
            ON CONFLICT (user_id) DO UPDATE SET
-               object_id  = CASE WHEN chat_session.chat_id = $2
-                                 THEN COALESCE($3, chat_session.object_id)
-                                 ELSE $3 END,
-               prev_leaf  = CASE WHEN chat_session.chat_id = $2
-                                 THEN COALESCE($4, chat_session.prev_leaf)
-                                 ELSE $4 END,
-               next_leaf  = CASE WHEN chat_session.chat_id = $2
-                                 THEN COALESCE($5, chat_session.next_leaf)
-                                 ELSE $5 END,
                chat_id    = $2,
+               object_id  = $3,
+               prev_leaf  = $4,
+               next_leaf  = $5,
                updated_at = NOW()"#,
         user_id,
         chat_id,

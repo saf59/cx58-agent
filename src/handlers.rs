@@ -15,8 +15,9 @@ use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
+use uuid::Uuid;
 use crate::agents::StreamEvent;
-use crate::db::{get_tree, NodeType, TreeNode};
+use crate::db::{get_node_with_leafs, get_tree, NodeType, NodeWithLeaf, TreeNode};
 pub use crate::storage::{StorageService};
 use crate::AgentRequest;
 use crate::AppState;
@@ -47,7 +48,28 @@ pub async fn get_tree_handler(
 
     Ok(Json(tree))
 }
+pub async fn reports_handler(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+) -> Result<Json<Vec<NodeWithLeaf>>> {
+    let node_id = Uuid::parse_str(&node_id)
+        .map_err(|_e| AppError::bad_request("Invalid node_id format"))?;
 
+    let mut data = get_node_with_leafs(&state.db, node_id, Some(1000), None, None)
+        .await
+        .map_err(|_e| AppError::internal("Failed to fetch reports"))?;
+
+    // Attach storage URLs to image-leaf nodes.
+    for node in &mut data {
+        if matches!(node.node_type, NodeType::ImageLeaf)
+            && let Some(obj) = node.data.as_object_mut()
+        {
+            let node_id = &node.id;
+            set_storage_url(state.clone(), obj, node_id).await;
+        }
+    }
+    Ok(Json(data))
+}
 
 /// ============================================================================
 // RESPONSE TYPES

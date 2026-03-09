@@ -738,19 +738,17 @@ pub async fn delete_image_handler(
     )
     .fetch_one(&state.db)
     .await?;
-
     let storage_path = node
         .data
         .get("storage_path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::bad_request("No storage path"))?;
-
     state.storage.delete_image(storage_path).await?;
 
     sqlx::query!("DELETE FROM tree_nodes WHERE id = $1", node_id)
         .execute(&state.db)
         .await?;
-
+    tracing::debug!("Deleted DB record for node {}", node_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
