@@ -1,12 +1,13 @@
 use super::types::*;
+use crate::agents::agent_error::AgentError;
+use crate::agents::agents_helper::extract_text_from_choice;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use rig::client::CompletionClient;
-use rig::completion::Prompt;
+use rig::completion::CompletionModel;
 use rig::providers::ollama;
 use std::sync::Arc;
 use tera::Context;
-use crate::agents::agent_error::AgentError;
 
 pub struct ResponseFormatter {
     client: Arc<ollama::Client>,
@@ -31,14 +32,16 @@ impl ResponseFormatter {
         }
     }
 
-    /// Format out of scope rejection message
+    /// Format out of scope rejection message.
+    /// Returns the formatted text. Token usage is logged but not returned —
+    /// callers that need stats can be extended later.
     pub async fn format_out_of_scope(
         &self,
         language: &Language,
         original_query: &str,
-    ) -> Result<String,AgentError> {
+    ) -> Result<String, AgentError> {
         let lang = language.to_code();
-        
+
         // Get system prompt
         let system_prompt = self.lang_manager
             .get_prompt(lang, "formatter-system-prompt")?;
@@ -47,24 +50,31 @@ impl ResponseFormatter {
         let mut ctx = Context::new();
         ctx.insert("original_query", original_query);
         ctx.insert("language", language.as_str());
-        
-        let prompt = self.template_manager.render(lang, "formatter-out-of-scope-prompt", ctx)?;
-        
-        tracing::debug!("Out of scope format prompt: {}", prompt);
-        
-        let agent = self.client
-            .agent(&self.model)
-            .preamble(&system_prompt)
+
+        let user_prompt = self.template_manager
+            .render(lang, "formatter-out-of-scope-prompt", ctx)?;
+
+        tracing::debug!("Out of scope format prompt: {}", user_prompt);
+
+        let model = self.client.completion_model(&self.model);
+        let request = model
+            .completion_request(&user_prompt)
+            .preamble(system_prompt)
             .temperature(0.5)
             .build();
-        
-        let response = agent.prompt(&prompt).await.map_err(|_| AgentError::Internal {
-            detail: "format_out_of_scope prompt".to_string(),
+
+        let response = model.completion(request).await.map_err(|e| AgentError::Internal {
+            detail: format!("format_out_of_scope completion failed: {}", e),
         })?;
-        
-        tracing::info!("Formatter out of scope response:\n{}", response);
-        
-        Ok(response)
+
+        let tokens = response.raw_response.prompt_eval_count.unwrap_or(0)
+            + response.raw_response.eval_count.unwrap_or(0);
+
+        let text = extract_text_from_choice(response.choice);
+
+        tracing::info!(tokens, "Formatter out of scope response:\n{}", text);
+
+        Ok(text)
     }
        
 }

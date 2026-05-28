@@ -39,20 +39,22 @@ impl DocumentsIdFinder {
 
         let data = get_documents(&parameters, pool, node_id).await?;
         tracing::info!("DocumentsIdFinder: get_documents returned {} records", data.len());
-        // No results — send a localized info message and return empty.
-        if data.is_empty() || data.len() < 2 {
-            tracing::warn!(
-                node_id = ?node_id,
-                user_id = %self.context.user_id,
-                "DocumentAgent: no documents found for node"
-            );
-            let err = AgentError::NoDocumentsFound;
-            return Err(err.into());
-        }
+
         let mut images: Vec<NodeWithLeaf> = data
             .into_iter()
             .filter(|n| n.node_type == NodeType::ImageLeaf)
             .collect();
+
+        // No ImageLeaf results found for this node.
+        if images.is_empty() {
+            tracing::warn!(
+                node_id = ?node_id,
+                user_id = %self.context.user_id,
+                "DocumentsIdFinder: no image leafs found for node"
+            );
+            return Err(AgentError::NoDocumentsFound);
+        }
+
         images.sort_by_key(|p| std::cmp::Reverse(p.updated_at.clone()));
 
         let first_id = images.first().unwrap().id.to_string();

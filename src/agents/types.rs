@@ -13,8 +13,6 @@ pub struct ClassificationResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Intent {
-    GetObjectId,
-    GetDocumentsId,
     GetObjectTree,
     GetReportList,
     DescribeReport,
@@ -207,9 +205,7 @@ pub enum OrchestratorDecision {
         percent: u8,
         message: String,
     },
-    FormatAndReturn {
-        worker_results: Vec<WorkerResponse>,
-    },
+    FormatAndReturn,
     Reject {
         reason: String,
         message: String,

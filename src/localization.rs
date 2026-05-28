@@ -86,6 +86,17 @@ impl LocalizationManager {
         self.send_message(lang, msg_id, vec![])
     }
 
+    /// Returns localized message, falling back to `fallback` when the key is
+    /// missing or the FTL bundle is unavailable.
+    pub fn get_msg_or(&self, lang: &str, msg_id: &str, fallback: &str) -> String {
+        let s = self.get_msg(lang, msg_id);
+        if s.is_empty() || s.starts_with("Missing message:") {
+            fallback.to_string()
+        } else {
+            s
+        }
+    }
+
     /// Splits localized message into words.
     pub fn split_msg(&self, lang: &str, msg_id: &str) -> Vec<String> {
         self.get_msg(lang, msg_id)

@@ -199,30 +199,18 @@ impl Orchestrator {
         let lang = context.language.to_code();
 
         // === SPECIAL CASE: Ambiguous Intent Handling ===
-        // Routes to appropriate specialized worker
-        // Handles ambiguity by requesting clarification
-        //
-        // When intent is ambiguous, immediately request clarification instead of
-        // attempting to execute workers. Uses extracted object_identifier as suggestions
-        // to help guide the user.
+        // Handled upstream in MasterAgent before the orchestration loop —
+        // this branch is a safety net in case decide_next_step is called
+        // with an already-classified Ambiguous intent.
         if matches!(classification.intent, Intent::Ambiguous) {
             let prompt = self
                 .lang_manager
                 .get_msg(lang, "context-request-clarification");
 
-            // Use extracted object_identifier as suggestions if available
-            let suggestions = classification
-                .extracted_parameters
-                .object_identifier
-                .clone()
-                .map(|s| vec![s])
-                .unwrap_or_default();
-
             return Ok((
-                OrchestratorDecision::RequestContextFromUser {
-                    missing_field: ContextField::CurrentReportId,
-                    prompt,
-                    suggestions,
+                OrchestratorDecision::Reject {
+                    reason: "ambiguous_intent".to_string(),
+                    message: prompt,
                 },
                 Some(0u64),
             ));
@@ -288,7 +276,7 @@ impl Orchestrator {
             err
         })?;
 
-        let decision = self.parse_decision(decision_json, lang, context, request_id, worker_results)?;
+        let decision = self.parse_decision(decision_json, lang, context, request_id)?;
 
         Ok((decision, tokens))
     }
@@ -504,7 +492,6 @@ impl Orchestrator {
     /// * `decision_json` - Parsed JSON from LLM response
     /// * `lang` - Language code for error messages
     /// * `context` - Current user context for building worker requests
-    /// * `worker_results` - Previous worker results (used for FormatAndReturn)
     ///
     /// ## Returns
     ///
@@ -525,7 +512,6 @@ impl Orchestrator {
         lang: &str,
         context: &UserContext,
         request_id: &str,
-        worker_results: &[WorkerResponse],
     ) -> Result<OrchestratorDecision, AgentError> {
 
         // Extract decision type from JSON
@@ -864,11 +850,9 @@ impl Orchestrator {
             }),
 
             // === FormatAndReturn: Complete Workflow ===
-            // Final step - format all collected worker results and return to user
-            // Response formatter will handle conversion to UI-compatible JSON
-            "FormatAndReturn" => Ok(OrchestratorDecision::FormatAndReturn {
-                worker_results: worker_results.to_vec(),
-            }),
+            // Signal to MasterAgent that all workers are done and results can be sent.
+            // MasterAgent handles the actual formatting — no payload needed.
+            "FormatAndReturn" => Ok(OrchestratorDecision::FormatAndReturn),
 
             // === Reject: Out of Scope Handler ===
             // Politely declines requests that are outside system capabilities

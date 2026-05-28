@@ -96,12 +96,16 @@ pub async fn generate_description_from_image(
         UserContent::Image(image),
     ]).map_err(|e| AgentError::internal(e))?;
     
+    // Limit output tokens — a structured JSON description needs at most ~1024 tokens.
+    // Without this limit qwen3-vl:8b generates 4000-6000 tokens of reasoning before
+    // the actual JSON, causing 2-5 minute timeouts.
     let request = model
         .completion_request(Message::User {
             content: content,
         })
         .preamble(system_prompt.to_string())
         .temperature(0.2)
+        .max_tokens(1024)
         .build();
     let response = model.completion(request).await?;
 

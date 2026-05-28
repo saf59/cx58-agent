@@ -88,7 +88,8 @@ use crate::agents::stats::AgentStats;
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use crate::{
-    load_session, save_session, AgentContext, AgentRequest, AiConfig, AppState, RequestManager,
+    append_history, load_session, save_session, save_session_with_history,
+    AgentContext, AgentRequest, AiConfig, AppState, RequestManager,
     StreamEvent,
 };
 
@@ -188,9 +189,14 @@ impl MasterAgent {
             let request_id = Uuid::now_v7().to_string();
             let mut request = request;
 
-            // Load session and fill missing fields from previous request
+            // Load session and fill missing fields from previous request.
+            // history_strings is passed to IntentRouter so it can resolve
+            // anaphoric references ("same as before", "that room again").
+            let mut conversation_history: Vec<String> = Vec::new();
             if let Some(session) = load_session(&state.db, &request.user_id, &request.chat_id).await
             {
+                // Extract history before partial moves of Option<String> fields.
+                conversation_history = session.history_strings();
                 if request.object_id.is_none() {
                     request.object_id = session.object_id;
                     if request.prev_leaf.is_none() {
@@ -218,7 +224,7 @@ impl MasterAgent {
                 .await;
 
             if let Err(e) = agent
-                .process_request(state, context.clone(), tx.clone())
+                .process_request(state, context.clone(), tx.clone(), conversation_history)
                 .await
             {
                 // Determine the user's language for the error message.
@@ -259,6 +265,7 @@ impl MasterAgent {
         state: Arc<AppState>,
         context: AgentContext,
         tx: Sender<StreamEvent>,
+        conversation_history: Vec<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start_time = Instant::now();
         let mut stats = AgentStats::start();
@@ -278,7 +285,7 @@ impl MasterAgent {
         let intent_start = Instant::now();
         let (classification, router_tokens) = self
             .intent_router
-            .classify(&context.message, &user_context, &[])
+            .classify(&context.message, &user_context, &conversation_history)
             .await?;
         tracing::info!("Intent classification result: {:?}", &classification.intent);
         stats.record_router(
@@ -310,6 +317,26 @@ impl MasterAgent {
             return Ok(());
         }
 
+        // Ambiguous intent: the user's query is unclear — send a plain text
+        // clarification request and exit. No orchestration needed.
+        // Handled here (not in the Orchestrator) to avoid the loop entirely
+        // and to use TextChunk instead of the semantically wrong ContextRequest.
+        if matches!(classification.intent, Intent::Ambiguous) {
+            let prompt = self
+                .lang_manager
+                .get_msg(lang_code, "context-request-clarification");
+            self.send_text_chunks(&tx, &prompt, &context.request_id)
+                .await?;
+            stats.finalize();
+            tx.send(StreamEvent::Completed {
+                request_id: context.request_id.clone(),
+                total_time_ms: start_time.elapsed().as_millis() as u64,
+                stats,
+            })
+            .await?;
+            return Ok(());
+        }
+
         let validation_msg = self
             .lang_manager
             .get_msg(lang_code, "progress-context-validation");
@@ -332,14 +359,7 @@ impl MasterAgent {
             &user_context,
             &classification.extracted_parameters,
         ) {
-            let prompt = {
-                let ftl = self.lang_manager.get_msg(lang_code, msg_key);
-                if ftl.is_empty() || ftl.starts_with("Missing message:") {
-                    msg_key.to_string()
-                } else {
-                    ftl
-                }
-            };
+            let prompt = self.lang_manager.get_msg_or(lang_code, msg_key, msg_key);
             let hint = self.lang_manager.get_msg(lang_code, hint_key);
             let suggestions = if hint.is_empty() || hint.starts_with("Missing message:") {
                 vec![]
@@ -371,6 +391,33 @@ impl MasterAgent {
         // Mutable so ObjectIdFinder / DocumentsIdFinder results can be written
         // back into context before the next orchestrator call.
         let mut current_context = user_context.clone();
+
+        // If the user explicitly named an object in the message, discard any
+        // object_id / report IDs that arrived from the session or the client.
+        // Keeping stale IDs would cause ObjectIdFinder to be skipped and the
+        // previous object's cached results to be returned instead of the new one.
+        //
+        // Examples of when this fires:
+        //   - new chat, prev_leaf/next_leaf sent by frontend from old chat
+        //   - user switches objects mid-conversation ("now show me Room 211")
+        if classification.extracted_parameters.object_identifier.is_some() {
+            if current_context.object_id.is_some() {
+                tracing::info!(
+                    object_identifier = ?classification.extracted_parameters.object_identifier,
+                    old_object_id = ?current_context.object_id,
+                    "object_identifier present — clearing stale object_id and report IDs from context"
+                );
+            }
+            current_context.object_id = None;
+            current_context.current_report_id = None;
+            current_context.previous_report_id = None;
+        } else if classification.extracted_parameters.task_params.is_some() {
+            // No explicit object name, but time/count params given — report IDs
+            // will be resolved by DocumentsIdFinder for the current object.
+            current_context.current_report_id = None;
+            current_context.previous_report_id = None;
+        }
+
         let mut step_count = 0u32;
 
         loop {
@@ -397,21 +444,15 @@ impl MasterAgent {
                     // missing_context_for_intent() which runs before this loop.
                     let Some(current_report_id) = current_context.current_report_id.clone() else {
                         // Orchestrator bypassed DocumentsIdFinder — emit ContextRequest safely.
-                        let prompt = {
-                            let ftl = self
-                                .lang_manager
-                                .get_msg(lang_code, "context-request-select-report");
-                            if ftl.is_empty() || ftl.starts_with("Missing message:") {
-                                "context-request-select-report".to_string()
-                            } else {
-                                ftl
-                            }
-                        };
+                        let prompt = self.lang_manager.get_msg_or(
+                            lang_code,
+                            "context-request-select-report",
+                            "context-request-select-report",
+                        );
                         let hint = self
                             .lang_manager
                             .get_msg(lang_code, "context-request-select-report-hint");
-                        let suggestions = if hint.is_empty() || hint.starts_with("Missing message:")
-                        {
+                        let suggestions = if hint.is_empty() || hint.starts_with("Missing message:") {
                             vec![]
                         } else {
                             vec![hint]
@@ -486,26 +527,45 @@ impl MasterAgent {
                 }
             }
             let ready = Self::intent_ready(classification.intent.clone(), &worker_results);
-            save_session(
-                &state.db,
-                &current_context.user_id,
-                &current_context.chat_id,
-                current_context.object_id.as_deref(),
-                current_context.current_report_id.as_deref(), // = prev_leaf
-                current_context.previous_report_id.as_deref(), // = next_leaf
-            )
-            .await;
             if !ready.is_empty() {
                 tracing::info!(
                     "Intent ready for response formatting: {:?}",
                     &classification.intent
                 );
+                // Save session only on successful completion — not on every iteration.
+                // Saving here guarantees the session reflects a fully resolved context.
+                // Append current exchange to history so the next request can
+                // resolve anaphoric references ("that room again", "compare those two").
+                // We store the intent name as a compact assistant entry.
+                let current_history = serde_json::json!(conversation_history
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| {
+                        let role = if i % 2 == 0 { "user" } else { "assistant" };
+                        serde_json::json!({"role": role, "text": s})
+                    })
+                    .collect::<Vec<serde_json::Value>>());
+                let assistant_summary = format!("{:?}", classification.intent);
+                let updated_history = append_history(
+                    &current_history,
+                    &context.message,
+                    &assistant_summary,
+                );
+                save_session_with_history(
+                    &state.db,
+                    &current_context.user_id,
+                    &current_context.chat_id,
+                    current_context.object_id.as_deref(),
+                    current_context.current_report_id.as_deref(), // = prev_leaf
+                    current_context.previous_report_id.as_deref(), // = next_leaf
+                    Some(&updated_history),
+                )
+                .await;
                 self.format_and_stream_response(
                     &tx,
                     &classification.intent,
                     &ready,
                     &context,
-                    //&current_context,
                 )
                 .await?;
                 break;
@@ -611,14 +671,7 @@ impl MasterAgent {
                         ),
                     };
 
-                    let prompt = {
-                        let ftl = self.lang_manager.get_msg(lang_code, msg_key);
-                        if ftl.is_empty() || ftl.starts_with("Missing message:") {
-                            orchestrator_prompt
-                        } else {
-                            ftl
-                        }
-                    };
+                    let prompt = self.lang_manager.get_msg_or(lang_code, msg_key, &orchestrator_prompt);
 
                     // Suggestions: prefer orchestrator-supplied list (it is context-aware);
                     // fall back to a single FTL hint string when the list is empty.
@@ -663,41 +716,74 @@ impl MasterAgent {
                     .await?;
                 }
 
-                OrchestratorDecision::FormatAndReturn {
-                    worker_results: _decision_results,
-                } => {
+                OrchestratorDecision::FormatAndReturn => {
                     if matches!(classification.intent, Intent::RagQuery) {
-                        tracing::info!("Query completed");
-                        stats.finalize();
-                        tx.send(StreamEvent::Completed {
-                            request_id: context.request_id.clone(),
-                            total_time_ms: start_time.elapsed().as_millis() as u64,
-                            stats: stats.clone(),
-                        })
-                        .await?;
-
-                        break;
+                        // RagQuery: ChatAgent already streamed all TextChunks — just complete.
+                        tracing::info!("RagQuery completed");
+                    } else {
+                        // Structured intents: format and stream immediately without looping.
+                        // Previously this fell through to the next iteration for intent_ready —
+                        // which wasted one orchestration step. Now we act here directly.
+                        tracing::info!(
+                            intent = ?classification.intent,
+                            "FormatAndReturn received — formatting immediately"
+                        );
+                        let ready = Self::intent_ready(classification.intent.clone(), &worker_results);
+                        if !ready.is_empty() {
+                            save_session(
+                                &state.db,
+                                &current_context.user_id,
+                                &current_context.chat_id,
+                                current_context.object_id.as_deref(),
+                                current_context.current_report_id.as_deref(),
+                                current_context.previous_report_id.as_deref(),
+                            )
+                            .await;
+                            self.format_and_stream_response(
+                                &tx,
+                                &classification.intent,
+                                &ready,
+                                &context,
+                            )
+                            .await?;
+                        } else {
+                            tracing::warn!(
+                                intent = ?classification.intent,
+                                "FormatAndReturn but no ready worker results — nothing to format"
+                            );
+                        }
                     }
-                    // For structured intents (DescribeReport, CompareReports, GetObjectTree,
-                    // GetReportList) — formatting is handled exclusively by intent_ready check
-                    // at the top of the loop. Worker results are already correct JSON objects
-                    // and do not need LLM formatting. Just loop again so intent_ready fires.
-                    tracing::info!(
-                        intent = ?classification.intent,
-                        "FormatAndReturn received — deferring to intent_ready on next iteration"
-                    );
-                    // Do NOT break here — let the next iteration handle it via intent_ready.
-                    // step_count is already incremented so the loop guard will catch runaway loops.
+                    break;
                 }
 
-                OrchestratorDecision::Reject { reason, message } => {
+                OrchestratorDecision::Reject { reason, message: _ } => {
+                    // Raw LLM message is discarded — route through the formatter
+                    // so the response is always in the user's language via Tera.
                     tracing::warn!(reason = %reason, "Request rejected by orchestrator");
-                    tx.send(StreamEvent::TextChunk {
-                        request_id: context.request_id.clone(),
-                        chunk: message,
-                    })
-                    .await
-                    .unwrap_or_else(|e| tracing::error!("Failed to send rejection message: {}", e));
+                    match self
+                        .formatter
+                        .format_out_of_scope(&current_context.language, &context.message)
+                        .await
+                    {
+                        Ok(formatted) => {
+                            self.send_text_chunks(&tx, &formatted, &context.request_id)
+                                .await?;
+                        }
+                        Err(e) => {
+                            // Formatter failed — fall back to a plain FTL key.
+                            tracing::error!("format_out_of_scope failed in Reject branch: {}", e);
+                            let fallback =
+                                self.lang_manager.get_msg(lang_code, "error-request-rejected");
+                            tx.send(StreamEvent::TextChunk {
+                                request_id: context.request_id.clone(),
+                                chunk: fallback,
+                            })
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::error!("Failed to send rejection fallback: {}", e)
+                            });
+                        }
+                    }
                     break;
                 }
             }
@@ -715,8 +801,6 @@ impl MasterAgent {
 
     fn intent_ready(intent: Intent, worker_results: &[WorkerResponse]) -> Vec<WorkerResponse> {
         let worker_type = match intent {
-            Intent::GetObjectId => Some(WorkerType::ObjectIdFinder),
-            Intent::GetDocumentsId => Some(WorkerType::DocumentsIdFinder),
             Intent::DescribeReport => Some(WorkerType::DescribeReport),
             Intent::CompareReports => Some(WorkerType::CompareReports),
             Intent::GetObjectTree => Some(WorkerType::GetObjectTree),
@@ -748,7 +832,11 @@ impl MasterAgent {
         let start = Instant::now();
         let (result_data, tokens, llm_calls) = match worker_request.parameters {
             WorkerParameters::GetObjectTree { task_params } => {
-                let agent = ObjectAgent::new(context.clone());
+                let agent = ObjectAgent::new(
+                    context.clone(),
+                    event_tx.clone(),
+                    self.lang_manager.clone(),
+                );
                 // get object tree is a simple lookup, no LLM calls, so tokens and calls are 0
                 let result = agent.execute(state, &task_params).await?;
                 (result, None, 0u32)
@@ -828,6 +916,13 @@ impl MasterAgent {
             }
         };
 
+        // cache_hit: workers that can cache (DescribeReport, CompareReports) return
+        // llm_calls == 0 when the result came from DB. All other workers never cache.
+        let cache_hit = matches!(
+            worker_request.worker_type,
+            WorkerType::DescribeReport | WorkerType::CompareReports
+        ) && llm_calls == 0;
+
         Ok(WorkerResponse {
             worker_type: worker_request.worker_type,
             status: WorkerStatus::Success,
@@ -835,7 +930,7 @@ impl MasterAgent {
             metadata: WorkerMetadata {
                 execution_time_ms: start.elapsed().as_millis() as u64,
                 data_source: "agent".to_string(),
-                cache_hit: false,
+                cache_hit,
                 tokens_used: tokens,
                 llm_calls,
             },

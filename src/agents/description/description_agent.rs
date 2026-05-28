@@ -287,12 +287,12 @@ impl DescriptionAgent {
                 );
                 err
             })?;
-        tracing::debug!(
+/*        tracing::debug!(
             "Using system prompt for language {}: {}",
             lang_code,
             system_prompt
         );
-
+*/
         // Create the prompt for description generation
         let mut ctx = Context::new();
         ctx.insert("object_name", &object_name);
@@ -327,10 +327,13 @@ impl DescriptionAgent {
         let content = match extract_description_content_robust(&description_text) {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("Failed to parse description content: {}", e);
+                tracing::error!(
+                    node_id = %node_id,
+                    error = %e,
+                    "DescriptionAgent: failed to parse LLM response — not caching malformed data"
+                );
                 let err_msg = self.lang_manager
                     .get_msg_with_arg(lang_code, "progress-description-parse-warning", "report_type", &report_type);
-
                 self.send_event(StreamEvent::Progress {
                     request_id: self.context.request_id.clone(),
                     status: "warning".to_string(),
@@ -338,19 +341,10 @@ impl DescriptionAgent {
                     message: err_msg,
                 })
                 .await;
-                // Even if parsing fails, we can still save the raw text
-                let content_str = serde_json::to_string(&description_text)
-                    .map_err(|e| AgentError::internal(e))?;
-                let create_data = CreateImageDescription {
-                    node_id,
-                    model_name: state.ai_config.vision_model.clone(),
-                    description: content_str,
-                    confidence: None,
-                };
-                if let Err(e) = upsert_description(&state.db, &create_data, lang_code).await {
-                    tracing::error!("Failed to save description: {}", e);
-                }
-                return Ok(None);
+                return Err(AgentError::internal(format!(
+                    "LLM response parse failed for node {}: {}",
+                    node_id, e
+                )));
             }
         };
 
