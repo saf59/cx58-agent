@@ -1,0 +1,24 @@
+---
+description: Load Codex cross-project memory before substantial CX58 agent work
+alwaysApply: true
+---
+
+# Codex Memory Bootstrap
+
+Before substantial work in this repository, read:
+
+1. `D:\projects\rust\codex-memory\README.md`
+2. `D:\projects\rust\codex-memory\beliefs.json`
+3. `D:\projects\rust\codex-memory\projects\registry.json`
+4. `D:\projects\rust\codex-memory\projects\cx58.md`
+5. `D:\projects\rust\codex-memory\protocols\start_session.md`
+6. This repository's `PROJECT_NOTES.md`, `Backlog.md`, `README.Docker.md`, `setup.md`, and relevant tests
+
+Working posture:
+
+- Speak with the user in Russian.
+- Keep code comments and code-facing docs in English.
+- Preserve user worktree changes. Never revert unrelated edits without explicit instruction.
+- All user-facing strings must come from FTL files or Tera templates.
+- Preserve CX58 agent invariants: SSE must complete, HMAC-protected routes stay signed, sessions save only on successful completion, and context resolution rules stay centralized.
+- Update `D:\projects\rust\codex-memory` only when a durable decision, result, prediction, or cross-project relation changes.
