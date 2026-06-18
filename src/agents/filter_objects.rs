@@ -1,10 +1,10 @@
+use crate::TaskParameters;
+use crate::agents::Period;
+use crate::agents::agent_error::AgentError;
+use crate::db::{NodeType, TreeNode};
 use chrono::{NaiveDateTime, Utc};
 use sqlx::types::Uuid;
 use std::collections::HashSet;
-use crate::agents::agent_error::AgentError;
-use crate::agents::Period;
-use crate::db::{NodeType, TreeNode};
-use crate::TaskParameters;
 
 impl Period {
     pub(crate) fn to_days(self) -> i64 {
@@ -44,7 +44,7 @@ pub async fn get_filtered_tree(
     if let Some(period) = &parameters.period {
         let amount = parameters.amount.unwrap_or(1);
         let days = period.to_days() * amount as i64;
-        
+
         // Calculate max_updated_at: current_time - (period * amount)
         let current_time = Utc::now().naive_utc();
         let max_updated_at = current_time - chrono::Duration::days(days);
@@ -62,9 +62,7 @@ fn filter_by_period(
     // Find ImageLeaf nodes with updated_at >= max_updated_at (recent updates)
     let selected_leaves: Vec<_> = tree
         .iter()
-        .filter(|node| {
-            node.node_type == NodeType::ImageLeaf && node.updated_at >= max_updated_at
-        })
+        .filter(|node| node.node_type == NodeType::ImageLeaf && node.updated_at >= max_updated_at)
         .collect();
 
     // Extract all node IDs from paths of selected leaves
@@ -83,9 +81,7 @@ fn filter_by_period(
     // Filter tree: keep only nodes in valid paths, exclude Root and ImageLeaf
     Ok(tree
         .into_iter()
-        .filter(|node| {
-            valid_ids.contains(&node.id) && node.node_type != NodeType::ImageLeaf
-        })
+        .filter(|node| valid_ids.contains(&node.id) && node.node_type != NodeType::ImageLeaf)
         .collect())
 }
 
@@ -198,11 +194,11 @@ mod tests {
     #[tokio::test]
     async fn test_period_no_recent_updates() {
         let tree = create_test_tree_from_csv();
-        
+
         // With Day period and amount=1: max_updated_at = current - 1 day ≈ 2026-01-23
         // ImageLeaf nodes with updated_at >= 2026-01-23:
         // None, since latest is 2026-01-10
-        
+
         let params = TaskParameters {
             last: false,
             all: false,
@@ -211,7 +207,11 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 0, "Should return empty - no recent ImageLeaf nodes");
+        assert_eq!(
+            result.len(),
+            0,
+            "Should return empty - no recent ImageLeaf nodes"
+        );
     }
 
     #[tokio::test]
@@ -241,7 +241,7 @@ mod tests {
         let result = get_filtered_tree(tree, &params).await.unwrap();
         assert_eq!(result.len(), 4, "Should return 4 Branch nodes");
         assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
-        
+
         // Verify specific branches
         let names: Vec<_> = result.iter().filter_map(|n| n.name.as_deref()).collect();
         assert!(names.contains(&"Object 2"));
@@ -252,14 +252,14 @@ mod tests {
     #[tokio::test]
     async fn test_last_equals_all() {
         let tree = create_test_tree_from_csv();
-        
+
         let params_last = TaskParameters {
             last: true,
             all: false,
             period: None,
             amount: None,
         };
-        
+
         let params_all = TaskParameters {
             last: false,
             all: true,
@@ -269,14 +269,18 @@ mod tests {
 
         let result_last = get_filtered_tree(tree.clone(), &params_last).await.unwrap();
         let result_all = get_filtered_tree(tree, &params_all).await.unwrap();
-        
-        assert_eq!(result_last.len(), result_all.len(), "last and all should produce same result");
+
+        assert_eq!(
+            result_last.len(),
+            result_all.len(),
+            "last and all should produce same result"
+        );
     }
 
     #[tokio::test]
     async fn test_period_filter_week() {
         let tree = create_test_tree_from_csv();
-        
+
         // Current date is approximately 2026-01-24 with current time
         // With Week period and amount=1: max_updated_at = now - 7 days ≈ 2026-01-17
         // ImageLeaf nodes with updated_at >= 2026-01-17:
@@ -285,7 +289,7 @@ mod tests {
         // - 2026-01-08 18:00:00 ✗
         // - 2026-01-10 18:00:00 ✗
         // None are recent enough (all are older than 7 days)
-        
+
         let params = TaskParameters {
             last: false,
             all: false,
@@ -294,15 +298,19 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        
+
         // No ImageLeaf nodes are recent enough, so no branches should be returned
-        assert_eq!(result.len(), 0, "Should return empty - no recent updates in last week");
+        assert_eq!(
+            result.len(),
+            0,
+            "Should return empty - no recent updates in last week"
+        );
     }
 
     #[tokio::test]
     async fn test_period_filter_with_recent_data() {
         let tree = create_test_tree_from_csv();
-        
+
         // With Month period and amount=1: max_updated_at = now - 30 days ≈ 2025-12-25
         // ImageLeaf nodes with updated_at >= 2025-12-25:
         // - 2025-12-26 18:00:00 ✓
@@ -310,7 +318,7 @@ mod tests {
         // - 2026-01-08 18:00:00 ✓
         // - 2026-01-10 18:00:00 ✓
         // All ImageLeaf nodes should be selected
-        
+
         let params = TaskParameters {
             last: false,
             all: false,
@@ -319,14 +327,18 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 4, "Should return all 4 Branch nodes - all leaves within last month");
+        assert_eq!(
+            result.len(),
+            4,
+            "Should return all 4 Branch nodes - all leaves within last month"
+        );
         assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
     }
 
     #[tokio::test]
     async fn test_period_filter_day() {
         let tree = create_test_tree_from_csv();
-        
+
         // With Day period and amount=20: max_updated_at = current - 20 days ≈ 2026-01-04
         // ImageLeaf nodes with updated_at >= 2026-01-04:
         // - 2025-12-26 ✗
@@ -334,7 +346,7 @@ mod tests {
         // - 2026-01-08 ✓
         // - 2026-01-10 ✓
         // Two ImageLeaf nodes should be selected
-        
+
         let params = TaskParameters {
             last: false,
             all: false,
@@ -350,7 +362,7 @@ mod tests {
     #[tokio::test]
     async fn test_period_filter_month() {
         let tree = create_test_tree_from_csv();
-        
+
         // With Month period and amount=2: max_updated_at = current - 60 days ≈ 2025-11-25
         // ImageLeaf nodes with updated_at >= 2025-11-25:
         // - 2025-12-26 ✓
@@ -358,7 +370,7 @@ mod tests {
         // - 2026-01-08 ✓
         // - 2026-01-10 ✓
         // All ImageLeaf nodes should be selected
-        
+
         let params = TaskParameters {
             last: false,
             all: false,
@@ -367,13 +379,17 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        assert_eq!(result.len(), 4, "Should return all 4 Branch nodes - all leaves are recent enough");
+        assert_eq!(
+            result.len(),
+            4,
+            "Should return all 4 Branch nodes - all leaves are recent enough"
+        );
     }
 
     #[tokio::test]
     async fn test_no_root_or_imageleaf_in_result() {
         let tree = create_test_tree_from_csv();
-        
+
         let params = TaskParameters {
             last: false,
             all: true,
@@ -382,8 +398,10 @@ mod tests {
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();
-        
-        assert!(!result.iter().any(|n| n.node_type == NodeType::ImageLeaf),
-                "Result should not contain ImageLeaf nodes");
+
+        assert!(
+            !result.iter().any(|n| n.node_type == NodeType::ImageLeaf),
+            "Result should not contain ImageLeaf nodes"
+        );
     }
 }

@@ -80,9 +80,18 @@ pub fn build_description_json(
         obj.insert("object_id".to_string(), serde_json::json!(object_id));
         obj.insert("date".to_string(), serde_json::json!(date));
         obj.insert("date_id".to_string(), serde_json::json!(image_desc.node_id));
-        obj.insert("model_name".to_string(), serde_json::json!(image_desc.model_name));
-        obj.insert("confidence".to_string(), serde_json::json!(image_desc.confidence));
-        obj.insert("created_at".to_string(), serde_json::json!(image_desc.created_at));
+        obj.insert(
+            "model_name".to_string(),
+            serde_json::json!(image_desc.model_name),
+        );
+        obj.insert(
+            "confidence".to_string(),
+            serde_json::json!(image_desc.confidence),
+        );
+        obj.insert(
+            "created_at".to_string(),
+            serde_json::json!(image_desc.created_at),
+        );
     }
 
     Ok(content)

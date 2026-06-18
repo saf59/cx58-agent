@@ -44,20 +44,25 @@ impl Default for LocalizationManager {
 }
 
 impl LocalizationManager {
-
     /// Creates manager and spawns dedicated worker thread.
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel::<Request>();
 
         thread::spawn(move || {
-            let mut bundles: HashMap<String, FluentBundle<FluentResource>> =
-                HashMap::new();
-            let mut prompts: HashMap<String, HashMap<String, String>> =
-                HashMap::new();
+            let mut bundles: HashMap<String, FluentBundle<FluentResource>> = HashMap::new();
+            let mut prompts: HashMap<String, HashMap<String, String>> = HashMap::new();
 
             // Load languages
-            load_language(&mut bundles, "en", include_str!("../locales/en/messages.ftl"));
-            load_language(&mut bundles, "de", include_str!("../locales/de/messages.ftl"));
+            load_language(
+                &mut bundles,
+                "en",
+                include_str!("../locales/en/messages.ftl"),
+            );
+            load_language(
+                &mut bundles,
+                "de",
+                include_str!("../locales/de/messages.ftl"),
+            );
 
             // Load prompts
             load_prompts(&mut prompts, "en");
@@ -66,11 +71,20 @@ impl LocalizationManager {
             // Worker loop
             while let Ok(req) = rx.recv() {
                 match req {
-                    Request::Message { lang, msg_id, args, resp } => {
+                    Request::Message {
+                        lang,
+                        msg_id,
+                        args,
+                        resp,
+                    } => {
                         let result = format_message(&bundles, &lang, &msg_id, args);
                         let _ = resp.send(result);
                     }
-                    Request::Prompt { lang, prompt_id, resp } => {
+                    Request::Prompt {
+                        lang,
+                        prompt_id,
+                        resp,
+                    } => {
                         let result = get_prompt_internal(&prompts, &lang, &prompt_id);
                         let _ = resp.send(result);
                     }
@@ -114,26 +128,17 @@ impl LocalizationManager {
     /// // messages.ftl:  progress-executing-worker = Executing { $worker }...
     /// let msg = lang_manager.get_msg_with_arg("en", "progress-executing-worker", "worker", "DescribeReport");
     /// ```
-    pub fn get_msg_with_arg(
-        &self,
-        lang: &str,
-        msg_id: &str,
-        key: &str,
-        value: &str,
-    ) -> String {
-        let mut args  = FluentArgs::new();
+    pub fn get_msg_with_arg(&self, lang: &str, msg_id: &str, key: &str, value: &str) -> String {
+        let mut args = FluentArgs::new();
         args.set(key, value);
         self.get_msg_with_args(lang, msg_id, args)
     }
     /// Formats message with provided FluentArgs.
-    pub fn get_msg_with_args(
-        &self,
-        lang: &str,
-        msg_id: &str,
-        args: FluentArgs,
-    ) -> String {
-        let converted: Vec<(String, String)> =
-            args.iter().map(|(k, v)| (k.to_string(), Self::fluent_value_to_string(v))).collect();
+    pub fn get_msg_with_args(&self, lang: &str, msg_id: &str, args: FluentArgs) -> String {
+        let converted: Vec<(String, String)> = args
+            .iter()
+            .map(|(k, v)| (k.to_string(), Self::fluent_value_to_string(v)))
+            .collect();
 
         self.send_message(lang, msg_id, converted)
     }
@@ -163,21 +168,16 @@ impl LocalizationManager {
             ));
         }
 
-        resp_rx.recv().unwrap_or_else(|_| {
-            Err(anyhow::anyhow!("Prompt worker channel closed"))
-        })
+        resp_rx
+            .recv()
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("Prompt worker channel closed")))
     }
 
     /// Internal helper for sending message request.
     ///
     /// Returns a safe fallback string instead of panicking when the worker
     /// thread has stopped (e.g. due to a startup error in load_language).
-    fn send_message(
-        &self,
-        lang: &str,
-        msg_id: &str,
-        args: Vec<(String, String)>,
-    ) -> String {
+    fn send_message(&self, lang: &str, msg_id: &str, args: Vec<(String, String)>) -> String {
         let (resp_tx, resp_rx) = mpsc::channel();
 
         if self
@@ -207,7 +207,6 @@ impl LocalizationManager {
             _ => String::new(),
         }
     }
-
 }
 
 /// Loads FTL bundle inside worker thread.
@@ -235,7 +234,8 @@ fn load_language(
             for e in &errors {
                 tracing::error!(
                     "LocalizationManager: FTL parse error in lang '{}': {:?}",
-                    lang, e
+                    lang,
+                    e
                 );
             }
             r
@@ -248,7 +248,8 @@ fn load_language(
         for e in &errors {
             tracing::error!(
                 "LocalizationManager: duplicate message in lang '{}': {:?}",
-                lang, e
+                lang,
+                e
             );
         }
         // Still insert the bundle — duplicate messages are non-fatal.
@@ -258,10 +259,7 @@ fn load_language(
 }
 
 /// Loads prompt files inside worker thread.
-fn load_prompts(
-    prompts: &mut HashMap<String, HashMap<String, String>>,
-    lang: &str,
-) {
+fn load_prompts(prompts: &mut HashMap<String, HashMap<String, String>>, lang: &str) {
     let mut lang_prompts = HashMap::new();
 
     for (prompt_id, filename) in PROMPT_FILES {
@@ -276,19 +274,43 @@ fn load_prompts(
 /// Loads prompt file via include_str mapping.
 fn load_prompt_file(lang: &str, filename: &str) -> Result<String> {
     let content = match (lang, filename) {
-        ("en", "intent_router_system.txt") => include_str!("../locales/en/prompts/intent_router_system.txt"),
-        ("en", "orchestrator_system.txt") => include_str!("../locales/en/prompts/orchestrator_system.txt"),
-        ("en", "comparison_system.txt") => include_str!("../locales/en/prompts/comparison_system.txt"),
-        ("en", "formatter_system.txt") => include_str!("../locales/en/prompts/formatter_system.txt"),
-        ("en", "descriptor_system.txt") => include_str!("../locales/en/prompts/descriptor_system.txt"),
-        ("en", "chat-system-prompt.txt") => include_str!("../locales/en/prompts/chat-system-prompt.txt"),
+        ("en", "intent_router_system.txt") => {
+            include_str!("../locales/en/prompts/intent_router_system.txt")
+        }
+        ("en", "orchestrator_system.txt") => {
+            include_str!("../locales/en/prompts/orchestrator_system.txt")
+        }
+        ("en", "comparison_system.txt") => {
+            include_str!("../locales/en/prompts/comparison_system.txt")
+        }
+        ("en", "formatter_system.txt") => {
+            include_str!("../locales/en/prompts/formatter_system.txt")
+        }
+        ("en", "descriptor_system.txt") => {
+            include_str!("../locales/en/prompts/descriptor_system.txt")
+        }
+        ("en", "chat-system-prompt.txt") => {
+            include_str!("../locales/en/prompts/chat-system-prompt.txt")
+        }
 
-        ("de", "intent_router_system.txt") => include_str!("../locales/de/prompts/intent_router_system.txt"),
-        ("de", "orchestrator_system.txt") => include_str!("../locales/de/prompts/orchestrator_system.txt"),
-        ("de", "comparison_system.txt") => include_str!("../locales/de/prompts/comparison_system.txt"),
-        ("de", "formatter_system.txt") => include_str!("../locales/de/prompts/formatter_system.txt"),
-        ("de", "descriptor_system.txt") => include_str!("../locales/de/prompts/descriptor_system.txt"),
-        ("de", "chat-system-prompt.txt") => include_str!("../locales/de/prompts/chat-system-prompt.txt"),
+        ("de", "intent_router_system.txt") => {
+            include_str!("../locales/de/prompts/intent_router_system.txt")
+        }
+        ("de", "orchestrator_system.txt") => {
+            include_str!("../locales/de/prompts/orchestrator_system.txt")
+        }
+        ("de", "comparison_system.txt") => {
+            include_str!("../locales/de/prompts/comparison_system.txt")
+        }
+        ("de", "formatter_system.txt") => {
+            include_str!("../locales/de/prompts/formatter_system.txt")
+        }
+        ("de", "descriptor_system.txt") => {
+            include_str!("../locales/de/prompts/descriptor_system.txt")
+        }
+        ("de", "chat-system-prompt.txt") => {
+            include_str!("../locales/de/prompts/chat-system-prompt.txt")
+        }
 
         _ => return Err(anyhow::anyhow!("Unknown prompt")),
     };

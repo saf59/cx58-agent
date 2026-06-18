@@ -9,17 +9,17 @@ use crate::agents::description::description_helper::{
 use crate::agents::description::description_json::DescriptionData;
 use crate::agents::{Language, ReportPair};
 use crate::db_description::{
-    get_descriptions_by_node, upsert_description, CreateImageDescription, ImageDescription,
+    CreateImageDescription, ImageDescription, get_descriptions_by_node, upsert_description,
 };
 use crate::localization::LocalizationManager;
+use crate::templating::TemplateManager;
 use crate::{AgentContext, AppState, StreamEvent};
 use rig::providers::ollama;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tera::Context;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use crate::templating::TemplateManager;
 
 pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
@@ -42,7 +42,7 @@ impl DescriptionAgent {
             context,
             event_tx,
             lang_manager,
-            template_manager
+            template_manager,
         }
     }
 
@@ -77,7 +77,8 @@ impl DescriptionAgent {
 
         // Process next report if provided
         if let Some(ref next_id) = reports.next {
-            if let Some((desc, next_tokens)) = self.process_single_report(state, next_id, "next").await?
+            if let Some((desc, next_tokens)) =
+                self.process_single_report(state, next_id, "next").await?
             {
                 descriptions.push(desc);
                 if let Some(n) = next_tokens {
@@ -135,15 +136,16 @@ impl DescriptionAgent {
         );
         let model = state.ai_config.vision_model.clone();
         // First, try to get existing description from database
-        let descriptions = match get_descriptions_by_node(&state.db, &node_id, &model, lang_code).await {
-            Ok(descriptions) => descriptions,
-            Err(e) => {
-                let err_msg = format!("Database query failed for node {}: {}", node_id, e);
-                tracing::error!("{}", err_msg);
-                let err = AgentError::internal(err_msg.clone());
-                return Err(err);
-            }
-        };
+        let descriptions =
+            match get_descriptions_by_node(&state.db, &node_id, &model, lang_code).await {
+                Ok(descriptions) => descriptions,
+                Err(e) => {
+                    let err_msg = format!("Database query failed for node {}: {}", node_id, e);
+                    tracing::error!("{}", err_msg);
+                    let err = AgentError::internal(err_msg.clone());
+                    return Err(err);
+                }
+            };
 
         let object_name = match resolve_node_full_name(&state.db, &node_id).await {
             Ok(object_name) => object_name,
@@ -192,8 +194,12 @@ impl DescriptionAgent {
                 return Err(err);
             }
         };
-        let executing_msg = self.lang_manager
-            .get_msg_with_arg(lang_code, "progress-downloading-image", "report_type", &report_type);
+        let executing_msg = self.lang_manager.get_msg_with_arg(
+            lang_code,
+            "progress-downloading-image",
+            "report_type",
+            &report_type,
+        );
         // Download and resize image
         self.send_event(StreamEvent::Progress {
             request_id: self.context.request_id.clone(),
@@ -232,8 +238,12 @@ impl DescriptionAgent {
             }
         };
 
-        let executing_msg = self.lang_manager
-            .get_msg_with_arg(lang_code, "progress-processing-image", "report_type", &report_type);
+        let executing_msg = self.lang_manager.get_msg_with_arg(
+            lang_code,
+            "progress-processing-image",
+            "report_type",
+            &report_type,
+        );
 
         // Validate and resize image
         self.send_event(StreamEvent::Progress {
@@ -247,7 +257,9 @@ impl DescriptionAgent {
         // Resize to 1200x1200
         let resized_bytes = match tokio::task::spawn_blocking(move || {
             resize_image_to_bytes(&image_bytes, 1200, 1200)
-        }).await {
+        })
+        .await
+        {
             Ok(Ok(bytes)) => bytes,
             Ok(Err(e)) => {
                 let err_msg = format!("Failed to resize image for node {}: {}", node_id, e);
@@ -262,8 +274,12 @@ impl DescriptionAgent {
             }
         };
 
-        let executing_msg = self.lang_manager
-            .get_msg_with_arg(lang_code, "progress-generating-description", "report_type", &report_type);
+        let executing_msg = self.lang_manager.get_msg_with_arg(
+            lang_code,
+            "progress-generating-description",
+            "report_type",
+            &report_type,
+        );
 
         // Get system prompt from localization
         self.send_event(StreamEvent::Progress {
@@ -287,12 +303,12 @@ impl DescriptionAgent {
                 );
                 err
             })?;
-/*        tracing::debug!(
-            "Using system prompt for language {}: {}",
-            lang_code,
-            system_prompt
-        );
-*/
+        /*        tracing::debug!(
+                    "Using system prompt for language {}: {}",
+                    lang_code,
+                    system_prompt
+                );
+        */
         // Create the prompt for description generation
         let mut ctx = Context::new();
         ctx.insert("object_name", &object_name);
@@ -315,8 +331,12 @@ impl DescriptionAgent {
         {
             Ok(text) => text,
             Err(e) => {
-                let err_msg = self.lang_manager
-                    .get_msg_with_arg(lang_code, "progress-generate-err", "report_type", &report_type);
+                let err_msg = self.lang_manager.get_msg_with_arg(
+                    lang_code,
+                    "progress-generate-err",
+                    "report_type",
+                    &report_type,
+                );
                 tracing::error!("{} {}", err_msg, e);
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
@@ -332,8 +352,12 @@ impl DescriptionAgent {
                     error = %e,
                     "DescriptionAgent: failed to parse LLM response — not caching malformed data"
                 );
-                let err_msg = self.lang_manager
-                    .get_msg_with_arg(lang_code, "progress-description-parse-warning", "report_type", &report_type);
+                let err_msg = self.lang_manager.get_msg_with_arg(
+                    lang_code,
+                    "progress-description-parse-warning",
+                    "report_type",
+                    &report_type,
+                );
                 self.send_event(StreamEvent::Progress {
                     request_id: self.context.request_id.clone(),
                     status: "warning".to_string(),

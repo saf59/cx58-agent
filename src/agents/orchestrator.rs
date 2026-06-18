@@ -37,7 +37,9 @@
 
 use super::types::*;
 use crate::agents::agent_error::AgentError;
-use crate::agents::agents_helper::{clean_json_response, extract_text_from_choice, format_optional};
+use crate::agents::agents_helper::{
+    clean_json_response, extract_text_from_choice, format_optional,
+};
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 use rig::client::CompletionClient;
@@ -196,6 +198,26 @@ impl Orchestrator {
         request_id: &str,
         worker_results: &[WorkerResponse],
     ) -> Result<(OrchestratorDecision, Option<u64>), AgentError> {
+        self.decide_next_step_with_model(
+            classification,
+            context,
+            original_message,
+            request_id,
+            worker_results,
+            &self.model,
+        )
+        .await
+    }
+
+    pub async fn decide_next_step_with_model(
+        &self,
+        classification: &ClassificationResult,
+        context: &UserContext,
+        original_message: &str,
+        request_id: &str,
+        worker_results: &[WorkerResponse],
+        model_name: &str,
+    ) -> Result<(OrchestratorDecision, Option<u64>), AgentError> {
         let lang = context.language.to_code();
 
         // === SPECIAL CASE: Ambiguous Intent Handling ===
@@ -233,7 +255,7 @@ impl Orchestrator {
         )?;
 
         tracing::debug!("Orchestrator - Prompt: {}", prompt);
-        let model = self.client.completion_model(&self.model);
+        let model = self.client.completion_model(model_name);
 
         // Create LLM agent with low temperature (0.2) for consistent, predictable decisions
         // Low temperature is critical for structured orchestration decisions
@@ -244,7 +266,7 @@ impl Orchestrator {
             .build();
         let response = model.completion(request).await?;
 
-        let choice = response.choice; 
+        let choice = response.choice;
         let text = extract_text_from_choice(choice);
 
         if text.is_empty() {
@@ -268,7 +290,7 @@ impl Orchestrator {
 
         // Parse JSON response
         let decision_json: Value = serde_json::from_str(&cleaned).map_err(|e| {
-            let err  =AgentError::internal(format!(
+            let err = AgentError::internal(format!(
                 "Failed to parse orchestrator decision: {}\nCleaned: {}\nOriginal: {}",
                 e, cleaned, text
             ));
@@ -280,8 +302,6 @@ impl Orchestrator {
 
         Ok((decision, tokens))
     }
-
-    
 
     /// Builds the user prompt for LLM-based orchestration decision
     ///
@@ -349,11 +369,7 @@ impl Orchestrator {
         );
         ctx.insert(
             "current_report_id",
-            &format_optional(
-                &self.lang_manager.clone(),
-                &context.current_report_id,
-                lang,
-            ),
+            &format_optional(&self.lang_manager.clone(), &context.current_report_id, lang),
         );
         ctx.insert(
             "previous_report_id",
@@ -366,7 +382,8 @@ impl Orchestrator {
 
         ctx.insert(
             "extracted_parameters",
-            &serde_json::to_string_pretty(&classification.extracted_parameters).unwrap_or_else(|_| "{}".to_string()),
+            &serde_json::to_string_pretty(&classification.extracted_parameters)
+                .unwrap_or_else(|_| "{}".to_string()),
         );
         ctx.insert(
             "missing_context",
@@ -505,7 +522,7 @@ impl Orchestrator {
     /// - Required fields are missing
     /// - Worker type is invalid
     /// - Parameters are malformed
-    
+
     fn parse_decision(
         &self,
         decision_json: Value,
@@ -513,18 +530,16 @@ impl Orchestrator {
         context: &UserContext,
         request_id: &str,
     ) -> Result<OrchestratorDecision, AgentError> {
-
         // Extract decision type from JSON
-        let decision_type = decision_json["decision"]
-            .as_str()
-            .ok_or_else(|| {
-                let err = AgentError::internal("Missing decision type");
-                tracing::error!("Orchestrator parse decision_json: {}", err);
-                err
-            })?;
+        let decision_type = decision_json["decision"].as_str().ok_or_else(|| {
+            let err = AgentError::internal("Missing decision type");
+            tracing::error!("Orchestrator parse decision_json: {}", err);
+            err
+        })?;
 
         // Extract action data (decision-specific parameters)
-        let action_data = decision_json.get("action")
+        let action_data = decision_json
+            .get("action")
             .or_else(|| decision_json.get("action_data"))
             .unwrap_or(&Value::Null);
 
@@ -532,13 +547,11 @@ impl Orchestrator {
             // === ExecuteWorker: Dispatch to Specialized Worker ===
             "ExecuteWorker" => {
                 // Parse worker type (must be one of the 5 specialized workers)
-                let worker_type_str = action_data["worker_type"]
-                    .as_str()
-                    .ok_or_else(|| {
-                        let err = AgentError::internal("Missing worker_type");
-                        tracing::error!("Orchestrator parse action_data: {}", err);
-                        err
-                    })?;
+                let worker_type_str = action_data["worker_type"].as_str().ok_or_else(|| {
+                    let err = AgentError::internal("Missing worker_type");
+                    tracing::error!("Orchestrator parse action_data: {}", err);
+                    err
+                })?;
 
                 // Build worker-specific parameters based on type
                 // Each worker has different parameter requirements
@@ -547,26 +560,30 @@ impl Orchestrator {
                     "GetObjectTree" | "GET_OBJECT_TREE" => {
                         let task_params: TaskParameters = serde_json::from_value(
                             action_data["parameters"]["task_params"].clone(),
-                        ).map_err(|e| {
-                            let err = AgentError::internal("Missing or invalid TaskParameters for GetObjectTree");
+                        )
+                        .map_err(|e| {
+                            let err = AgentError::internal(
+                                "Missing or invalid TaskParameters for GetObjectTree",
+                            );
                             tracing::error!("Orchestrator parse task_params: {} {}", err, e);
                             err
                         })?;
-                        WorkerParameters::GetObjectTree{task_params}
+                        WorkerParameters::GetObjectTree { task_params }
                     }
 
                     // Report List Worker: Retrieves photo reports with date filtering
                     "GetReportList" | "GET_REPORT_LIST" => {
                         let task_params: TaskParameters = serde_json::from_value(
                             action_data["parameters"]["task_params"].clone(),
-                        ).map_err(|e| {
-                                let err = AgentError::internal("Missing or invalid TaskParameters for GetReportList");
-                                tracing::error!("Orchestrator parse task_params: {} {}", err, e);
-                                err
-                            })?;
-                        WorkerParameters::GetReportList {
-                            task_params,
-                        }
+                        )
+                        .map_err(|e| {
+                            let err = AgentError::internal(
+                                "Missing or invalid TaskParameters for GetReportList",
+                            );
+                            tracing::error!("Orchestrator parse task_params: {} {}", err, e);
+                            err
+                        })?;
+                        WorkerParameters::GetReportList { task_params }
                     }
 
                     // Vision Analysis Worker: Processes single image from S3
@@ -591,7 +608,8 @@ impl Orchestrator {
                         // Validate that prev is a valid UUID, not a placeholder like "not_set".
                         if uuid::Uuid::parse_str(&current_report_id).is_err() {
                             let err = AgentError::internal(format!(
-                                "Invalid UUID: '{}'", current_report_id
+                                "Invalid UUID: '{}'",
+                                current_report_id
                             ));
                             tracing::error!("Orchestrator parse current_report_id: {}", err);
                             return Err(err);
@@ -613,11 +631,9 @@ impl Orchestrator {
                     }
 
                     // Comparison Worker: Analyzes differences between two reports
-                    "CompareReports" | "COMPARE_REPORTS" => {
-                        WorkerParameters::CompareReports {
-                            reports: Value::Null,
-                        }
-                    }
+                    "CompareReports" | "COMPARE_REPORTS" => WorkerParameters::CompareReports {
+                        reports: Value::Null,
+                    },
 
                     // Knowledge Base Worker: Chat retrieval for project questions
                     "RagQuery" | "RAG_QUERY" => {
@@ -639,9 +655,8 @@ impl Orchestrator {
                         let object_name = action_data["parameters"]["object_name"]
                             .as_str()
                             .ok_or_else(|| {
-                                let err = AgentError::internal(
-                                    "Missing object_name for ObjectIdFinder",
-                                );
+                                let err =
+                                    AgentError::internal("Missing object_name for ObjectIdFinder");
                                 tracing::error!("Orchestrator parse parameters: {}", err);
                                 err
                             })?
@@ -789,8 +804,14 @@ impl Orchestrator {
                         "CurrentReportId" => ContextField::CurrentReportId,
                         "PreviousReportId" => ContextField::PreviousReportId,
                         _ => {
-                            let err = AgentError::internal(format!("Unknown context field in array: {}", s));
-                            tracing::error!("Orchestrator parse missing_field array element: {}", err);
+                            let err = AgentError::internal(format!(
+                                "Unknown context field in array: {}",
+                                s
+                            ));
+                            tracing::error!(
+                                "Orchestrator parse missing_field array element: {}",
+                                err
+                            );
                             return Err(err);
                         }
                     }
@@ -863,7 +884,11 @@ impl Orchestrator {
                     .to_string(),
                 message: action_data["message"]
                     .as_str()
-                    .unwrap_or(&self.lang_manager.get_msg(lang, "orchestrator-cannot-process"))
+                    .unwrap_or(
+                        &self
+                            .lang_manager
+                            .get_msg(lang, "orchestrator-cannot-process"),
+                    )
                     .to_string(),
             }),
 
@@ -871,8 +896,12 @@ impl Orchestrator {
             _ => {
                 let mut ctx = Context::new();
                 ctx.insert("decision_type", decision_type);
-                let msg = self.lang_manager
-                    .get_msg_with_arg(lang, "error-unknown-decision", "decision_type", decision_type);
+                let msg = self.lang_manager.get_msg_with_arg(
+                    lang,
+                    "error-unknown-decision",
+                    "decision_type",
+                    decision_type,
+                );
                 let err = AgentError::internal(msg);
                 tracing::error!("Orchestrator parse decision_type: {}", err);
                 Err(err.into())

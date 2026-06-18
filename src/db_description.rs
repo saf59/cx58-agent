@@ -51,11 +51,11 @@ pub async fn get_descriptions_by_node(
         ORDER BY created_at DESC
         "#,
     )
-        .bind(node_id)
-        .bind(model)
-        .bind(lang_id)
-        .fetch_all(pool)
-        .await
+    .bind(node_id)
+    .bind(model)
+    .bind(lang_id)
+    .fetch_all(pool)
+    .await
 }
 
 /// Get a specific image description by node_id, model_name, and prompt
@@ -63,7 +63,7 @@ pub async fn get_description(
     pool: &PgPool,
     node_id: &Uuid,
     model_name: &str,
-    lang_code: &str
+    lang_code: &str,
 ) -> Result<Option<ImageDescription>, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
@@ -72,18 +72,18 @@ pub async fn get_description(
         WHERE node_id = $1 AND model_name = $2 AND lang = $3
         "#,
     )
-        .bind(node_id)
-        .bind(model_name)
-        .bind(lang_code)
-        .fetch_optional(pool)
-        .await
+    .bind(node_id)
+    .bind(model_name)
+    .bind(lang_code)
+    .fetch_optional(pool)
+    .await
 }
 
 /// Insert or update an image description (upsert based on UNIQUE constraint)
 pub async fn upsert_description(
     pool: &PgPool,
     data: &CreateImageDescription,
-    lang_code: &str
+    lang_code: &str,
 ) -> Result<ImageDescription, sqlx::Error> {
     sqlx::query_as::<_, ImageDescription>(
         r#"
@@ -98,13 +98,13 @@ pub async fn upsert_description(
         RETURNING id, node_id, model_name, description, confidence, created_at
         "#,
     )
-        .bind(&data.node_id)
-        .bind(&data.model_name)
-        .bind(&data.description)
-        .bind(data.confidence)
-        .bind(lang_code)
-        .fetch_one(pool)
-        .await
+    .bind(&data.node_id)
+    .bind(&data.model_name)
+    .bind(&data.description)
+    .bind(data.confidence)
+    .bind(lang_code)
+    .fetch_one(pool)
+    .await
 }
 
 /// Insert a new image description (returns error if already exists)
@@ -119,12 +119,12 @@ pub async fn create_description(
         RETURNING id, node_id, model_name, description, confidence, created_at
         "#,
     )
-        .bind(&data.node_id)
-        .bind(&data.model_name)
-        .bind(&data.description)
-        .bind(data.confidence)
-        .fetch_one(pool)
-        .await
+    .bind(&data.node_id)
+    .bind(&data.model_name)
+    .bind(&data.description)
+    .bind(data.confidence)
+    .fetch_one(pool)
+    .await
 }
 
 /// Delete all image descriptions for a specific node
@@ -138,9 +138,9 @@ pub async fn delete_descriptions_by_node(
         WHERE node_id = $1
         "#,
     )
-        .bind(node_id)
-        .execute(pool)
-        .await?;
+    .bind(node_id)
+    .execute(pool)
+    .await?;
 
     Ok(result.rows_affected())
 }
@@ -158,29 +158,26 @@ pub async fn delete_description(
         WHERE node_id = $1 AND model_name = $2 AND lang = $3
         "#,
     )
-        .bind(node_id)
-        .bind(model_name)
-        .bind(lang_code)
-        .execute(pool)
-        .await?;
+    .bind(node_id)
+    .bind(model_name)
+    .bind(lang_code)
+    .execute(pool)
+    .await?;
 
     Ok(result.rows_affected() > 0)
 }
 
 /// Delete an image description by its ID
-pub async fn delete_description_by_id(
-    pool: &PgPool,
-    id: &Uuid,
-) -> Result<bool, sqlx::Error> {
+pub async fn delete_description_by_id(pool: &PgPool, id: &Uuid) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"
         DELETE FROM image_descriptions
         WHERE id = $1
         "#,
     )
-        .bind(id)
-        .execute(pool)
-        .await?;
+    .bind(id)
+    .execute(pool)
+    .await?;
 
     Ok(result.rows_affected() > 0)
 }

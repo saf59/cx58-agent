@@ -5,7 +5,7 @@ use rig::completion::CompletionModel;
 use rig::message::{DocumentSourceKind, Message, UserContent};
 use rig::prelude::CompletionClient;
 use rig::providers::ollama;
-use rig::{completion::message::Image, message::ImageMediaType, OneOrMany};
+use rig::{OneOrMany, completion::message::Image, message::ImageMediaType};
 use std::sync::Arc;
 
 /// More robust extraction with fallback parsing
@@ -34,7 +34,7 @@ pub fn extract_description_content_robust(
     }
     // Step 2.5: LLM wrapped the JSON in quotes — unescape and try again
     if let Ok(inner) = serde_json::from_str::<String>(llm_response.trim()) {
-        if let Ok(content) = serde_json::from_str::<DescriptionContent>(inner.trim())  {
+        if let Ok(content) = serde_json::from_str::<DescriptionContent>(inner.trim()) {
             if !content.description.trim().is_empty() {
                 return Ok(content);
             }
@@ -79,7 +79,7 @@ pub async fn generate_description_from_image(
     image_bytes: &[u8],
     user_prompt: &str,
     system_prompt: &str,
-) -> Result<(String,Option<u64>), AgentError> {
+) -> Result<(String, Option<u64>), AgentError> {
     // Convert image to base64
     let image_base64 = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, image_bytes);
 
@@ -94,15 +94,14 @@ pub async fn generate_description_from_image(
     let content = OneOrMany::many(vec![
         UserContent::Text(user_prompt.into()),
         UserContent::Image(image),
-    ]).map_err(|e| AgentError::internal(e))?;
-    
+    ])
+    .map_err(|e| AgentError::internal(e))?;
+
     // Limit output tokens — a structured JSON description needs at most ~1024 tokens.
     // Without this limit qwen3-vl:8b generates 4000-6000 tokens of reasoning before
     // the actual JSON, causing 2-5 minute timeouts.
     let request = model
-        .completion_request(Message::User {
-            content: content,
-        })
+        .completion_request(Message::User { content: content })
         .preamble(system_prompt.to_string())
         .temperature(0.2)
         .max_tokens(1024)
@@ -111,7 +110,6 @@ pub async fn generate_description_from_image(
 
     let choice = response.choice.clone();
     let text = extract_text_from_choice(choice);
-
 
     if text.is_empty() {
         let err_msg = format!(
@@ -125,10 +123,10 @@ pub async fn generate_description_from_image(
 
     let tokens = Some(
         response.raw_response.prompt_eval_count.unwrap_or(0)
-            + response.raw_response.eval_count.unwrap_or(0)
+            + response.raw_response.eval_count.unwrap_or(0),
     );
 
-    Ok((text,tokens))
+    Ok((text, tokens))
 }
 
 /// Resize image to maximum dimensions while maintaining aspect ratio

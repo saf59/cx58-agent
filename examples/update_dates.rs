@@ -1,8 +1,10 @@
 mod common;
 
+use crate::common::test_data::{
+    generate_date, get_object3_images, get_room11_images, get_room211_images,
+};
 use cx58_agent::db::update_leaf_datetime;
 use sqlx::PgPool;
-use crate::common::test_data::{generate_date, get_object3_images, get_room11_images, get_room211_images};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

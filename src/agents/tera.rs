@@ -1,6 +1,6 @@
+use anyhow::Result;
 use std::sync::Arc;
 use tera::{Context, Tera};
-use anyhow::Result;
 
 pub struct TemplateManager {
     lang_manager: Arc<crate::localization::LocalizationManager>,

@@ -67,7 +67,7 @@
 //!
 
 use rig::providers::ollama;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -76,9 +76,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
 
 use super::{
-    intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter, types::*, ChatAgent,
-    ComparisonAgent, DescriptionAgent, DocumentAgent,
-    ObjectAgent,
+    ChatAgent, ComparisonAgent, DescriptionAgent, DocumentAgent, ObjectAgent,
+    intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter,
+    types::*,
 };
 
 use crate::agents::agent_error::AgentError;
@@ -86,11 +86,11 @@ use crate::agents::documents_id_finder::DocumentsIdFinder;
 use crate::agents::object_id_finder::ObjectIdFinder;
 use crate::agents::stats::AgentStats;
 use crate::localization::LocalizationManager;
+use crate::model_settings::effective_ai_config;
 use crate::templating::TemplateManager;
 use crate::{
-    append_history, load_session, save_session, save_session_with_history,
-    AgentContext, AgentRequest, AiConfig, AppState, RequestManager,
-    StreamEvent,
+    AgentContext, AgentRequest, AiConfig, AppState, RequestManager, StreamEvent, append_history,
+    load_session, save_session, save_session_with_history,
 };
 
 /// # MasterAgent
@@ -188,12 +188,21 @@ impl MasterAgent {
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
             let mut request = request;
+            let ai_config =
+                effective_ai_config(&state.db, &request.user_id, &state.ai_config).await;
+            let request_state = Arc::new(AppState {
+                db: state.db.clone(),
+                storage: state.storage.clone(),
+                master_agent: state.master_agent.clone(),
+                ai_config,
+            });
 
             // Load session and fill missing fields from previous request.
             // history_strings is passed to IntentRouter so it can resolve
             // anaphoric references ("same as before", "that room again").
             let mut conversation_history: Vec<String> = Vec::new();
-            if let Some(session) = load_session(&state.db, &request.user_id, &request.chat_id).await
+            if let Some(session) =
+                load_session(&request_state.db, &request.user_id, &request.chat_id).await
             {
                 // Extract history before partial moves of Option<String> fields.
                 conversation_history = session.history_strings();
@@ -224,7 +233,12 @@ impl MasterAgent {
                 .await;
 
             if let Err(e) = agent
-                .process_request(state, context.clone(), tx.clone(), conversation_history)
+                .process_request(
+                    request_state,
+                    context.clone(),
+                    tx.clone(),
+                    conversation_history,
+                )
                 .await
             {
                 // Determine the user's language for the error message.
@@ -285,7 +299,12 @@ impl MasterAgent {
         let intent_start = Instant::now();
         let (classification, router_tokens) = self
             .intent_router
-            .classify(&context.message, &user_context, &conversation_history)
+            .classify_with_model(
+                &context.message,
+                &user_context,
+                &conversation_history,
+                &state.ai_config.chat_model,
+            )
             .await?;
         tracing::info!("Intent classification result: {:?}", &classification.intent);
         stats.record_router(
@@ -301,7 +320,11 @@ impl MasterAgent {
         if matches!(classification.intent, Intent::OutOfScope) {
             let message = self
                 .formatter
-                .format_out_of_scope(&user_context.language, &context.message)
+                .format_out_of_scope_with_model(
+                    &user_context.language,
+                    &context.message,
+                    &state.ai_config.text_model,
+                )
                 .await?;
 
             self.send_text_chunks(&tx, &message, &context.request_id)
@@ -400,7 +423,11 @@ impl MasterAgent {
         // Examples of when this fires:
         //   - new chat, prev_leaf/next_leaf sent by frontend from old chat
         //   - user switches objects mid-conversation ("now show me Room 211")
-        if classification.extracted_parameters.object_identifier.is_some() {
+        if classification
+            .extracted_parameters
+            .object_identifier
+            .is_some()
+        {
             if current_context.object_id.is_some() {
                 tracing::info!(
                     object_identifier = ?classification.extracted_parameters.object_identifier,
@@ -452,7 +479,8 @@ impl MasterAgent {
                         let hint = self
                             .lang_manager
                             .get_msg(lang_code, "context-request-select-report-hint");
-                        let suggestions = if hint.is_empty() || hint.starts_with("Missing message:") {
+                        let suggestions = if hint.is_empty() || hint.starts_with("Missing message:")
+                        {
                             vec![]
                         } else {
                             vec![hint]
@@ -537,20 +565,19 @@ impl MasterAgent {
                 // Append current exchange to history so the next request can
                 // resolve anaphoric references ("that room again", "compare those two").
                 // We store the intent name as a compact assistant entry.
-                let current_history = serde_json::json!(conversation_history
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| {
-                        let role = if i % 2 == 0 { "user" } else { "assistant" };
-                        serde_json::json!({"role": role, "text": s})
-                    })
-                    .collect::<Vec<serde_json::Value>>());
-                let assistant_summary = format!("{:?}", classification.intent);
-                let updated_history = append_history(
-                    &current_history,
-                    &context.message,
-                    &assistant_summary,
+                let current_history = serde_json::json!(
+                    conversation_history
+                        .iter()
+                        .enumerate()
+                        .map(|(i, s)| {
+                            let role = if i % 2 == 0 { "user" } else { "assistant" };
+                            serde_json::json!({"role": role, "text": s})
+                        })
+                        .collect::<Vec<serde_json::Value>>()
                 );
+                let assistant_summary = format!("{:?}", classification.intent);
+                let updated_history =
+                    append_history(&current_history, &context.message, &assistant_summary);
                 save_session_with_history(
                     &state.db,
                     &current_context.user_id,
@@ -561,24 +588,20 @@ impl MasterAgent {
                     Some(&updated_history),
                 )
                 .await;
-                self.format_and_stream_response(
-                    &tx,
-                    &classification.intent,
-                    &ready,
-                    &context,
-                )
-                .await?;
+                self.format_and_stream_response(&tx, &classification.intent, &ready, &context)
+                    .await?;
                 break;
             }
             let orch_start = Instant::now();
             let (decision, orch_tokens) = self
                 .orchestrator
-                .decide_next_step(
+                .decide_next_step_with_model(
                     &classification,
                     &current_context,
                     &context.message,
                     &context.request_id.to_string(),
                     &worker_results,
+                    &state.ai_config.text_model,
                 )
                 .await?;
             stats.record_orchestrator(orch_tokens, Some(orch_start.elapsed().as_millis() as u64));
@@ -671,7 +694,9 @@ impl MasterAgent {
                         ),
                     };
 
-                    let prompt = self.lang_manager.get_msg_or(lang_code, msg_key, &orchestrator_prompt);
+                    let prompt =
+                        self.lang_manager
+                            .get_msg_or(lang_code, msg_key, &orchestrator_prompt);
 
                     // Suggestions: prefer orchestrator-supplied list (it is context-aware);
                     // fall back to a single FTL hint string when the list is empty.
@@ -728,7 +753,8 @@ impl MasterAgent {
                             intent = ?classification.intent,
                             "FormatAndReturn received — formatting immediately"
                         );
-                        let ready = Self::intent_ready(classification.intent.clone(), &worker_results);
+                        let ready =
+                            Self::intent_ready(classification.intent.clone(), &worker_results);
                         if !ready.is_empty() {
                             save_session(
                                 &state.db,
@@ -762,7 +788,11 @@ impl MasterAgent {
                     tracing::warn!(reason = %reason, "Request rejected by orchestrator");
                     match self
                         .formatter
-                        .format_out_of_scope(&current_context.language, &context.message)
+                        .format_out_of_scope_with_model(
+                            &current_context.language,
+                            &context.message,
+                            &state.ai_config.text_model,
+                        )
                         .await
                     {
                         Ok(formatted) => {
@@ -772,8 +802,9 @@ impl MasterAgent {
                         Err(e) => {
                             // Formatter failed — fall back to a plain FTL key.
                             tracing::error!("format_out_of_scope failed in Reject branch: {}", e);
-                            let fallback =
-                                self.lang_manager.get_msg(lang_code, "error-request-rejected");
+                            let fallback = self
+                                .lang_manager
+                                .get_msg(lang_code, "error-request-rejected");
                             tx.send(StreamEvent::TextChunk {
                                 request_id: context.request_id.clone(),
                                 chunk: fallback,
@@ -832,11 +863,8 @@ impl MasterAgent {
         let start = Instant::now();
         let (result_data, tokens, llm_calls) = match worker_request.parameters {
             WorkerParameters::GetObjectTree { task_params } => {
-                let agent = ObjectAgent::new(
-                    context.clone(),
-                    event_tx.clone(),
-                    self.lang_manager.clone(),
-                );
+                let agent =
+                    ObjectAgent::new(context.clone(), event_tx.clone(), self.lang_manager.clone());
                 // get object tree is a simple lookup, no LLM calls, so tokens and calls are 0
                 let result = agent.execute(state, &task_params).await?;
                 (result, None, 0u32)

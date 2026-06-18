@@ -25,7 +25,7 @@ use rig::completion::CompletionModel;
 use rig::prelude::CompletionClient;
 use rig::providers::ollama;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tera::Context;
@@ -160,9 +160,10 @@ impl ComparisonAgent {
         let prev_id = prev["date_id"].as_str().unwrap_or("");
         let next_id = next["date_id"].as_str().unwrap_or("");
         // --- Cache lookup ---
-        if let Some(cached) = self.get_cached_comparison(
-            &state.db, prev_id, next_id, lang_code, model_name
-        ).await? {
+        if let Some(cached) = self
+            .get_cached_comparison(&state.db, prev_id, next_id, lang_code, model_name)
+            .await?
+        {
             tracing::info!(prev_id, next_id, "Comparison cache HIT");
             return Ok((cached, None));
         }
@@ -240,8 +241,14 @@ impl ComparisonAgent {
         let result_json = json!(parsed);
         // --- Cache store ---
         self.save_comparison(
-            &state.db, prev_id, next_id, lang_code, model_name, &result_json
-        ).await?;
+            &state.db,
+            prev_id,
+            next_id,
+            lang_code,
+            model_name,
+            &result_json,
+        )
+        .await?;
 
         Ok((result_json, tokens))
     }
@@ -280,10 +287,13 @@ impl ComparisonAgent {
               AND lang      = $3
               AND model     = $4
             "#,
-            prev_id, next_id, lang, model
+            prev_id,
+            next_id,
+            lang,
+            model
         )
-            .fetch_optional(pool)
-            .await?;
+        .fetch_optional(pool)
+        .await?;
 
         Ok(row.map(|r| r.data))
     }
@@ -297,7 +307,6 @@ impl ComparisonAgent {
         model: &str,
         data: &Value,
     ) -> Result<(), AgentError> {
-
         sqlx::query!(
             r#"
             INSERT INTO comparison
@@ -306,12 +315,15 @@ impl ComparisonAgent {
             ON CONFLICT (prev_id, next_id, lang, model)
                 DO UPDATE SET data = EXCLUDED.data
             "#,
-            prev_id, next_id, lang, model, data
+            prev_id,
+            next_id,
+            lang,
+            model,
+            data
         )
-            .execute(pool)
-            .await?;
+        .execute(pool)
+        .await?;
 
         Ok(())
     }
-
 }

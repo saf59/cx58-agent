@@ -1,8 +1,8 @@
 #![allow(unused)]
-use chrono::{Local, Duration, NaiveTime};
+use chrono::{Duration, Local, NaiveTime};
+use rand::{Rng, RngExt};
 use sqlx::PgPool;
 use std::path::PathBuf;
-use rand::{Rng, RngExt};
 
 pub const DATA_DIR: &str = "data";
 
@@ -43,9 +43,7 @@ pub fn get_room211_images() -> Vec<(&'static str, i32)> {
 }
 
 pub fn get_object3_images() -> Vec<(&'static str, i32)> {
-    vec![
-        ("noise_1.jpg", -1),
-    ]
+    vec![("noise_1.jpg", -1)]
 }
 
 /// Generate date in format "DD.MM.YYYY HH:mm:SS"
@@ -81,20 +79,16 @@ pub fn check_files_exist(dir: &str, filenames: &[&str]) -> Result<(), Box<dyn st
             "Missing files in '{}' directory:\n  - {}",
             dir,
             missing_files.join("\n  - ")
-        ).into());
+        )
+        .into());
     }
 
     Ok(())
 }
 
 /// Run SQL script from string
-pub async fn run_sql_script(
-    pool: &PgPool,
-    sql: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql(sql)
-        .execute(pool)
-        .await?;
+pub async fn run_sql_script(pool: &PgPool, sql: &str) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(sql).execute(pool).await?;
 
     Ok(())
 }

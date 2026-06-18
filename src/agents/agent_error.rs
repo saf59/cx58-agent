@@ -23,12 +23,12 @@
 // ```
 
 use std::fmt;
-use tokio::sync::mpsc;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
-use fluent_bundle::FluentArgs;
-use crate::{AgentContext, StreamEvent};
 use crate::agents::LocalizationManager;
+use crate::{AgentContext, StreamEvent};
+use fluent_bundle::FluentArgs;
 
 // ---------------------------------------------------------------------------
 // AgentError
@@ -63,7 +63,6 @@ pub enum AgentError {
     NoDocumentsFound,
 
     // --- LLM / prompt errors ---
-
     /// The LLM returned a response that could not be parsed as the expected JSON.
     /// * `detail` – a short human-readable description of the parse failure.
     LlmJsonParseError { detail: String },
@@ -77,19 +76,16 @@ pub enum AgentError {
     LocalizationKeyMissing { key: String },
 
     // --- Date / time errors ---
-
     /// A date string could not be parsed.
     /// * `raw` – the raw string that failed parsing.
     DateParseError { raw: String },
 
     // --- Storage errors ---
-
     /// The S3 storage operation failed.
     /// * `detail` – short description from the underlying error.
     StorageError { detail: String },
 
     // --- Generic / internal ---
-
     /// A comparison requires at least two descriptions but fewer were supplied.
     InsufficientDescriptions { found: usize },
 
@@ -111,13 +107,23 @@ impl fmt::Display for AgentError {
             Self::InvalidUuid { raw } => write!(f, "Invalid UUID: '{}'", raw),
             Self::ObjectNotFound { id } => write!(f, "Object '{}' not found", id),
             Self::NoDocumentsFound => write!(f, "No documents found matching the criteria"),
-            Self::LlmJsonParseError { detail } => write!(f, "Failed to parse LLM response: {}", detail),
-            Self::TemplateRenderError { template } => write!(f, "Template render error: '{}'", template),
-            Self::LocalizationKeyMissing { key } => write!(f, "Missing localization key: '{}'", key),
+            Self::LlmJsonParseError { detail } => {
+                write!(f, "Failed to parse LLM response: {}", detail)
+            }
+            Self::TemplateRenderError { template } => {
+                write!(f, "Template render error: '{}'", template)
+            }
+            Self::LocalizationKeyMissing { key } => {
+                write!(f, "Missing localization key: '{}'", key)
+            }
             Self::DateParseError { raw } => write!(f, "Failed to parse date: '{}'", raw),
             Self::StorageError { detail } => write!(f, "Storage error: {}", detail),
             Self::InsufficientDescriptions { found } => {
-                write!(f, "Need at least 2 descriptions for comparison, got {}", found)
+                write!(
+                    f,
+                    "Need at least 2 descriptions for comparison, got {}",
+                    found
+                )
             }
             Self::Internal { detail } => write!(f, "Internal agent error: {}", detail),
         }
@@ -140,17 +146,17 @@ impl AgentError {
     pub fn fluent_key(&self) -> &'static str {
         match self {
             Self::Cancelled => "error-cancelled",
-            Self::MissingObjectId           => "error-missing-object-id",
-            Self::InvalidUuid { .. }        => "error-invalid-uuid",
-            Self::ObjectNotFound { .. }     => "error-object-not-found",
-            Self::NoDocumentsFound          => "error-no-documents-found",
-            Self::LlmJsonParseError { .. }  => "error-llm-json-parse",
-            Self::TemplateRenderError { .. }=> "error-template-render",
-            Self::LocalizationKeyMissing {..}=> "error-localization-key-missing",
-            Self::DateParseError { .. }     => "error-date-parse",
-            Self::StorageError { .. }       => "error-storage",
-            Self::InsufficientDescriptions {..}=> "error-insufficient-descriptions",
-            Self::Internal { .. }           => "error-internal",
+            Self::MissingObjectId => "error-missing-object-id",
+            Self::InvalidUuid { .. } => "error-invalid-uuid",
+            Self::ObjectNotFound { .. } => "error-object-not-found",
+            Self::NoDocumentsFound => "error-no-documents-found",
+            Self::LlmJsonParseError { .. } => "error-llm-json-parse",
+            Self::TemplateRenderError { .. } => "error-template-render",
+            Self::LocalizationKeyMissing { .. } => "error-localization-key-missing",
+            Self::DateParseError { .. } => "error-date-parse",
+            Self::StorageError { .. } => "error-storage",
+            Self::InsufficientDescriptions { .. } => "error-insufficient-descriptions",
+            Self::Internal { .. } => "error-internal",
         }
     }
 
@@ -170,15 +176,15 @@ impl AgentError {
 
         match self {
             Self::Cancelled => None,
-            Self::InvalidUuid { raw }                => args!("raw"      => raw.clone()),
-            Self::ObjectNotFound { id }              => args!("id"       => id.clone()),
-            Self::LlmJsonParseError { detail }       => args!("detail"   => detail.clone()),
-            Self::TemplateRenderError { template }   => args!("template" => template.clone()),
-            Self::LocalizationKeyMissing { key }     => args!("key"      => key.clone()),
-            Self::DateParseError { raw }             => args!("raw"      => raw.clone()),
-            Self::StorageError { detail }            => args!("detail"   => detail.clone()),
+            Self::InvalidUuid { raw } => args!("raw"      => raw.clone()),
+            Self::ObjectNotFound { id } => args!("id"       => id.clone()),
+            Self::LlmJsonParseError { detail } => args!("detail"   => detail.clone()),
+            Self::TemplateRenderError { template } => args!("template" => template.clone()),
+            Self::LocalizationKeyMissing { key } => args!("key"      => key.clone()),
+            Self::DateParseError { raw } => args!("raw"      => raw.clone()),
+            Self::StorageError { detail } => args!("detail"   => detail.clone()),
             Self::InsufficientDescriptions { found } => args!("found"    => found.to_string()),
-            Self::Internal { detail }                => args!("detail"   => detail.clone()),
+            Self::Internal { detail } => args!("detail"   => detail.clone()),
             // Parameter-less variants
             Self::MissingObjectId | Self::NoDocumentsFound => None,
         }
@@ -201,7 +207,7 @@ impl AgentError {
 
         let rendered = match self.fluent_args() {
             Some(args) => lang_manager.get_msg_with_args(lang, key, args),
-            None       => lang_manager.get_msg(lang, key),
+            None => lang_manager.get_msg(lang, key),
         };
 
         // If the manager returned a "Missing message: …" placeholder or an
@@ -250,7 +256,9 @@ impl AgentError {
 
     /// Wraps any `std::error::Error` as `AgentError::Internal`.
     pub fn internal(e: impl fmt::Display) -> Self {
-        Self::Internal { detail: e.to_string() }
+        Self::Internal {
+            detail: e.to_string(),
+        }
     }
 }
 

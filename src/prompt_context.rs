@@ -1,6 +1,6 @@
+use crate::localization::LocalizationManager;
 use aho_corasick::{AhoCorasick, Match, MatchKind};
 use serde::{Deserialize, Serialize};
-use crate::localization::LocalizationManager;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, IntoStaticStr};
 use thiserror::Error;
@@ -20,7 +20,9 @@ pub enum ParserError {
     InvalidPattern(String),
 }
 
-#[derive(Debug, EnumIter, IntoStaticStr, Copy, Clone, PartialEq, Eq, Hash, Serialize,Deserialize)]
+#[derive(
+    Debug, EnumIter, IntoStaticStr, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize,
+)]
 pub enum Period {
     Day,
     Week,
@@ -192,7 +194,6 @@ impl ContextParser {
 
         Ok(())
     }
-
 }
 
 impl Default for ContextParser {

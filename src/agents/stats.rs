@@ -81,9 +81,7 @@ impl AgentStats {
     pub fn total_tokens(&self) -> u64 {
         let router = self.router_tokens.unwrap_or(0);
         let orch = self.orchestrator_tokens.unwrap_or(0);
-        let workers: u64 = self.workers.iter()
-            .filter_map(|w| w.tokens_used)
-            .sum();
+        let workers: u64 = self.workers.iter().filter_map(|w| w.tokens_used).sum();
         router + orch + workers
     }
 }

@@ -1,12 +1,12 @@
 mod common;
-use reqwest::{Client, Response};
+use crate::common::response_tree::{NodeData, Tree, build_tree};
 use cx58_agent::db::{NodeType, TreeNode};
-use crate::common::response_tree::{build_tree, NodeData, Tree};
+use reqwest::{Client, Response};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let base_url = std::env::var("BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
 
     let client = Client::new();
     let user_id = "shpirkov@gmail.com";
@@ -33,7 +33,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_response(response).await;
         }
         Err(e) => eprintln!("Error: {}", e),
-
     }
 
     Ok(())
@@ -71,7 +70,13 @@ fn print_tree(nodes: &[Tree], indent: usize) {
 
         let name = node.name.as_deref().unwrap_or("(unnamed)");
 
-        print!("{}{} {} [{}]", prefix, node_type_symbol, name, node.node_type_str());
+        print!(
+            "{}{} {} [{}]",
+            prefix,
+            node_type_symbol,
+            name,
+            node.node_type_str()
+        );
 
         // Print typed data info
         match &node.data {
@@ -94,8 +99,13 @@ fn print_tree(nodes: &[Tree], indent: usize) {
             NodeData::Empty => {}
         }
 
-        println!("{}   Own: {} | Depth: {} | Updated: {}",
-                 prefix, node.own, node.depth, node.updated_at.format("%Y-%m-%d %H:%M"));
+        println!(
+            "{}   Own: {} | Depth: {} | Updated: {}",
+            prefix,
+            node.own,
+            node.depth,
+            node.updated_at.format("%Y-%m-%d %H:%M")
+        );
 
         // Recursively print children
         if !node.children.is_empty() {
@@ -103,4 +113,3 @@ fn print_tree(nodes: &[Tree], indent: usize) {
         }
     }
 }
-

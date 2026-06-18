@@ -1,5 +1,5 @@
-use sqlx::PgPool;
 use serde_json::Value as JsonValue;
+use sqlx::PgPool;
 
 /// Maximum number of message pairs kept in history.
 /// Older entries are dropped when the limit is reached.
@@ -7,13 +7,13 @@ const MAX_HISTORY_ENTRIES: usize = 10;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ChatSession {
-    pub user_id:   String,
-    pub chat_id:   String,
+    pub user_id: String,
+    pub chat_id: String,
     pub object_id: Option<String>,
-    pub prev_leaf:  Option<String>,
-    pub next_leaf:  Option<String>,
+    pub prev_leaf: Option<String>,
+    pub next_leaf: Option<String>,
     /// Last N message pairs as JSON array: [{"role":"user","text":"..."},{"role":"assistant","text":"..."},...]
-    pub history:   JsonValue,
+    pub history: JsonValue,
 }
 
 impl ChatSession {
@@ -37,15 +37,8 @@ impl ChatSession {
 
 /// Appends a new user+assistant exchange to the history array.
 /// Caps the total at MAX_HISTORY_ENTRIES pairs, dropping the oldest.
-pub fn append_history(
-    existing: &JsonValue,
-    user_msg: &str,
-    assistant_msg: &str,
-) -> JsonValue {
-    let mut entries: Vec<JsonValue> = existing
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+pub fn append_history(existing: &JsonValue, user_msg: &str, assistant_msg: &str) -> JsonValue {
+    let mut entries: Vec<JsonValue> = existing.as_array().cloned().unwrap_or_default();
 
     entries.push(serde_json::json!({"role": "user",      "text": user_msg}));
     entries.push(serde_json::json!({"role": "assistant", "text": assistant_msg}));
@@ -61,11 +54,7 @@ pub fn append_history(
 
 /// Load the session for the given user_id + chat_id.
 /// Returns None if no session exists or on DB error (non-fatal).
-pub async fn load_session(
-    db: &PgPool,
-    user_id: &str,
-    chat_id: &str,
-) -> Option<ChatSession> {
+pub async fn load_session(db: &PgPool, user_id: &str, chat_id: &str) -> Option<ChatSession> {
     sqlx::query_as!(
         ChatSession,
         r#"SELECT user_id, chat_id, object_id, prev_leaf, next_leaf,
@@ -91,8 +80,8 @@ pub async fn save_session(
     user_id: &str,
     chat_id: &str,
     object_id: Option<&str>,
-    prev_leaf:  Option<&str>,
-    next_leaf:  Option<&str>,
+    prev_leaf: Option<&str>,
+    next_leaf: Option<&str>,
 ) {
     save_session_with_history(db, user_id, chat_id, object_id, prev_leaf, next_leaf, None).await;
 }
@@ -103,13 +92,11 @@ pub async fn save_session_with_history(
     user_id: &str,
     chat_id: &str,
     object_id: Option<&str>,
-    prev_leaf:  Option<&str>,
-    next_leaf:  Option<&str>,
+    prev_leaf: Option<&str>,
+    next_leaf: Option<&str>,
     history: Option<&JsonValue>,
 ) {
-    let history_value = history
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
+    let history_value = history.cloned().unwrap_or_else(|| serde_json::json!([]));
 
     let result = sqlx::query!(
         r#"INSERT INTO chat_session (user_id, chat_id, object_id, prev_leaf, next_leaf, history, updated_at)
@@ -135,9 +122,6 @@ pub async fn save_session_with_history(
     .await;
 
     if let Err(e) = result {
-        tracing::warn!(
-            user_id, chat_id,
-            "Failed to save chat_session: {}", e
-        );
+        tracing::warn!(user_id, chat_id, "Failed to save chat_session: {}", e);
     }
 }

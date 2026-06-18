@@ -1,4 +1,4 @@
-﻿use chrono::NaiveDateTime;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -119,27 +119,19 @@ pub async fn evict_expired_cache(pool: &PgPool) {
     match sqlx::query!(
         "DELETE FROM image_descriptions WHERE created_at <= (NOW() - INTERVAL '30 days')"
     )
-        .execute(pool)
-        .await
+    .execute(pool)
+    .await
     {
-        Ok(r) => tracing::info!(
-            deleted = r.rows_affected(),
-            "Cache eviction: descriptions"
-        ),
+        Ok(r) => tracing::info!(deleted = r.rows_affected(), "Cache eviction: descriptions"),
         Err(e) => tracing::error!("Cache eviction failed (descriptions): {e}"),
     }
 
     // Comparisons older than N days
-    match sqlx::query!(
-        "DELETE FROM comparison WHERE created_at <= (NOW() - INTERVAL '30 days')"
-    )
+    match sqlx::query!("DELETE FROM comparison WHERE created_at <= (NOW() - INTERVAL '30 days')")
         .execute(pool)
         .await
     {
-        Ok(r) => tracing::info!(
-            deleted = r.rows_affected(),
-            "Cache eviction: comparisons"
-        ),
+        Ok(r) => tracing::info!(deleted = r.rows_affected(), "Cache eviction: comparisons"),
         Err(e) => tracing::error!("Cache eviction failed (comparisons): {e}"),
     }
 }
@@ -274,13 +266,8 @@ pub async fn get_full_node_name(
     Ok(result.0)
 }
 
-pub async fn get_id_by_name(
-    pool: &PgPool,
-    node_name: &str,
-) -> Result<Option<Uuid>, sqlx::Error> {
-    let result = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM tree_nodes WHERE name = $1 LIMIT 1"
-    )
+pub async fn get_id_by_name(pool: &PgPool, node_name: &str) -> Result<Option<Uuid>, sqlx::Error> {
+    let result = sqlx::query_scalar::<_, Uuid>("SELECT id FROM tree_nodes WHERE name = $1 LIMIT 1")
         .bind(node_name)
         .fetch_optional(pool)
         .await?;
@@ -302,13 +289,21 @@ impl TreeNode {
     }
 }
 impl Leaf for TreeNode {
-    fn node_type(&self) -> &NodeType { &self.node_type }
-    fn data(&self) -> &serde_json::Value { &self.data }
+    fn node_type(&self) -> &NodeType {
+        &self.node_type
+    }
+    fn data(&self) -> &serde_json::Value {
+        &self.data
+    }
 }
 
 impl Leaf for NodeWithLeaf {
-    fn node_type(&self) -> &NodeType { &self.node_type }
-    fn data(&self) -> &serde_json::Value { &self.data }
+    fn node_type(&self) -> &NodeType {
+        &self.node_type
+    }
+    fn data(&self) -> &serde_json::Value {
+        &self.data
+    }
 }
 pub trait Leaf {
     fn node_type(&self) -> &NodeType;
@@ -339,7 +334,6 @@ impl std::fmt::Display for NodeType {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -428,6 +422,3 @@ mod tests {
         tracing::info!("Full name: {}", full_name.unwrap_or("<none>".to_string()));
     }
 }
-
-
-

@@ -1,3 +1,4 @@
+use crate::agents::master_agent::MasterAgent;
 use crate::db::NodeType;
 use crate::error::*;
 use crate::init::S3Config;
@@ -12,28 +13,41 @@ use axum::{
     http::StatusCode,
 };
 use bytes::Bytes;
+use image::DynamicImage;
+use image::codecs::jpeg::JpegEncoder;
 use reqwest::header::HeaderName;
 use s3::BucketConfiguration;
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use std::io::Cursor;
+use std::path::Path as StdPath;
 use std::str::FromStr;
 use std::sync::Arc;
-use serde_json::{Map, Value};
 use uuid::Uuid;
-use crate::agents::master_agent::MasterAgent;
+
+pub const MAX_UPLOAD_BODY_BYTES: usize = 25 * 1024 * 1024;
+const MAX_STORED_IMAGE_MB: u64 = 10;
+const MAX_STORED_IMAGE_SIDE: u32 = 1800;
+const JPEG_UPLOAD_QUALITY: u8 = 85;
+
+struct PreparedUploadImage {
+    data: Bytes,
+    reencoded_as_jpeg: bool,
+}
 
 // ============================================================================
 // AppState && AiConfig
 // ============================================================================
-#[derive(Clone,Default)]
+#[derive(Clone, Default)]
 pub struct AiConfig {
     pub url: String,
     pub text_model: String,
     pub vision_model: String,
     pub chat_model: String,
-    pub agent_secret: String
+    pub agent_secret: String,
 }
 impl AiConfig {
     pub fn from_env() -> std::result::Result<Self, Box<dyn std::error::Error>> {
@@ -148,7 +162,8 @@ impl StorageService {
                 HeaderName::from_static("x-amz-acl"),
                 "public-read".parse().unwrap(),
             );
-            self.save_image(&image_data, &storage_path, &mime_type, headers).await?;
+            self.save_image(&image_data, &storage_path, &mime_type, headers)
+                .await?;
         } else {
             self.bucket
                 .put_object(&storage_path, &image_data)
@@ -180,7 +195,13 @@ impl StorageService {
         })
     }
 
-    async fn save_image(&self, image_data: &Bytes, storage_path: &String, mime_type: &String, headers: HeaderMap) -> std::result::Result<(), AppError> {
+    async fn save_image(
+        &self,
+        image_data: &Bytes,
+        storage_path: &String,
+        mime_type: &String,
+        headers: HeaderMap,
+    ) -> std::result::Result<(), AppError> {
         let _response_data = self
             .bucket
             .put_object_with_content_type_and_headers(
@@ -358,7 +379,7 @@ impl StorageService {
     ) -> Result<StorageResult> {
         // Download original image
         let data = self.download_image(original_path).await?;
-        let img = image::load_from_memory(&data)
+        let img = load_oriented_image(&data)
             .map_err(|e| AppError::internal(format!("Invalid image: {}", e)))?;
 
         // Create thumbnail
@@ -401,7 +422,8 @@ impl StorageService {
             HeaderName::from_static("x-amz-acl"),
             "public-read".parse().unwrap(),
         );
-        self.save_image(&buffer_bytes, &storage_path, &mime_type, headers).await?;
+        self.save_image(&buffer_bytes, &storage_path, &mime_type, headers)
+            .await?;
         let public_url = self
             .bucket
             .presign_get(&storage_path, 86400, None)
@@ -625,14 +647,23 @@ pub async fn upload_image_handler(
         return Err(AppError::bad_request("Missing berlin_datetime"));
     }
 
+    let prepared_image = tokio::task::spawn_blocking(move || normalize_upload_image(image_data))
+        .await
+        .map_err(|e| AppError::internal(format!("Image normalization task failed: {}", e)))??;
+    let storage_filename = if prepared_image.reencoded_as_jpeg {
+        jpeg_storage_filename(&filename)
+    } else {
+        filename.clone()
+    };
+
     // Validate image
-    validate_image(&image_data, 10)?;
+    validate_image(&prepared_image.data, MAX_STORED_IMAGE_MB)?;
 
     // Upload to S3
     let node_id = Uuid::now_v7();
     let storage_result = state
         .storage
-        .upload_image(&node_id, image_data, &filename)
+        .upload_image(&node_id, prepared_image.data, &storage_filename)
         .await?;
 
     // Insert into database with parent_id
@@ -671,6 +702,181 @@ pub async fn upload_image_handler(
         size: storage_result.size,
     }))
 }
+
+fn normalize_upload_image(image_data: Bytes) -> Result<PreparedUploadImage> {
+    let original_len = image_data.len();
+    let orientation = exif_orientation(&image_data).unwrap_or(1);
+    let image = load_oriented_image(&image_data)
+        .map_err(|e| AppError::validation(format!("Invalid image: {}", e)))?;
+    let needs_resize =
+        image.width() > MAX_STORED_IMAGE_SIDE || image.height() > MAX_STORED_IMAGE_SIDE;
+
+    if orientation == 1 && !needs_resize && original_len as u64 <= MAX_STORED_IMAGE_MB * 1024 * 1024
+    {
+        return Ok(PreparedUploadImage {
+            data: image_data,
+            reencoded_as_jpeg: false,
+        });
+    }
+
+    let prepared = if needs_resize {
+        image.thumbnail(MAX_STORED_IMAGE_SIDE, MAX_STORED_IMAGE_SIDE)
+    } else {
+        image
+    };
+
+    let normalized = encode_jpeg(&prepared, JPEG_UPLOAD_QUALITY)
+        .map_err(|e| AppError::validation(format!("Image encode failed: {}", e)))?;
+    Ok(PreparedUploadImage {
+        data: Bytes::from(normalized),
+        reencoded_as_jpeg: true,
+    })
+}
+
+fn jpeg_storage_filename(filename: &str) -> String {
+    let stem = StdPath::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
+    format!("{}.jpg", stem)
+}
+
+fn load_oriented_image(data: &[u8]) -> std::result::Result<DynamicImage, image::ImageError> {
+    let orientation = exif_orientation(data).unwrap_or(1);
+    let image = image::load_from_memory(data)?;
+    Ok(apply_exif_orientation(image, orientation))
+}
+
+fn exif_orientation(image_data: &[u8]) -> Option<u32> {
+    if image_data.starts_with(b"Exif\0\0") {
+        return tiff_orientation(&image_data[6..]);
+    }
+
+    if !image_data.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+
+    let mut offset = 2;
+    while offset + 4 <= image_data.len() {
+        if image_data[offset] != 0xFF {
+            return None;
+        }
+
+        let marker = image_data[offset + 1];
+        if marker == 0xDA || marker == 0xD9 {
+            return None;
+        }
+
+        let segment_len =
+            u16::from_be_bytes([image_data[offset + 2], image_data[offset + 3]]) as usize;
+        if segment_len < 2 {
+            return None;
+        }
+
+        let segment_start = offset + 4;
+        let segment_end = offset + 2 + segment_len;
+        if segment_end > image_data.len() {
+            return None;
+        }
+
+        let segment = &image_data[segment_start..segment_end];
+        if marker == 0xE1 && segment.starts_with(b"Exif\0\0") {
+            return tiff_orientation(&segment[6..]);
+        }
+
+        offset = segment_end;
+    }
+
+    None
+}
+
+fn tiff_orientation(tiff: &[u8]) -> Option<u32> {
+    if tiff.len() < 8 {
+        return None;
+    }
+
+    let little_endian = match &tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+
+    if read_u16(tiff, 2, little_endian)? != 42 {
+        return None;
+    }
+
+    let ifd_offset = read_u32(tiff, 4, little_endian)? as usize;
+    if ifd_offset + 2 > tiff.len() {
+        return None;
+    }
+
+    let entry_count = read_u16(tiff, ifd_offset, little_endian)? as usize;
+    let entries_start = ifd_offset + 2;
+
+    for index in 0..entry_count {
+        let entry_offset = entries_start + index * 12;
+        if entry_offset + 12 > tiff.len() {
+            return None;
+        }
+
+        let tag = read_u16(tiff, entry_offset, little_endian)?;
+        let field_type = read_u16(tiff, entry_offset + 2, little_endian)?;
+        let count = read_u32(tiff, entry_offset + 4, little_endian)?;
+
+        if tag == 0x0112 && field_type == 3 && count >= 1 {
+            return read_u16(tiff, entry_offset + 8, little_endian).map(u32::from);
+        }
+    }
+
+    None
+}
+
+fn read_u16(data: &[u8], offset: usize, little_endian: bool) -> Option<u16> {
+    let bytes = [*data.get(offset)?, *data.get(offset + 1)?];
+    Some(if little_endian {
+        u16::from_le_bytes(bytes)
+    } else {
+        u16::from_be_bytes(bytes)
+    })
+}
+
+fn read_u32(data: &[u8], offset: usize, little_endian: bool) -> Option<u32> {
+    let bytes = [
+        *data.get(offset)?,
+        *data.get(offset + 1)?,
+        *data.get(offset + 2)?,
+        *data.get(offset + 3)?,
+    ];
+    Some(if little_endian {
+        u32::from_le_bytes(bytes)
+    } else {
+        u32::from_be_bytes(bytes)
+    })
+}
+
+fn apply_exif_orientation(image: DynamicImage, orientation: u32) -> DynamicImage {
+    match orientation {
+        2 => image.fliph(),
+        3 => image.rotate180(),
+        4 => image.flipv(),
+        5 => image.rotate90().fliph(),
+        6 => image.rotate90(),
+        7 => image.rotate270().fliph(),
+        8 => image.rotate270(),
+        _ => image,
+    }
+}
+
+fn encode_jpeg(
+    image: &DynamicImage,
+    quality: u8,
+) -> std::result::Result<Vec<u8>, image::ImageError> {
+    let mut buffer = Cursor::new(Vec::new());
+    let mut encoder = JpegEncoder::new_with_quality(&mut buffer, quality);
+    encoder.encode_image(image)?;
+    Ok(buffer.into_inner())
+}
+
 pub fn validate_image(data: &Bytes, max_size_mb: u64) -> Result<()> {
     if data.len() as u64 > max_size_mb * 1024 * 1024 {
         return Err(AppError::bad_request(format!(
@@ -707,7 +913,6 @@ pub async fn get_image_handler(
         .get("mime_type")
         .and_then(|v| v.as_str())
         .unwrap_or("application/octet-stream");
-
 
     let file_data = state.storage.download_image(storage_path).await?;
 
@@ -814,7 +1019,9 @@ pub async fn create_public_bucket(config: &S3Config, bucket_name: &str) -> Resul
 
     tracing::info!(
         "✓ Public bucket '{}' created with code {}\n{}",
-        bucket_name, &response.response_code, &response.response_text
+        bucket_name,
+        &response.response_code,
+        &response.response_text
     );
 
     Ok(response.bucket)
@@ -824,9 +1031,30 @@ pub async fn create_public_bucket(config: &S3Config, bucket_name: &str) -> Resul
 mod tests {
     use crate::init::S3Config;
     use crate::storage::create_public_bucket;
+    use crate::storage::{apply_exif_orientation, tiff_orientation};
     use bytes::Bytes;
+    use image::DynamicImage;
     use std::fs;
     use uuid::Uuid;
+
+    #[test]
+    fn test_tiff_orientation_parser() {
+        let tiff = [
+            b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0,
+            0,
+        ];
+
+        assert_eq!(tiff_orientation(&tiff), Some(6));
+    }
+
+    #[test]
+    fn test_apply_exif_orientation_rotate90() {
+        let image = DynamicImage::new_rgb8(2, 3);
+        let rotated = apply_exif_orientation(image, 6);
+
+        assert_eq!(rotated.width(), 3);
+        assert_eq!(rotated.height(), 2);
+    }
 
     #[tokio::test]
     async fn example_usage() {

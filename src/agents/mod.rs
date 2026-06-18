@@ -1,26 +1,27 @@
 // Public module exports
-pub mod events;
-pub mod object_agent;
-pub mod document_agent;
-pub mod comparison_agent;
+pub mod agent_context;
+pub mod agent_error;
+pub mod agents_helper;
+pub mod cancellation;
 pub mod chat_agent;
-pub mod filter_objects;
+pub mod comparison_agent;
 pub mod description;
-pub mod tera;
+pub mod document_agent;
+pub mod documents_id_finder;
+pub mod events;
+pub mod filter_objects;
 pub mod intent_router;
 pub mod master_agent;
+pub mod object_agent;
+pub mod object_id_finder;
 pub mod orchestrator;
 pub mod response_formatter;
-pub mod types;
-pub mod cancellation;
-pub mod agent_context;
-pub mod agents_helper;
-pub mod agent_error;
 pub mod stats;
-pub mod object_id_finder;
-pub mod documents_id_finder;
+pub mod tera;
+pub mod types;
 
 pub use crate::localization::LocalizationManager;
+pub use crate::prompt_context::{ContextParser, ParserError, Period, PromptContext, PromptKey};
 pub use agent_context::AgentContext;
 pub use cancellation::{CancellationToken, RequestManager};
 pub use chat_agent::ChatAgent;
@@ -29,6 +30,5 @@ pub use description::description_agent::DescriptionAgent;
 pub use document_agent::DocumentAgent;
 pub use events::StreamEvent;
 pub use object_agent::ObjectAgent;
-pub use crate::prompt_context::{ContextParser, ParserError, PromptContext, PromptKey, Period};
 // Re-export main types for convenience
 pub use types::*;

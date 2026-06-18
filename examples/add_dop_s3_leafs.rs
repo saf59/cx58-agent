@@ -111,6 +111,30 @@ const IMAGES: &[ImageSpec] = &[
         filename: "EG - Bad - 24.05.2026 1710.JPG",
     },
     ImageSpec {
+        node_name: "EG - Bad",
+        filename: "EG - Bad - 30.05.26 1800.JPG",
+    },
+    ImageSpec {
+        node_name: "EG - Bad",
+        filename: "EG - Bad - 04-06-2026 1945.JPG",
+    },
+    ImageSpec {
+        node_name: "EG - Bad",
+        filename: "EG - Bad - 07-06-2026 1900.JPG",
+    },
+    ImageSpec {
+        node_name: "EG - Bad",
+        filename: "EG - Bad - 07-06-2026 1913.JPG",
+    },
+    ImageSpec {
+        node_name: "EG - Bad",
+        filename: "EG - Bad - 16.06.2026 1800.JPG",
+    },
+    ImageSpec {
+        node_name: "EG - Bad",
+        filename: "EG - Bad - 17.06.2026 1800.JPG",
+    },
+    ImageSpec {
         node_name: "EG - Küche",
         filename: "EG - Küche - 23.05.2026 1800.JPG",
     },
@@ -148,7 +172,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .get(node_name)
             .ok_or_else(|| format!("Node '{}' not found after tree creation", node_name))?;
 
-        upload_images_for_node(&client, &base_url, node_id, node_name, &images).await?;
+        let existing_leafs = load_existing_leafs(&pool, node_id).await?;
+        upload_images_for_node(
+            &client,
+            &base_url,
+            node_id,
+            node_name,
+            &images,
+            &existing_leafs,
+        )
+        .await?;
     }
 
     println!("\nLeafs data added successfully");
@@ -206,6 +239,31 @@ async fn get_child_id(
     Ok(id)
 }
 
+async fn load_existing_leafs(
+    pool: &PgPool,
+    parent_id: Uuid,
+) -> Result<BTreeMap<String, Vec<Uuid>>, Box<dyn std::error::Error>> {
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT id, data->>'src'
+        FROM tree_nodes
+        WHERE parent_id = $1
+          AND node_type = 'ImageLeaf'
+          AND data ? 'src'
+        "#,
+    )
+    .bind(parent_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut leafs = BTreeMap::new();
+    for (node_id, filename) in rows {
+        leafs.entry(filename).or_insert_with(Vec::new).push(node_id);
+    }
+
+    Ok(leafs)
+}
+
 fn check_files_exist() -> Result<(), Box<dyn std::error::Error>> {
     let mut missing_files = Vec::new();
 
@@ -230,10 +288,17 @@ async fn upload_images_for_node(
     node_id: Uuid,
     node_name: &str,
     images: &[&ImageSpec],
+    existing_leafs: &BTreeMap<String, Vec<Uuid>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Uploading leafs for {} ({})...", node_name, node_id);
 
     for image in images {
+        if let Some(existing_node_ids) = existing_leafs.get(image.filename) {
+            for existing_node_id in existing_node_ids {
+                delete_existing_leaf(client, base_url, *existing_node_id, image.filename).await?;
+            }
+        }
+
         let file_path = data_path(image.filename);
         let image_data = tokio::fs::read(&file_path).await?;
         let berlin_datetime = datetime_from_filename(image.filename)?;
@@ -260,6 +325,25 @@ async fn upload_images_for_node(
     Ok(())
 }
 
+async fn delete_existing_leaf(
+    client: &reqwest::Client,
+    base_url: &str,
+    node_id: Uuid,
+    filename: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let url = format!("{}/agent/images/{}", base_url, node_id);
+    let response = client.delete(&url).send().await?;
+    let status = response.status();
+
+    if status.is_success() {
+        println!("  {} deleted before refresh", filename);
+        Ok(())
+    } else {
+        let body = response.text().await.unwrap_or_default();
+        Err(format!("{} delete failed: {} {}", filename, status, body).into())
+    }
+}
+
 fn datetime_from_filename(filename: &str) -> Result<String, Box<dyn std::error::Error>> {
     let stem = std::path::Path::new(filename)
         .file_stem()
@@ -270,7 +354,11 @@ fn datetime_from_filename(filename: &str) -> Result<String, Box<dyn std::error::
         .rsplit_once(" - ")
         .ok_or_else(|| format!("Filename does not contain date: {}", filename))?;
 
-    let parsed = NaiveDateTime::parse_from_str(raw_datetime, "%d.%m.%Y %H%M")?;
+    let parsed = ["%d.%m.%Y %H%M", "%d.%m.%y %H%M", "%d-%m-%Y %H%M"]
+        .iter()
+        .find_map(|format| NaiveDateTime::parse_from_str(raw_datetime, format).ok())
+        .ok_or_else(|| format!("Unsupported filename date format: {}", filename))?;
+
     Ok(parsed.format("%d.%m.%Y %H:%M:%S").to_string())
 }
 

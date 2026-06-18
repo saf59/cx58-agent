@@ -4,29 +4,39 @@ use axum::extract::Query;
 // ============================================================================
 // Middleware
 // ============================================================================
+use crate::AgentRequest;
+use crate::AppState;
+use crate::agents::StreamEvent;
+use crate::db::{NodeType, NodeWithLeaf, TreeNode, get_node_with_leafs, get_tree};
+use crate::model_settings::{
+    ModelCapability, ModelChangeResult, UpdateModelsRequest, UpdateModelsResponse,
+    UserModelSettings, UserModelsResponse, inspect_ollama_model, list_ollama_models,
+    load_user_model_settings, required_capability_label, save_user_model_settings, supports_role,
+};
+pub use crate::storage::StorageService;
+use crate::storage::set_storage_url;
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive};
 use axum::response::Sse;
+use axum::response::sse::{Event, KeepAlive};
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::agents::StreamEvent;
-use crate::db::{get_node_with_leafs, get_tree, NodeType, NodeWithLeaf, TreeNode};
-pub use crate::storage::{StorageService};
-use crate::AgentRequest;
-use crate::AppState;
-use crate::storage::set_storage_url;
 
 #[derive(Deserialize)]
 pub struct TreeQuery {
     #[serde(default)]
     pub with_leafs: bool,
+}
+
+#[derive(Deserialize)]
+pub struct ModelsQuery {
+    pub capability: Option<String>,
 }
 
 pub async fn get_tree_handler(
@@ -52,8 +62,8 @@ pub async fn reports_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<String>,
 ) -> Result<Json<Vec<NodeWithLeaf>>> {
-    let node_id = Uuid::parse_str(&node_id)
-        .map_err(|_e| AppError::bad_request("Invalid node_id format"))?;
+    let node_id =
+        Uuid::parse_str(&node_id).map_err(|_e| AppError::bad_request("Invalid node_id format"))?;
 
     let mut data = get_node_with_leafs(&state.db, node_id, Some(1000), None, None)
         .await
@@ -69,6 +79,101 @@ pub async fn reports_handler(
         }
     }
     Ok(Json(data))
+}
+
+pub async fn get_user_models_handler(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+    Query(query): Query<ModelsQuery>,
+) -> Result<Json<UserModelsResponse>> {
+    let capability = match query.capability.as_deref() {
+        Some(raw) => Some(
+            ModelCapability::from_query(raw)
+                .ok_or_else(|| AppError::bad_request("Unknown model capability"))?,
+        ),
+        None => None,
+    };
+    let current = load_user_model_settings(&state.db, &user_id, &state.ai_config).await;
+    let defaults = UserModelSettings::from_defaults(&user_id, &state.ai_config);
+    let models = list_ollama_models(&state.ai_config.url, capability).await?;
+
+    Ok(Json(UserModelsResponse {
+        user_id,
+        current,
+        defaults,
+        models,
+        capability,
+    }))
+}
+
+pub async fn update_user_models_handler(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<String>,
+    Json(request): Json<UpdateModelsRequest>,
+) -> Result<Json<UpdateModelsResponse>> {
+    let mut current = load_user_model_settings(&state.db, &user_id, &state.ai_config).await;
+    let mut changes = Vec::new();
+
+    if let Some(model) = request.vision_model.as_deref() {
+        let info = inspect_ollama_model(&state.ai_config.url, model).await?;
+        if apply_model_change(&mut current, "vision_model", &info, &mut changes) && request.same {
+            apply_model_change(&mut current, "text_model", &info, &mut changes);
+            apply_model_change(&mut current, "chat_model", &info, &mut changes);
+        }
+    }
+
+    if let Some(model) = request.text_model.as_deref() {
+        let info = inspect_ollama_model(&state.ai_config.url, model).await?;
+        apply_model_change(&mut current, "text_model", &info, &mut changes);
+    }
+
+    if let Some(model) = request.chat_model.as_deref() {
+        let info = inspect_ollama_model(&state.ai_config.url, model).await?;
+        apply_model_change(&mut current, "chat_model", &info, &mut changes);
+    }
+
+    save_user_model_settings(&state.db, &current).await?;
+
+    Ok(Json(UpdateModelsResponse {
+        user_id,
+        current,
+        changes,
+    }))
+}
+
+fn apply_model_change(
+    settings: &mut UserModelSettings,
+    role: &str,
+    model: &crate::model_settings::OllamaModelInfo,
+    changes: &mut Vec<ModelChangeResult>,
+) -> bool {
+    if !supports_role(model, role) {
+        changes.push(ModelChangeResult {
+            role: role.to_string(),
+            model: model.name.clone(),
+            applied: false,
+            reason: format!(
+                "Model does not support required capability: {}",
+                required_capability_label(role)
+            ),
+        });
+        return false;
+    }
+
+    match role {
+        "vision_model" => settings.vision_model = model.name.clone(),
+        "text_model" => settings.text_model = model.name.clone(),
+        "chat_model" => settings.chat_model = model.name.clone(),
+        _ => return false,
+    }
+
+    changes.push(ModelChangeResult {
+        role: role.to_string(),
+        model: model.name.clone(),
+        applied: true,
+        reason: "Applied".to_string(),
+    });
+    true
 }
 
 /// ============================================================================

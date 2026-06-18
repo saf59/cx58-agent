@@ -1,19 +1,21 @@
 mod common;
 
-use std::path::PathBuf;
+use crate::common::test_data::{
+    DATA_DIR, NodeNames, check_files_exist, generate_date, get_object3_images, get_room11_images,
+    get_room211_images, run_sql_script,
+};
 use cx58_agent::db::get_id_by_name;
 use sqlx::PgPool;
+use std::path::PathBuf;
 use uuid::Uuid;
-use crate::common::test_data::{check_files_exist, generate_date, get_object3_images, get_room11_images, get_room211_images, run_sql_script, NodeNames, DATA_DIR};
 
 const FILL_TREE_SQL: &str = include_str!("sql/fill_tree.sql");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set");
-    let base_url = std::env::var("BASE_URL")
-        .unwrap_or_else(|_| "http://localhost:3050".to_string());
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3050".to_string());
 
     let pool = PgPool::connect(&database_url).await?;
     let client = reqwest::Client::new();
@@ -25,7 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // If not found, execute the tree creation script
     if branch11_id.is_none() {
-        println!("Node '{}' not found. Running fill_tree.sql script...", node_names.room_11);
+        println!(
+            "Node '{}' not found. Running fill_tree.sql script...",
+            node_names.room_11
+        );
         run_sql_script(&pool, FILL_TREE_SQL).await?;
         println!("Tree creation script completed. Re-reading node IDs...");
 
@@ -56,13 +61,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     check_files_exist(DATA_DIR, &all_images)?;
     println!("All files verified successfully!");
 
-
     let time = "17:00:00";
 
     // Insert leafs for each node
-    insert_leafs_for_node(&client, &base_url, branch11_id, node_names.room_11, &room11_images, time).await?;
-    insert_leafs_for_node(&client, &base_url, branch211_id, node_names.room_211, &room211_images, time).await?;
-    insert_leafs_for_node(&client, &base_url, branch3_id, node_names.object_3, &object3_images, time).await?;
+    insert_leafs_for_node(
+        &client,
+        &base_url,
+        branch11_id,
+        node_names.room_11,
+        &room11_images,
+        time,
+    )
+    .await?;
+    insert_leafs_for_node(
+        &client,
+        &base_url,
+        branch211_id,
+        node_names.room_211,
+        &room211_images,
+        time,
+    )
+    .await?;
+    insert_leafs_for_node(
+        &client,
+        &base_url,
+        branch3_id,
+        node_names.object_3,
+        &object3_images,
+        time,
+    )
+    .await?;
 
     println!("\n✅ Leafs data added successfully");
 
@@ -94,8 +122,10 @@ async fn insert_leafs_for_node(
         let berlin_datetime = generate_date(*shift, time)?;
 
         let form = reqwest::multipart::Form::new()
-            .part("image", reqwest::multipart::Part::bytes(image_data)
-                .file_name(filename.to_string()))
+            .part(
+                "image",
+                reqwest::multipart::Part::bytes(image_data).file_name(filename.to_string()),
+            )
             .text("berlin_datetime", berlin_datetime);
 
         let url = format!("{}/agent/images/upload/{}", base_url, node_id);
@@ -110,7 +140,6 @@ async fn insert_leafs_for_node(
             }
             Err(e) => eprintln!("  ✗ {} error: {}", filename, e),
         }
-
     }
 
     Ok(())

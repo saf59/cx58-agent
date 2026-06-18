@@ -2,10 +2,10 @@
 // CANCELLATION TOKEN
 // ============================================================================
 
+use crate::agents::agent_error::AgentError;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::agents::agent_error::AgentError;
 
 #[derive(Clone, Debug)]
 pub struct CancellationToken {
@@ -35,7 +35,7 @@ impl CancellationToken {
     pub async fn check(&self) -> Result<(), AgentError> {
         if self.is_cancelled().await {
             tracing::warn!("Operation cancelled");
-            let err = AgentError::Cancelled; 
+            let err = AgentError::Cancelled;
             Err(err)
         } else {
             Ok(())

@@ -1,36 +1,36 @@
 use crate::agents::LocalizationManager;
-use rig::completion::AssistantContent;
 use rig::OneOrMany;
+use rig::completion::AssistantContent;
 use std::sync::Arc;
 
 /// Formats optional context values for display in prompts
 ///
-/// Converts `Option<String>` to a display string, showing either the value
-/// or a localized "Not set" message.
+/// Converts `Option<String>` to a prompt-safe string, showing either the value
+/// or the stable sentinel `not_set`.
 ///
 /// ## Arguments
 ///
 /// * `opt` - Optional value to format
-/// * `lang` - Language code for localization of "Not set" message
+/// * `lang` - Language code, kept for call-site compatibility
 ///
 /// ## Returns
 ///
-/// Either the contained value or localized "Not set" message
+/// Either the contained value or `not_set`
 ///
 /// ## Example
 ///
 /// ```text
 /// Some("building-123") → "building-123"
-/// None                 → "Not set" (or "Nicht gesetzt" in German)
+/// None                 → "not_set"
 /// ```
 pub fn format_optional(
-    lang_manager: &Arc<LocalizationManager>,
+    _lang_manager: &Arc<LocalizationManager>,
     value: &Option<String>,
-    lang: &str,
+    _lang: &str,
 ) -> String {
     match value {
         Some(v) => v.clone(),
-        None => lang_manager.get_msg(lang, "context-not-set"),
+        None => "not_set".to_string(),
     }
 }
 
@@ -70,7 +70,10 @@ pub fn clean_json_response(response: &str) -> String {
 
     // Remove openingMarkdown code fence
     if cleaned.starts_with("```json") {
-        cleaned = cleaned.trim_start_matches("```json").trim_start().to_string();
+        cleaned = cleaned
+            .trim_start_matches("```json")
+            .trim_start()
+            .to_string();
     } else if cleaned.starts_with("```") {
         cleaned = cleaned.trim_start_matches("```").trim_start().to_string();
     }

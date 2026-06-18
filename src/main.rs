@@ -1,21 +1,23 @@
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
-use axum::{middleware, Router};
+use axum::{Router, middleware};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 
-use cx58_agent::handlers::{
-    chat_stream_cancel, chat_stream_handler, get_tree_handler, health_check, reports_handler,
-};
-use cx58_agent::hmac::{rate_limit_middleware, verify_signature, RateLimiter};
-use cx58_agent::init::app_init;
-use cx58_agent::storage::{delete_image_handler, upload_image_handler};
 use cx58_agent::AppState;
+use cx58_agent::handlers::{
+    chat_stream_cancel, chat_stream_handler, get_tree_handler, get_user_models_handler,
+    health_check, reports_handler, update_user_models_handler,
+};
+use cx58_agent::hmac::{RateLimiter, rate_limit_middleware, verify_signature};
+use cx58_agent::init::app_init;
+use cx58_agent::storage::{MAX_UPLOAD_BODY_BYTES, delete_image_handler, upload_image_handler};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 fn create_app_router(state: Arc<AppState>) -> Router {
     let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));
@@ -23,6 +25,10 @@ fn create_app_router(state: Arc<AppState>) -> Router {
     let protected_routes = Router::new()
         .route("/agent/chat", post(chat_stream_handler))
         .route("/agent/reports/{node_id}", post(reports_handler))
+        .route(
+            "/agent/models/{user_id}",
+            get(get_user_models_handler).put(update_user_models_handler),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             verify_signature,
@@ -38,7 +44,8 @@ fn create_app_router(state: Arc<AppState>) -> Router {
         .route("/agent/tree/{user_id}", get(get_tree_handler))
         .route(
             "/agent/images/upload/{parent_id}",
-            axum::routing::post(upload_image_handler),
+            axum::routing::post(upload_image_handler)
+                .layer(DefaultBodyLimit::max(MAX_UPLOAD_BODY_BYTES)),
         )
         //.route("/agent/images", get(get_image_handler))
         .route("/agent/images/{node_id}", delete(delete_image_handler))

@@ -21,7 +21,7 @@
 //   "" (empty) → TextChunk
 
 use cx58_agent::agents::document_agent::get_documents;
-use cx58_agent::db::{get_tree, NodeType};
+use cx58_agent::db::{NodeType, get_tree};
 use cx58_agent::init::app_init;
 use cx58_agent::{AgentRequest, AppState, TaskParameters};
 use futures_util::StreamExt;
@@ -67,8 +67,7 @@ pub async fn shared_state() -> Arc<AppState> {
 
 /// Read TEST_USER_ID from environment (set by dotenv in shared_state()).
 pub fn test_user_id() -> String {
-    std::env::var("TEST_USER_ID")
-        .expect("TEST_USER_ID must be set in .env")
+    std::env::var("TEST_USER_ID").expect("TEST_USER_ID must be set in .env")
 }
 
 /// Generate a fresh chat_id (UUID v7) for each test.
@@ -86,14 +85,11 @@ async fn try_resolve_object_id(
     let node = tree
         .iter()
         .find(|n| {
-            n.own
-                && n.node_type == NodeType::Branch
-                && n.name.as_deref() == Some(TEST_OBJECT_NAME)
+            n.own && n.node_type == NodeType::Branch && n.name.as_deref() == Some(TEST_OBJECT_NAME)
         })
         .or_else(|| {
             tree.iter().find(|n| {
-                n.node_type == NodeType::Branch
-                    && n.name.as_deref() == Some(TEST_OBJECT_NAME)
+                n.node_type == NodeType::Branch && n.name.as_deref() == Some(TEST_OBJECT_NAME)
             })
         })
         .ok_or_else(|| {
@@ -124,7 +120,11 @@ pub async fn resolve_object_id(state: &Arc<AppState>) -> String {
                 return id;
             }
             Err(e) if attempt < 3 => {
-                tracing::warn!("resolve_object_id attempt {}: {}, retrying in 2s...", attempt, e);
+                tracing::warn!(
+                    "resolve_object_id attempt {}: {}, retrying in 2s...",
+                    attempt,
+                    e
+                );
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
             Err(e) => panic!("get_tree failed: {}", e),
@@ -137,9 +137,14 @@ async fn try_resolve_report_ids(
     state: &Arc<AppState>,
     object_id: &str,
 ) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
-    let node_id = Uuid::parse_str(object_id)
-        .map_err(|_| format!("Invalid object_id UUID: {}", object_id))?;
-    let params = TaskParameters { last: false, all: true, period: None, amount: None };
+    let node_id =
+        Uuid::parse_str(object_id).map_err(|_| format!("Invalid object_id UUID: {}", object_id))?;
+    let params = TaskParameters {
+        last: false,
+        all: true,
+        period: None,
+        amount: None,
+    };
     let mut images: Vec<_> = get_documents(&&params, &state.db, node_id)
         .await?
         .into_iter()
@@ -150,7 +155,8 @@ async fn try_resolve_report_ids(
             "Object '{}' has {} report(s), need at least 2",
             TEST_OBJECT_NAME,
             images.len()
-        ).into());
+        )
+        .into());
     }
     images.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok((images[0].id.to_string(), images[1].id.to_string()))
@@ -170,7 +176,11 @@ pub async fn resolve_report_ids(state: &Arc<AppState>, object_id: &str) -> (Stri
                 return ids;
             }
             Err(e) if attempt < 3 => {
-                tracing::warn!("resolve_report_ids attempt {}: {}, retrying in 2s...", attempt, e);
+                tracing::warn!(
+                    "resolve_report_ids attempt {}: {}, retrying in 2s...",
+                    attempt,
+                    e
+                );
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
             Err(e) => panic!("get_documents failed: {}", e),
@@ -187,8 +197,8 @@ type HmacSha256 = Hmac<Sha256>;
 ///   HMAC-SHA256(secret, timestamp_bytes || body_bytes)
 pub fn sign_request(body: &[u8], secret: &str) -> (String, String) {
     let timestamp = chrono::Utc::now().timestamp().to_string();
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC accepts any key length");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
     mac.update(timestamp.as_bytes());
     mac.update(body);
     (timestamp, hex::encode(mac.finalize().into_bytes()))
@@ -219,8 +229,12 @@ pub async fn send_and_collect(state: &Arc<AppState>, request: &AgentRequest) -> 
         .await
         .unwrap_or_else(|e| panic!("HTTP POST {} failed: {}", url, e));
 
-    assert_eq!(response.status(), 200,
-        "Expected 200 OK, got {}", response.status());
+    assert_eq!(
+        response.status(),
+        200,
+        "Expected 200 OK, got {}",
+        response.status()
+    );
 
     collect_sse_events(response).await
 }
@@ -242,7 +256,10 @@ async fn collect_sse_events(response: reqwest::Response) -> Vec<SseEvent> {
 
             if line.is_empty() {
                 if let Some(data) = current_data.take() {
-                    events.push(SseEvent { name: current_name.clone(), data });
+                    events.push(SseEvent {
+                        name: current_name.clone(),
+                        data,
+                    });
                 }
                 current_name.clear();
             } else if let Some(name) = line.strip_prefix("event: ") {
@@ -254,7 +271,10 @@ async fn collect_sse_events(response: reqwest::Response) -> Vec<SseEvent> {
     }
 
     if let Some(data) = current_data {
-        events.push(SseEvent { name: current_name, data });
+        events.push(SseEvent {
+            name: current_name,
+            data,
+        });
     }
 
     events
@@ -295,22 +315,29 @@ pub fn assert_event(events: &[SseEvent], name: &str) -> String {
 
 /// Completed = stream contained a "completed" event and no "error"/"cancelled".
 pub fn assert_completed(events: &[SseEvent]) {
-    let bad: Vec<_> = events.iter()
+    let bad: Vec<_> = events
+        .iter()
         .filter(|e| matches!(event_type(e).as_str(), "error" | "cancelled"))
         .collect();
-    assert!(bad.is_empty(),
+    assert!(
+        bad.is_empty(),
         "Stream ended with error/cancelled: {:?}",
-        bad.iter().map(|e| format!("{}: {}", event_type(e), e.data)).collect::<Vec<_>>()
+        bad.iter()
+            .map(|e| format!("{}: {}", event_type(e), e.data))
+            .collect::<Vec<_>>()
     );
     let has_completed = events.iter().any(|e| event_type(e) == "completed");
-    assert!(has_completed, "Stream did not contain a 'completed' event.\nAll events: {:?}",
+    assert!(
+        has_completed,
+        "Stream did not contain a 'completed' event.\nAll events: {:?}",
         events.iter().map(|e| event_type(e)).collect::<Vec<_>>()
     );
 }
 
 pub fn assert_no_error(events: &[SseEvent]) {
     let errs: Vec<_> = events.iter().filter(|e| event_type(e) == "error").collect();
-    assert!(errs.is_empty(),
+    assert!(
+        errs.is_empty(),
         "Unexpected error event(s): {:?}",
         errs.iter().map(|e| &e.data).collect::<Vec<_>>()
     );

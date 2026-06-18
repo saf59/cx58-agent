@@ -15,9 +15,9 @@
 
 mod common;
 
+mod compare_reports;
+mod context_request;
+mod describe_report;
 mod get_object_tree;
 mod get_report_list;
-mod describe_report;
-mod compare_reports;
 mod rag_query;
-mod context_request;

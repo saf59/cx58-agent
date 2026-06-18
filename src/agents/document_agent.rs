@@ -6,15 +6,15 @@
 // Result: 1 owner with leaves
 
 use chrono::Utc;
-use serde_json::{json, Value};
-use std::sync::Arc;
+use serde_json::{Value, json};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::agents::agent_error::AgentError;
 use crate::agents::LocalizationManager;
-use crate::db::{get_node_with_leafs, NodeType, NodeWithLeaf};
+use crate::agents::agent_error::AgentError;
+use crate::db::{NodeType, NodeWithLeaf, get_node_with_leafs};
 use crate::storage::set_storage_url;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
@@ -85,26 +85,34 @@ impl DocumentAgent {
         Ok(json!(data))
     }
 }
-    pub async fn get_documents(parameters: &&TaskParameters, pool: &PgPool, node_id: Uuid) -> Result<Vec<NodeWithLeaf>, AgentError> {
-        let limit = if parameters.all { MAX_DOCUMENTS_ALL } else { 2 };
-        let amount = if parameters.all {
-            MAX_DOCUMENTS_ALL as usize
-        } else {
-            parameters.amount.unwrap_or(1)
-        };
+pub async fn get_documents(
+    parameters: &&TaskParameters,
+    pool: &PgPool,
+    node_id: Uuid,
+) -> Result<Vec<NodeWithLeaf>, AgentError> {
+    let limit = if parameters.all { MAX_DOCUMENTS_ALL } else { 2 };
+    let amount = if parameters.all {
+        MAX_DOCUMENTS_ALL as usize
+    } else {
+        parameters.amount.unwrap_or(1)
+    };
 
-        let data = if let Some(period) = &parameters.period {
-            let to = Utc::now().naive_utc();
-            let days = period.to_days() * amount as i64;
-            let from = to - chrono::Duration::days(days);
-            tracing::info!(
-                "DocumentAgent: fetching documents with period filter - from {} to {}, limit {}, amount {}, period {:?}, days {}",
-                from, to, limit, amount , period, days
-            );
-            get_node_with_leafs(pool, node_id, Some(limit), Some(from), Some(to)).await?
-        } else {
-            get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
-        };
-        Ok(data)
-    }
-
+    let data = if let Some(period) = &parameters.period {
+        let to = Utc::now().naive_utc();
+        let days = period.to_days() * amount as i64;
+        let from = to - chrono::Duration::days(days);
+        tracing::info!(
+            "DocumentAgent: fetching documents with period filter - from {} to {}, limit {}, amount {}, period {:?}, days {}",
+            from,
+            to,
+            limit,
+            amount,
+            period,
+            days
+        );
+        get_node_with_leafs(pool, node_id, Some(limit), Some(from), Some(to)).await?
+    } else {
+        get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
+    };
+    Ok(data)
+}

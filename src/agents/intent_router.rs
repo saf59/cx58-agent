@@ -14,7 +14,9 @@
 
 use super::types::*;
 use crate::agents::agent_error::AgentError;
-use crate::agents::agents_helper::{clean_json_response, extract_text_from_choice, format_optional};
+use crate::agents::agents_helper::{
+    clean_json_response, extract_text_from_choice, format_optional,
+};
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
 // Ollama uses OpenAI-compatible API
@@ -43,7 +45,6 @@ pub struct IntentRouter {
     model: String,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
-
 }
 
 // src/agents/intent_router.rs
@@ -66,7 +67,6 @@ impl IntentRouter {
         lang_manager: Arc<LocalizationManager>,
         template_manager: Arc<TemplateManager>,
     ) -> Self {
-
         Self {
             client,
             model,
@@ -74,7 +74,7 @@ impl IntentRouter {
             template_manager,
         }
     }
-    
+
     /// Classifies user intent from a message and conversation context.
     ///
     /// # Arguments
@@ -90,8 +90,18 @@ impl IntentRouter {
         message: &str,
         context: &UserContext,
         conversation_history: &[String],
-    ) -> Result<(ClassificationResult,Option<u64>),AgentError> {
+    ) -> Result<(ClassificationResult, Option<u64>), AgentError> {
+        self.classify_with_model(message, context, conversation_history, &self.model)
+            .await
+    }
 
+    pub async fn classify_with_model(
+        &self,
+        message: &str,
+        context: &UserContext,
+        conversation_history: &[String],
+        model_name: &str,
+    ) -> Result<(ClassificationResult, Option<u64>), AgentError> {
         // Step 1: Scope Check
         //   - Determine if query is in-scope (construction/monitoring related)
         //   - If out-of-scope, route to Rejection Handler
@@ -100,18 +110,15 @@ impl IntentRouter {
         let lang = context.language.to_code();
 
         // Get system prompt from prompts directory (not FTL)
-        let system_prompt = self.lang_manager
+        let system_prompt = self
+            .lang_manager
             .get_prompt(lang, "intent-router-system-prompt")?;
 
         // Build user prompt using Tera template
-        let user_prompt = self.build_classification_prompt(
-            message,
-            context,
-            conversation_history,
-            lang,
-        )?;
-        
-        let model = self.client.completion_model(&self.model);
+        let user_prompt =
+            self.build_classification_prompt(message, context, conversation_history, lang)?;
+
+        let model = self.client.completion_model(model_name);
         let request = model
             .completion_request(&user_prompt)
             .preamble(system_prompt)
@@ -141,23 +148,30 @@ impl IntentRouter {
 
         let tokens = Some(
             response.raw_response.prompt_eval_count.unwrap_or(0)
-                + response.raw_response.eval_count.unwrap_or(0)
+                + response.raw_response.eval_count.unwrap_or(0),
         );
-
 
         // Parse JSON response
         let cleaned = clean_json_response(&text);
 
-        let result: ClassificationResult = serde_json::from_str(&cleaned)
-            .map_err(|e| {
-                // Use FTL for error messages (they're short)
-                let mut ctx = Context::new();
-                ctx.insert("error", &e.to_string());
-                let error_msg = self.lang_manager
-                    .get_msg_with_arg(lang, "error-classification", "error", &e.to_string());
-                tracing::error!("IntentRouter: failed to parse ClassificationResult: {}\nRaw response: {}", e, text);
-                AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
-            })?;
+        let mut result: ClassificationResult = serde_json::from_str(&cleaned).map_err(|e| {
+            // Use FTL for error messages (they're short)
+            let mut ctx = Context::new();
+            ctx.insert("error", &e.to_string());
+            let error_msg = self.lang_manager.get_msg_with_arg(
+                lang,
+                "error-classification",
+                "error",
+                &e.to_string(),
+            );
+            tracing::error!(
+                "IntentRouter: failed to parse ClassificationResult: {}\nRaw response: {}",
+                e,
+                text
+            );
+            AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
+        })?;
+        normalize_classification_result(&mut result, context);
 
         // determines that optional context is needed but missing:
         // - Set a flag in the result indicating context request needed
@@ -188,15 +202,28 @@ impl IntentRouter {
         context: &UserContext,
         history: &[String],
         lang: &str,
-    ) -> Result<String,AgentError> {
+    ) -> Result<String, AgentError> {
         let mut ctx = Context::new();
 
         ctx.insert("user_id", &context.user_id);
         ctx.insert("chat_id", &context.chat_id);
         ctx.insert("language", context.language.as_str());
-        ctx.insert("object_id", &format_optional(&self.lang_manager.clone(),&context.object_id, lang));
-        ctx.insert("current_report_id", &format_optional(&self.lang_manager.clone(),&context.current_report_id, lang));
-        ctx.insert("previous_report_id", &format_optional(&self.lang_manager.clone(),&context.previous_report_id, lang));
+        ctx.insert(
+            "object_id",
+            &format_optional(&self.lang_manager.clone(), &context.object_id, lang),
+        );
+        ctx.insert(
+            "current_report_id",
+            &format_optional(&self.lang_manager.clone(), &context.current_report_id, lang),
+        );
+        ctx.insert(
+            "previous_report_id",
+            &format_optional(
+                &self.lang_manager.clone(),
+                &context.previous_report_id,
+                lang,
+            ),
+        );
 
         let history_text = if history.is_empty() {
             self.lang_manager.get_msg(lang, "no-conversation-history")
@@ -207,7 +234,26 @@ impl IntentRouter {
         ctx.insert("user_message", message);
 
         // Use Tera template
-        self.template_manager.render(lang, "intent-router-user-prompt", ctx)
+        self.template_manager
+            .render(lang, "intent-router-user-prompt", ctx)
     }
-       
+}
+
+fn normalize_classification_result(result: &mut ClassificationResult, context: &UserContext) {
+    if let Some(object_identifier) = result.extracted_parameters.object_identifier.as_deref() {
+        let normalized = object_identifier.trim();
+        if normalized.is_empty()
+            || normalized.eq_ignore_ascii_case("null")
+            || normalized.eq_ignore_ascii_case("not_set")
+            || normalized.eq_ignore_ascii_case("none")
+        {
+            result.extracted_parameters.object_identifier = None;
+        }
+    }
+
+    result.missing_context.retain(|field| match field {
+        ContextField::ObjectId => context.object_id.is_none(),
+        ContextField::CurrentReportId => context.current_report_id.is_none(),
+        ContextField::PreviousReportId => context.previous_report_id.is_none(),
+    });
 }

@@ -12,7 +12,7 @@ pub const LOCAL_MODELS: &[&str] = &[
     "llava",
     "llama3.2-vision",
     "functiongemma",
-    "adelnazmy2002/Qwen3-VL-4B-Instruct:Q8_0"
+    "adelnazmy2002/Qwen3-VL-4B-Instruct:Q8_0",
 ];
 /* removed !!!
 "zeffmuks/universal-ner:latest",
@@ -29,7 +29,7 @@ pub const REMOTE_MODELS: &[&str] = &[
     "llama3.2-vision",
     "llava-llama3:latest",
     "functiongemma",
-    "adelnazmy2002/Qwen3-VL-4B-Instruct:Q8_0"
+    "adelnazmy2002/Qwen3-VL-4B-Instruct:Q8_0",
 ];
 /* removed !!!
 "mistral-nemo:12b",

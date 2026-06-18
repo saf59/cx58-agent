@@ -9,9 +9,9 @@
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::agents::ReportPair;
 use crate::agents::agent_error::AgentError;
 use crate::agents::document_agent::get_documents;
-use crate::agents::ReportPair;
 use crate::db::{NodeType, NodeWithLeaf};
 use crate::{AgentContext, AppState, TaskParameters};
 
@@ -38,7 +38,10 @@ impl DocumentsIdFinder {
         })?;
 
         let data = get_documents(&parameters, pool, node_id).await?;
-        tracing::info!("DocumentsIdFinder: get_documents returned {} records", data.len());
+        tracing::info!(
+            "DocumentsIdFinder: get_documents returned {} records",
+            data.len()
+        );
 
         let mut images: Vec<NodeWithLeaf> = data
             .into_iter()

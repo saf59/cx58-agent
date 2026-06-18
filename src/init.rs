@@ -1,14 +1,14 @@
-use std::error::Error;
-use std::sync::Arc;
+use crate::agents::master_agent::MasterAgent;
+use crate::db::evict_expired_cache;
+use crate::error::AppError;
+use crate::handlers::StorageService;
+use crate::{AiConfig, AppState};
 use rig::client::Nothing;
 use rig::providers::ollama;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use crate::{AiConfig, AppState};
-use crate::agents::master_agent::MasterAgent;
-use crate::db::evict_expired_cache;
-use crate::error::AppError;
-use crate::handlers::{StorageService};
+use std::error::Error;
+use std::sync::Arc;
 
 // ============================================================================
 // Configuration
@@ -38,7 +38,8 @@ impl S3Config {
             region: std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
             endpoint: std::env::var("S3_ENDPOINT").ok(),
             access_key: std::env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID must be set"),
-            secret_key: std::env::var("AWS_SECRET_ACCESS_KEY").expect("AWS_SECRET_ACCESS_KEY must be set"),
+            secret_key: std::env::var("AWS_SECRET_ACCESS_KEY")
+                .expect("AWS_SECRET_ACCESS_KEY must be set"),
             public_url_base: std::env::var("S3_PUBLIC_URL").expect("S3_PUBLIC_URL must be set"),
         })
     }
@@ -88,17 +89,19 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
     }
 
     // Resolvers and processors
-/*    let image_resolver = Arc::new(ImageUrlResolver {
-        storage: storage.clone(),
-        db: db.clone(),
-    });
+    /*    let image_resolver = Arc::new(ImageUrlResolver {
+            storage: storage.clone(),
+            db: db.clone(),
+        });
 
-    let image_processor = Arc::new(ImageProcessor::new(storage.clone()));
-*/
-    let client = Arc::new(ollama::Client::builder()
-        .api_key(Nothing)
-        .base_url(ai_config.url.clone())
-        .build()?);
+        let image_processor = Arc::new(ImageProcessor::new(storage.clone()));
+    */
+    let client = Arc::new(
+        ollama::Client::builder()
+            .api_key(Nothing)
+            .base_url(ai_config.url.clone())
+            .build()?,
+    );
     //let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
     let master_agent = Arc::new(MasterAgent::new(client, ai_config.clone()));
 
@@ -111,7 +114,7 @@ pub async fn app_init() -> Result<(Config, Arc<AppState>), Box<dyn Error>> {
         //image_resolver,
         //image_processor,
         master_agent,
-        ai_config
+        ai_config,
     });
 
     Ok((config, state))
@@ -151,9 +154,8 @@ pub(crate) fn setup_storage(config: &S3Config) -> Result<Arc<StorageService>, Ap
 fn spawn_cache_eviction_task(pool: PgPool) {
     tokio::spawn(async move {
         let interval_hours = 6u64;
-        let mut ticker = tokio::time::interval(
-            std::time::Duration::from_secs(interval_hours * 3600)
-        );
+        let mut ticker =
+            tokio::time::interval(std::time::Duration::from_secs(interval_hours * 3600));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {

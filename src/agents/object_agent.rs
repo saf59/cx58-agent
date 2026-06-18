@@ -1,6 +1,6 @@
+use crate::agents::LocalizationManager;
 use crate::agents::agent_error::AgentError;
 use crate::agents::filter_objects::get_filtered_tree;
-use crate::agents::LocalizationManager;
 use crate::db::get_tree;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 use serde_json::json;
@@ -38,7 +38,10 @@ impl ObjectAgent {
         let tree = get_tree(&state.db, &self.context.user_id, true).await?;
         let filtered = get_filtered_tree(tree, parameters).await?;
         if filtered.is_empty() {
-            tracing::warn!("ObjectAgent: no objects found for user {}", self.context.user_id);
+            tracing::warn!(
+                "ObjectAgent: no objects found for user {}",
+                self.context.user_id
+            );
             let err = AgentError::NoDocumentsFound;
             err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
                 .await;

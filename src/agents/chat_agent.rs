@@ -51,7 +51,6 @@ impl ChatAgent {
             .get_prompt(lang_code, "chat-system-prompt")
             .map_err(|e| AgentError::internal(e))?;
 
-
         let model = self.client.completion_model(&state.ai_config.text_model);
         let request = model
             .completion_request(message)
@@ -62,7 +61,6 @@ impl ChatAgent {
 
         let choice = response.choice.clone();
         let text = extract_text_from_choice(choice);
-
 
         if text.is_empty() {
             let err_msg = format!(

@@ -1,4 +1,4 @@
-﻿// shared/src/error.rs
+// shared/src/error.rs
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -308,8 +308,8 @@ impl From<std::io::Error> for AppError {
 
 impl axum::response::IntoResponse for AppError {
     fn into_response(self) -> axum::response::Response {
-        use axum::http::StatusCode;
         use axum::Json;
+        use axum::http::StatusCode;
 
         let status = StatusCode::from_u16(self.code.http_status())
             .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);

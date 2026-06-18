@@ -16,7 +16,11 @@ mod en {
     async fn with_object_id() {
         let state = shared_state().await;
         let object_id = resolve_object_id(&state).await;
-        let events = send_and_collect(&state, &build_request_with_object("List the hierarchy", "en", &object_id)).await;
+        let events = send_and_collect(
+            &state,
+            &build_request_with_object("List the hierarchy", "en", &object_id),
+        )
+        .await;
         assert_no_error(&events);
         assert_completed(&events);
         let _ = assert_event(&events, "object_tree");
@@ -39,7 +43,11 @@ mod de {
     async fn with_object_id() {
         let state = shared_state().await;
         let object_id = resolve_object_id(&state).await;
-        let events = send_and_collect(&state, &build_request_with_object("Zeige die Hierarchie", "de", &object_id)).await;
+        let events = send_and_collect(
+            &state,
+            &build_request_with_object("Zeige die Hierarchie", "de", &object_id),
+        )
+        .await;
         assert_no_error(&events);
         assert_completed(&events);
         let _ = assert_event(&events, "object_tree");

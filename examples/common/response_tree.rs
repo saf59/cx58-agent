@@ -1,9 +1,9 @@
-﻿#![allow(unused)]
+#![allow(unused)]
+use chrono::NaiveDateTime;
+use cx58_agent::db::{NodeType, TreeNode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::NaiveDateTime;
 use uuid::Uuid;
-use cx58_agent::db::{NodeType, TreeNode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageData {
@@ -56,12 +56,10 @@ impl Tree {
 /// Parse raw JSON data into typed NodeData based on node type
 fn parse_node_data(node_type: NodeType, raw_data: &serde_json::Value) -> NodeData {
     match node_type {
-        NodeType::ImageLeaf => {
-            match serde_json::from_value::<ImageData>(raw_data.clone()) {
-                Ok(image_data) => NodeData::Image(image_data),
-                Err(_) => NodeData::Empty,
-            }
-        }
+        NodeType::ImageLeaf => match serde_json::from_value::<ImageData>(raw_data.clone()) {
+            Ok(image_data) => NodeData::Image(image_data),
+            Err(_) => NodeData::Empty,
+        },
         NodeType::Branch | NodeType::Root => {
             match serde_json::from_value::<BranchData>(raw_data.clone()) {
                 Ok(branch_data) => NodeData::Branch(branch_data),
@@ -75,10 +73,8 @@ fn parse_node_data(node_type: NodeType, raw_data: &serde_json::Value) -> NodeDat
 /// Root nodes are discarded, and their children become top-level nodes
 pub fn build_tree(nodes: Vec<TreeNode>) -> Vec<Tree> {
     // Create a HashMap for quick lookup by id
-    let mut node_map: HashMap<Uuid, TreeNode> = nodes
-        .into_iter()
-        .map(|node| (node.id, node))
-        .collect();
+    let mut node_map: HashMap<Uuid, TreeNode> =
+        nodes.into_iter().map(|node| (node.id, node)).collect();
 
     // Find and remove the root node(s)
     let root_ids: Vec<Uuid> = node_map
@@ -94,7 +90,7 @@ pub fn build_tree(nodes: Vec<TreeNode>) -> Vec<Tree> {
 
     // Build parent-to-children mapping
     let mut children_map: HashMap<Option<Uuid>, Vec<Uuid>> = HashMap::new();
-    
+
     for node in node_map.values() {
         children_map
             .entry(node.parent_id)
@@ -109,7 +105,7 @@ pub fn build_tree(nodes: Vec<TreeNode>) -> Vec<Tree> {
         children_map: &HashMap<Option<Uuid>, Vec<Uuid>>,
     ) -> Tree {
         let node = node_map.get(&node_id).unwrap();
-        
+
         let children = children_map
             .get(&Some(node_id))
             .map(|child_ids| {
@@ -207,13 +203,13 @@ mod tests {
         // Root should be discarded, so we should have 1 top-level node
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].name, Some("Object 1".to_string()));
-        
+
         // Check that data is parsed correctly
         assert!(matches!(tree[0].data, NodeData::Branch(_)));
-        
+
         assert_eq!(tree[0].children.len(), 1);
         assert_eq!(tree[0].children[0].name, Some("Image 1".to_string()));
-        
+
         // Check that image data is parsed correctly
         if let NodeData::Image(ref img) = tree[0].children[0].data {
             assert_eq!(img.url.as_deref(), Some("http://example.com/image.jpg"));

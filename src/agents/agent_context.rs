@@ -2,8 +2,8 @@
 // REQUEST STRUCTURES
 // ============================================================================
 
-use crate::{AgentRequest, CancellationToken};
 use crate::agents::{Language, UserContext};
+use crate::{AgentRequest, CancellationToken};
 
 #[derive(Debug, Clone)]
 pub struct AgentContext {
@@ -20,7 +20,11 @@ pub struct AgentContext {
 }
 
 impl AgentContext {
-    pub fn from_request(request_id: String, req: AgentRequest, cancellation_token: CancellationToken) -> Self {
+    pub fn from_request(
+        request_id: String,
+        req: AgentRequest,
+        cancellation_token: CancellationToken,
+    ) -> Self {
         Self {
             message: req.message,
             request_id,

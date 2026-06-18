@@ -8,7 +8,8 @@ fn assert_context_request(events: &[SseEvent]) {
         .unwrap_or_else(|e| panic!("context_request is not JSON: {}\ndata: {}", e, data));
     assert!(
         parsed.get("prompt").is_some(),
-        "context_request must contain 'prompt', got: {}", data
+        "context_request must contain 'prompt', got: {}",
+        data
     );
 }
 
@@ -28,7 +29,11 @@ mod en {
     async fn missing_report_id_describe() {
         let state = shared_state().await;
         let object_id = resolve_object_id(&state).await;
-        let events = send_and_collect(&state, &build_request_with_object("Describe the report", "en", &object_id)).await;
+        let events = send_and_collect(
+            &state,
+            &build_request_with_object("Describe the report", "en", &object_id),
+        )
+        .await;
         assert_completed(&events);
         assert_context_request(&events);
     }
@@ -37,7 +42,11 @@ mod en {
     async fn missing_report_ids_compare() {
         let state = shared_state().await;
         let object_id = resolve_object_id(&state).await;
-        let events = send_and_collect(&state, &build_request_with_object("Compare the reports", "en", &object_id)).await;
+        let events = send_and_collect(
+            &state,
+            &build_request_with_object("Compare the reports", "en", &object_id),
+        )
+        .await;
         assert_completed(&events);
         assert_context_request(&events);
     }
@@ -59,7 +68,11 @@ mod de {
     async fn missing_report_id_describe() {
         let state = shared_state().await;
         let object_id = resolve_object_id(&state).await;
-        let events = send_and_collect(&state, &build_request_with_object("Beschreibe den Report", "de", &object_id)).await;
+        let events = send_and_collect(
+            &state,
+            &build_request_with_object("Beschreibe den Report", "de", &object_id),
+        )
+        .await;
         assert_completed(&events);
         assert_context_request(&events);
     }
@@ -68,7 +81,11 @@ mod de {
     async fn missing_report_ids_compare() {
         let state = shared_state().await;
         let object_id = resolve_object_id(&state).await;
-        let events = send_and_collect(&state, &build_request_with_object("Vergleiche die Reports", "de", &object_id)).await;
+        let events = send_and_collect(
+            &state,
+            &build_request_with_object("Vergleiche die Reports", "de", &object_id),
+        )
+        .await;
         assert_completed(&events);
         assert_context_request(&events);
     }

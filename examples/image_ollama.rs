@@ -2,6 +2,7 @@ use std::io::Cursor;
 use std::time::Instant;
 
 use base64::{Engine, prelude::BASE64_STANDARD};
+use cx58_agent::helper::client;
 use image::{GenericImageView, ImageFormat};
 use rig::message::{DocumentSourceKind, Message, UserContent};
 use rig::prelude::*;
@@ -11,7 +12,6 @@ use rig::{
     message::ImageMediaType,
 };
 use tokio::fs;
-use cx58_agent::helper::client;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -197,7 +197,8 @@ CRITICAL INSTRUCTIONS:
 - Use null for fields where elements are not visible
 - Ensure all strings are properly escaped
 - The "description" field must always be present and non-empty
-"#)
+"#
+    )
 }
 
 /// Alternative: Create prompt with schema example

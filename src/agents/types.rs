@@ -1,6 +1,6 @@
+use crate::agents::Period;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::agents::Period;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassificationResult {
@@ -26,7 +26,7 @@ pub struct ExtractedParameters {
     #[serde(deserialize_with = "deserialize_task_parameters_opt")]
     pub task_params: Option<TaskParameters>,
     pub object_identifier: Option<String>, // "Building A", "Site 123", etc.
-    pub time_reference: Option<String>, // "last week", "yesterday", etc.
+    pub time_reference: Option<String>,    // "last week", "yesterday", etc.
     #[serde(deserialize_with = "deserialize_report_references")]
     pub report_references: Vec<String>, // "latest", "from Monday", etc.
 }
@@ -42,12 +42,11 @@ where
             // Plain string: "latest", "current"
             serde_json::Value::String(s) => s,
             // Object: {"id": "uuid", "type": "current"} — extract "id" if present
-            serde_json::Value::Object(map) => {
-                map.get("id")
-                    .and_then(|id| id.as_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_default()
-            }
+            serde_json::Value::Object(map) => map
+                .get("id")
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             other => other.to_string(),
         })
         .filter(|s| !s.is_empty())
@@ -55,7 +54,9 @@ where
 }
 
 /// Custom deserializer for Optional TaskParameters
-fn deserialize_task_parameters_opt<'de, D>(deserializer: D) -> Result<Option<TaskParameters>, D::Error>
+fn deserialize_task_parameters_opt<'de, D>(
+    deserializer: D,
+) -> Result<Option<TaskParameters>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -66,27 +67,31 @@ where
                 Ok(None)
             } else {
                 // Check if it's an empty object {}
-                if let serde_json::Value::Object(map) = &v && map.is_empty() {
-                        return Ok(None);
-                    }
+                if let serde_json::Value::Object(map) = &v
+                    && map.is_empty()
+                {
+                    return Ok(None);
+                }
 
                 // Check if it's an object with all empty/default values
                 // Note: we must also check 'all' and 'last' fields - they are not defaults!
                 if let serde_json::Value::Object(map) = &v {
-                    let has_no_meaningful_data = map.get("period").is_none_or( |p| {
+                    let has_no_meaningful_data = map.get("period").is_none_or(|p| {
                         p.is_null() || (p.is_string() && p.as_str().unwrap_or("").is_empty())
-                    }) && map.get("amount").is_none_or( |a| {
+                    }) && map.get("amount").is_none_or(|a| {
                         a.is_null() || (a.is_number() && a.as_u64().unwrap_or(0) == 0)
-                    }) && map.get("all").is_none_or( |a| {
+                    }) && map.get("all").is_none_or(|a| {
                         a.is_null() || !a.is_boolean() || !a.as_bool().unwrap_or(false)
-                    }) && map.get("last").is_none_or( |l| {
+                    }) && map.get("last").is_none_or(|l| {
                         l.is_null() || !l.is_boolean() || !l.as_bool().unwrap_or(false)
                     });
                     if has_no_meaningful_data {
                         return Ok(None);
                     }
                 }
-                TaskParameters::deserialize(v).map(Some).map_err(|e| serde::de::Error::custom(e.to_string()))
+                TaskParameters::deserialize(v)
+                    .map(Some)
+                    .map_err(|e| serde::de::Error::custom(e.to_string()))
             }
         }
         None => Ok(None),
@@ -143,10 +148,17 @@ pub enum ContextField {
 impl<'de> serde::Deserialize<'de> for ContextField {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        match s.replace(' ', "").as_str() {
-            "ObjectId" | "ObjectID" => Ok(ContextField::ObjectId),
-            "CurrentReportId" | "CurrentReportID" => Ok(ContextField::CurrentReportId),
-            "PreviousReportId" | "PreviousReportID" => Ok(ContextField::PreviousReportId),
+        let normalized = s.trim().replace([' ', '-', '_'], "").to_ascii_lowercase();
+
+        match normalized.as_str() {
+            "objectid" | "objectidentifier" | "object" | "objektid" | "objektidentifier"
+            | "objekt" => Ok(ContextField::ObjectId),
+            "currentreportid" | "currentreport" | "aktuellerreportid" | "aktuellerreport" => {
+                Ok(ContextField::CurrentReportId)
+            }
+            "previousreportid" | "previousreport" | "vorherigerreportid" | "vorherigerreport" => {
+                Ok(ContextField::PreviousReportId)
+            }
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &["ObjectId", "CurrentReportId", "PreviousReportId"],
@@ -169,7 +181,7 @@ pub struct ReportPair {
 //#[serde(tag = "chunk_type", content = "data")]
 pub enum WorkerParameters {
     GetObjectTree {
-        task_params:TaskParameters
+        task_params: TaskParameters,
     },
     GetReportList {
         task_params: TaskParameters,
@@ -284,6 +296,18 @@ impl Language {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ContextField;
+
+    #[test]
+    fn context_field_accepts_object_identifier_alias() {
+        let parsed: ContextField = serde_json::from_str(r#""object_identifier""#).unwrap();
+        assert_eq!(parsed, ContextField::ObjectId);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentRequest {
     pub message: String,
@@ -311,6 +335,5 @@ pub struct AiConfig {
     pub text_model: String,
     pub vision_model: String,
     pub chat_model: String,
-    pub agent_secret: String
+    pub agent_secret: String,
 }
-

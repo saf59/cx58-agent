@@ -98,11 +98,10 @@ pub async fn verify_signature(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let provided_signature_bytes = hex::decode(provided_signature)
-        .map_err(|e| {
-            tracing::warn!("Invalid signature format: {}", e);
-            StatusCode::UNAUTHORIZED
-        })?;
+    let provided_signature_bytes = hex::decode(provided_signature).map_err(|e| {
+        tracing::warn!("Invalid signature format: {}", e);
+        StatusCode::UNAUTHORIZED
+    })?;
 
     // Create HMAC
     let mut mac = HmacSha256::new_from_slice(state.ai_config.agent_secret.as_bytes())
@@ -112,11 +111,10 @@ pub async fn verify_signature(
     mac.update(&bytes);
 
     // Using of embed constant-time verification to prevent timing attacks
-    mac.verify_slice(&provided_signature_bytes)
-        .map_err(|_| {
-            tracing::warn!("HMAC verification failed");
-            StatusCode::UNAUTHORIZED
-        })?;
+    mac.verify_slice(&provided_signature_bytes).map_err(|_| {
+        tracing::warn!("HMAC verification failed");
+        StatusCode::UNAUTHORIZED
+    })?;
 
     tracing::debug!("HMAC signature verified successfully");
 
