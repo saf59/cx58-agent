@@ -125,10 +125,16 @@ struct OllamaTagsResponse {
 
 #[derive(Debug, Deserialize)]
 struct OllamaTagModel {
-    #[serde(alias = "model")]
-    name: String,
+    name: Option<String>,
+    model: Option<String>,
     size: Option<i64>,
     modified_at: Option<String>,
+}
+
+impl OllamaTagModel {
+    fn model_name(&self) -> Option<&str> {
+        self.name.as_deref().or(self.model.as_deref())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,10 +230,15 @@ pub async fn list_ollama_models(
 
     let mut models = Vec::with_capacity(tags.models.len());
     for tag in tags.models {
-        match show_ollama_model(&client, ollama_url, &tag.name).await {
+        let Some(model_name) = tag.model_name() else {
+            tracing::warn!("Ollama tag response omitted both name and model fields");
+            continue;
+        };
+
+        match show_ollama_model(&client, ollama_url, model_name).await {
             Ok(show) => {
                 let info = OllamaModelInfo {
-                    name: tag.name,
+                    name: model_name.to_string(),
                     size: tag.size,
                     modified_at: tag.modified_at,
                     capabilities: show.capabilities.unwrap_or_default(),
@@ -243,7 +254,7 @@ pub async fn list_ollama_models(
                 }
             }
             Err(e) => {
-                tracing::warn!(model = %tag.name, "Failed to inspect Ollama model: {}", e);
+                tracing::warn!(model = %model_name, "Failed to inspect Ollama model: {}", e);
             }
         }
     }
