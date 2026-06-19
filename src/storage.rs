@@ -13,6 +13,7 @@ use axum::{
     http::StatusCode,
 };
 use bytes::Bytes;
+use chrono::Datelike;
 use image::DynamicImage;
 use image::codecs::jpeg::JpegEncoder;
 use reqwest::header::HeaderName;
@@ -645,6 +646,11 @@ pub async fn upload_image_handler(
     }
     if berlin_datetime.is_empty() {
         return Err(AppError::bad_request("Missing berlin_datetime"));
+    }
+    let datetime = chrono::NaiveDateTime::parse_from_str(&berlin_datetime, "%d.%m.%Y %H:%M:%S")
+        .map_err(|_e| AppError::bad_request("Invalid berlin_datetime format"))?;
+    if datetime.year() < 2000 || datetime.year() > 2100 {
+        return Err(AppError::bad_request("Invalid berlin_datetime year"));
     }
 
     let prepared_image = tokio::task::spawn_blocking(move || normalize_upload_image(image_data))

@@ -9,7 +9,7 @@ use tower_http::cors::{Any, CorsLayer};
 use cx58_agent::AppState;
 use cx58_agent::handlers::{
     chat_stream_cancel, chat_stream_handler, get_tree_handler, get_user_models_handler,
-    health_check, reports_handler, update_user_models_handler,
+    health_check, reports_handler, update_report_datetime_handler, update_user_models_handler,
 };
 use cx58_agent::hmac::{RateLimiter, rate_limit_middleware, verify_signature};
 use cx58_agent::init::app_init;
@@ -24,7 +24,10 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 
     let protected_routes = Router::new()
         .route("/agent/chat", post(chat_stream_handler))
-        .route("/agent/reports/{node_id}", post(reports_handler))
+        .route(
+            "/agent/reports/{node_id}",
+            post(reports_handler).put(update_report_datetime_handler),
+        )
         .route(
             "/agent/models/{user_id}",
             get(get_user_models_handler).put(update_user_models_handler),

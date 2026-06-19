@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -358,6 +358,18 @@ fn datetime_from_filename(filename: &str) -> Result<String, Box<dyn std::error::
         .iter()
         .find_map(|format| NaiveDateTime::parse_from_str(raw_datetime, format).ok())
         .ok_or_else(|| format!("Unsupported filename date format: {}", filename))?;
+
+    let parsed = if parsed.year() < 100 {
+        parsed
+            .with_year(parsed.year() + 2000)
+            .ok_or_else(|| format!("Invalid filename year: {}", filename))?
+    } else {
+        parsed
+    };
+
+    if parsed.year() < 2000 || parsed.year() > 2100 {
+        return Err(format!("Invalid filename year: {}", filename).into());
+    }
 
     Ok(parsed.format("%d.%m.%Y %H:%M:%S").to_string())
 }

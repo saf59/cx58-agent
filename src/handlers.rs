@@ -22,6 +22,7 @@ use axum::{
     Json,
     extract::{Path, State},
 };
+use chrono::Datelike;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -81,6 +82,43 @@ pub async fn reports_handler(
     Ok(Json(data))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateReportDatetimeRequest {
+    pub berlin_datetime: String,
+}
+
+pub async fn update_report_datetime_handler(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+    Json(request): Json<UpdateReportDatetimeRequest>,
+) -> Result<StatusCode> {
+    let node_id =
+        Uuid::parse_str(&node_id).map_err(|_e| AppError::bad_request("Invalid node_id format"))?;
+    let datetime =
+        chrono::NaiveDateTime::parse_from_str(&request.berlin_datetime, "%d.%m.%Y %H:%M:%S")
+            .map_err(|_e| AppError::bad_request("Invalid berlin_datetime format"))?;
+    if datetime.year() < 2000 || datetime.year() > 2100 {
+        return Err(AppError::bad_request("Invalid berlin_datetime year"));
+    }
+
+    let result = sqlx::query(
+        r#"
+        UPDATE tree_nodes
+        SET updated_at = timezone('UTC', to_timestamp($2, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+        WHERE id = $1 AND node_type = 'ImageLeaf'::node_type_enum
+        "#,
+    )
+    .bind(node_id)
+    .bind(request.berlin_datetime)
+    .execute(&state.db)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("Report"));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
 pub async fn get_user_models_handler(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,
