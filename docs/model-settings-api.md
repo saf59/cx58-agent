@@ -32,13 +32,18 @@ Role mapping:
 | Agent role | Required Ollama capability |
 | ---------- | -------------------------- |
 | `vision_model` | `vision` |
-| `text_model` | `completion` |
-| `chat_model` | `tools` |
+| `text_model` | `completion`, and not vision/VL |
+| `chat_model` | `tools`, and not vision/VL |
+
+Vision-capable/VL models are restricted to `vision_model`, even if Ollama also
+reports `completion` or `tools`. This protects Ollama from loading heavy
+multimodal models as text/tool models, which can exhaust memory.
 
 `VISION_MODEL` is the main model. If UI changes it, the agent first checks that
 the model supports `vision`. With `same=true`, the agent then tries to use the
 same model for `text_model` and `chat_model`; unsupported roles are left
 unchanged and reported in `changes`.
+Vision/VL models are always unsupported for `text_model` and `chat_model`.
 
 ## List Models And Current Settings
 
@@ -195,4 +200,3 @@ processing. The rest of the request uses those models for:
 - RAG fallback chat: `text_model`
 - image description: `vision_model`
 - report comparison: `text_model`
-

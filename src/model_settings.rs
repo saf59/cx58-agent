@@ -82,6 +82,12 @@ impl OllamaModelInfo {
             .iter()
             .any(|cap| cap.eq_ignore_ascii_case(required))
     }
+
+    fn is_vision_only_for_selection(&self) -> bool {
+        self.supports(ModelCapability::Vision)
+            || is_vision_model_label(&self.name)
+            || self.family.as_deref().is_some_and(is_vision_model_label)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,7 +172,7 @@ pub async fn load_user_model_settings(
     .fetch_optional(pool)
     .await;
 
-    match row {
+    let mut settings = match row {
         Ok(Some(row)) => UserModelSettings {
             user_id: row.get("user_id"),
             vision_model: row.get("vision_model"),
@@ -178,7 +184,10 @@ pub async fn load_user_model_settings(
             tracing::warn!(user_id, "Failed to load user model settings: {}", e);
             UserModelSettings::from_defaults(user_id, defaults)
         }
-    }
+    };
+
+    sanitize_non_vision_roles(&mut settings, defaults);
+    settings
 }
 
 pub async fn save_user_model_settings(pool: &PgPool, settings: &UserModelSettings) -> Result<()> {
@@ -249,7 +258,7 @@ pub async fn list_ollama_models(
                         .as_ref()
                         .and_then(|d| d.quantization_level.clone()),
                 };
-                if capability.is_none_or(|cap| info.supports(cap)) {
+                if capability.is_none_or(|cap| supports_capability_for_selection(&info, cap)) {
                     models.push(info);
                 }
             }
@@ -282,9 +291,62 @@ pub async fn inspect_ollama_model(ollama_url: &str, model: &str) -> Result<Ollam
 pub fn supports_role(model: &OllamaModelInfo, role: &str) -> bool {
     match role {
         "vision_model" => model.supports(ModelCapability::Vision),
-        "text_model" => model.supports(ModelCapability::Text),
-        "chat_model" => model.supports(ModelCapability::Tools),
+        "text_model" => {
+            !model.is_vision_only_for_selection() && model.supports(ModelCapability::Text)
+        }
+        "chat_model" => {
+            !model.is_vision_only_for_selection() && model.supports(ModelCapability::Tools)
+        }
         _ => false,
+    }
+}
+
+fn supports_capability_for_selection(model: &OllamaModelInfo, capability: ModelCapability) -> bool {
+    match capability {
+        ModelCapability::Vision => model.supports(ModelCapability::Vision),
+        ModelCapability::Text => supports_role(model, "text_model"),
+        ModelCapability::Tools => supports_role(model, "chat_model"),
+    }
+}
+
+pub fn is_vision_model_label(label: &str) -> bool {
+    let label = label.to_ascii_lowercase();
+    label.contains("-vl") || label.contains("vision") || label.contains("llava")
+}
+
+fn sanitize_non_vision_roles(settings: &mut UserModelSettings, defaults: &AiConfig) {
+    if is_vision_model_label(&settings.text_model) {
+        if !is_vision_model_label(&defaults.text_model) {
+            tracing::warn!(
+                user_id = %settings.user_id,
+                model = %settings.text_model,
+                "Ignoring vision model saved in text_model"
+            );
+            settings.text_model = defaults.text_model.clone();
+        } else {
+            tracing::error!(
+                user_id = %settings.user_id,
+                model = %settings.text_model,
+                "text_model is vision-only and startup default is also unsafe"
+            );
+        }
+    }
+
+    if is_vision_model_label(&settings.chat_model) {
+        if !is_vision_model_label(&defaults.chat_model) {
+            tracing::warn!(
+                user_id = %settings.user_id,
+                model = %settings.chat_model,
+                "Ignoring vision model saved in chat_model"
+            );
+            settings.chat_model = defaults.chat_model.clone();
+        } else {
+            tracing::error!(
+                user_id = %settings.user_id,
+                model = %settings.chat_model,
+                "chat_model is vision-only and startup default is also unsafe"
+            );
+        }
     }
 }
 
@@ -332,17 +394,45 @@ mod tests {
         }
     }
 
+    fn named_model_with(
+        name: &str,
+        family: Option<&str>,
+        capabilities: &[&str],
+    ) -> OllamaModelInfo {
+        OllamaModelInfo {
+            name: name.to_string(),
+            size: None,
+            modified_at: None,
+            capabilities: capabilities.iter().map(|c| c.to_string()).collect(),
+            family: family.map(|value| value.to_string()),
+            parameter_size: None,
+            quantization_level: None,
+        }
+    }
+
     #[test]
     fn role_capability_mapping_matches_api_contract() {
-        let all = model_with(&["completion", "vision", "tools"]);
-        assert!(supports_role(&all, "vision_model"));
-        assert!(supports_role(&all, "text_model"));
-        assert!(supports_role(&all, "chat_model"));
+        let text_and_tools = model_with(&["completion", "tools"]);
+        assert!(!supports_role(&text_and_tools, "vision_model"));
+        assert!(supports_role(&text_and_tools, "text_model"));
+        assert!(supports_role(&text_and_tools, "chat_model"));
 
         let vision_only = model_with(&["completion", "vision"]);
         assert!(supports_role(&vision_only, "vision_model"));
-        assert!(supports_role(&vision_only, "text_model"));
+        assert!(!supports_role(&vision_only, "text_model"));
         assert!(!supports_role(&vision_only, "chat_model"));
+    }
+
+    #[test]
+    fn vl_models_are_restricted_to_vision_role() {
+        let qwen_vl = named_model_with("qwen3-vl:8b", Some("qwen3vl"), &["completion", "vision"]);
+        assert!(supports_role(&qwen_vl, "vision_model"));
+        assert!(!supports_role(&qwen_vl, "text_model"));
+        assert!(!supports_role(&qwen_vl, "chat_model"));
+
+        let llava = named_model_with("llava:latest", None, &["completion", "vision"]);
+        assert!(supports_role(&llava, "vision_model"));
+        assert!(!supports_role(&llava, "text_model"));
     }
 
     #[test]

@@ -55,10 +55,10 @@ impl AiConfig {
         Ok(Self {
             url: std::env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
-            text_model: std::env::var("TEXT_MODEL").unwrap_or_else(|_| "llava".to_string()),
+            text_model: std::env::var("TEXT_MODEL").unwrap_or_else(|_| "qwen3.5:9b".to_string()),
             vision_model: std::env::var("VISION_MODEL")
                 .unwrap_or_else(|_| "llama3.2-vision".to_string()),
-            chat_model: std::env::var("CHAT_MODEL").unwrap_or_else(|_| "llava".to_string()),
+            chat_model: std::env::var("CHAT_MODEL").unwrap_or_else(|_| "qwen3.5:9b".to_string()),
             agent_secret: std::env::var("AGENT_SECRET").unwrap_or_else(|_| "None".to_string()),
         })
     }
