@@ -42,7 +42,7 @@ Use them whenever the user message provided enough information to do so.
 ### DocumentsIdFinder
 - Resolves `current_report_id` and `previous_report_id` from `object_id` + task_params.
 - Use when: `object_id` is resolved AND both report IDs are "not_set" AND
-  task_params contain meaningful values (last=true, all=true, period, or amount).
+  task_params contain meaningful values (last=true, all=true, period, amount, or exact_datetime).
 - After execution, MasterAgent writes the resolved UUIDs into the report ID context fields.
 
 ---
@@ -141,7 +141,8 @@ You only return one step at a time. MasterAgent calls you again after each worke
       "last": true,
       "all": false,
       "period": null,
-      "amount": null
+      "amount": null,
+      "exact_datetime": null
     }
   }
 }
@@ -156,7 +157,8 @@ You only return one step at a time. MasterAgent calls you again after each worke
       "last": false,
       "all": true,
       "period": null,
-      "amount": null
+      "amount": null,
+      "exact_datetime": null
     }
   }
 }
@@ -171,7 +173,8 @@ You only return one step at a time. MasterAgent calls you again after each worke
       "last": true,
       "all": false,
       "period": "Week",
-      "amount": 2
+      "amount": 2,
+      "exact_datetime": null
     }
   }
 }

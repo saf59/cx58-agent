@@ -24,6 +24,14 @@ pub async fn get_filtered_tree(
     tree: Vec<TreeNode>,
     parameters: &TaskParameters,
 ) -> Result<Vec<TreeNode>, AgentError> {
+    get_filtered_tree_at(tree, parameters, Utc::now().naive_utc()).await
+}
+
+async fn get_filtered_tree_at(
+    tree: Vec<TreeNode>,
+    parameters: &TaskParameters,
+    current_time: NaiveDateTime,
+) -> Result<Vec<TreeNode>, AgentError> {
     // Treat last and all as equivalent
     let all = parameters.all || parameters.last;
 
@@ -45,8 +53,6 @@ pub async fn get_filtered_tree(
         let amount = parameters.amount.unwrap_or(1);
         let days = period.to_days() * amount as i64;
 
-        // Calculate max_updated_at: current_time - (period * amount)
-        let current_time = Utc::now().naive_utc();
         let max_updated_at = current_time - chrono::Duration::days(days);
 
         return filter_by_period(tree, max_updated_at);
@@ -89,6 +95,13 @@ fn filter_by_period(
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+
+    fn fixed_now() -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(2026, 1, 24)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap()
+    }
 
     fn create_test_tree_from_csv() -> Vec<TreeNode> {
         vec![
@@ -204,9 +217,12 @@ mod tests {
             all: false,
             period: Some(Period::Day),
             amount: Some(1),
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
         assert_eq!(
             result.len(),
             0,
@@ -222,9 +238,12 @@ mod tests {
             all: false,
             period: None,
             amount: None,
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
         assert_eq!(result.len(), 0, "Should return empty vector");
     }
 
@@ -236,9 +255,12 @@ mod tests {
             all: true,
             period: None,
             amount: None,
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
         assert_eq!(result.len(), 4, "Should return 4 Branch nodes");
         assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
 
@@ -258,6 +280,7 @@ mod tests {
             all: false,
             period: None,
             amount: None,
+            exact_datetime: None,
         };
 
         let params_all = TaskParameters {
@@ -265,6 +288,7 @@ mod tests {
             all: true,
             period: None,
             amount: None,
+            exact_datetime: None,
         };
 
         let result_last = get_filtered_tree(tree.clone(), &params_last).await.unwrap();
@@ -295,9 +319,12 @@ mod tests {
             all: false,
             period: Some(Period::Week),
             amount: Some(1),
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
 
         // No ImageLeaf nodes are recent enough, so no branches should be returned
         assert_eq!(
@@ -324,9 +351,12 @@ mod tests {
             all: false,
             period: Some(Period::Month),
             amount: Some(1),
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -352,9 +382,12 @@ mod tests {
             all: false,
             period: Some(Period::Day),
             amount: Some(20),
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
         assert_eq!(result.len(), 4, "Should return all 4 Branch nodes");
         assert!(result.iter().all(|n| n.node_type != NodeType::ImageLeaf));
     }
@@ -376,9 +409,12 @@ mod tests {
             all: false,
             period: Some(Period::Month),
             amount: Some(2),
+            exact_datetime: None,
         };
 
-        let result = get_filtered_tree(tree, &params).await.unwrap();
+        let result = get_filtered_tree_at(tree, &params, fixed_now())
+            .await
+            .unwrap();
         assert_eq!(
             result.len(),
             4,
@@ -395,6 +431,7 @@ mod tests {
             all: true,
             period: None,
             amount: None,
+            exact_datetime: None,
         };
 
         let result = get_filtered_tree(tree, &params).await.unwrap();

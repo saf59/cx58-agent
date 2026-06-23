@@ -1,4 +1,5 @@
 use crate::agents::Period;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -73,8 +74,8 @@ where
                     return Ok(None);
                 }
 
-                // Check if it's an object with all empty/default values
-                // Note: we must also check 'all' and 'last' fields - they are not defaults!
+                // Check if it's an object with all empty/default values.
+                // Note: 'all', 'last', and exact_datetime are meaningful values.
                 if let serde_json::Value::Object(map) = &v {
                     let has_no_meaningful_data = map.get("period").is_none_or(|p| {
                         p.is_null() || (p.is_string() && p.as_str().unwrap_or("").is_empty())
@@ -84,6 +85,8 @@ where
                         a.is_null() || !a.is_boolean() || !a.as_bool().unwrap_or(false)
                     }) && map.get("last").is_none_or(|l| {
                         l.is_null() || !l.is_boolean() || !l.as_bool().unwrap_or(false)
+                    }) && map.get("exact_datetime").is_none_or(|d| {
+                        d.is_null() || (d.is_string() && d.as_str().unwrap_or("").is_empty())
                     });
                     if has_no_meaningful_data {
                         return Ok(None);
@@ -118,6 +121,38 @@ where
     }
 }
 
+fn deserialize_exact_datetime_opt<'de, D>(
+    deserializer: D,
+) -> Result<Option<NaiveDateTime>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    match opt {
+        Some(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return Ok(None);
+            }
+            for fmt in [
+                "%d.%m.%Y %H:%M:%S",
+                "%d.%m.%Y %H:%M",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+            ] {
+                if let Ok(dt) = NaiveDateTime::parse_from_str(trimmed, fmt) {
+                    return Ok(Some(dt));
+                }
+            }
+            Err(serde::de::Error::custom(format!(
+                "invalid exact_datetime: {trimmed}"
+            )))
+        }
+        None => Ok(None),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskParameters {
     pub last: bool,
@@ -125,6 +160,8 @@ pub struct TaskParameters {
     #[serde(deserialize_with = "deserialize_period_opt")]
     pub period: Option<Period>,
     pub amount: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_exact_datetime_opt")]
+    pub exact_datetime: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,6 +342,22 @@ mod tests {
     fn context_field_accepts_object_identifier_alias() {
         let parsed: ContextField = serde_json::from_str(r#""object_identifier""#).unwrap();
         assert_eq!(parsed, ContextField::ObjectId);
+    }
+
+    #[test]
+    fn task_params_accept_exact_datetime() {
+        let parsed: super::TaskParameters = serde_json::from_str(
+            r#"{"last":false,"all":true,"period":null,"amount":null,"exact_datetime":"22.05.2026 20:00:00"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed
+                .exact_datetime
+                .unwrap()
+                .format("%d.%m.%Y %H:%M:%S")
+                .to_string(),
+            "22.05.2026 20:00:00"
+        );
     }
 }
 

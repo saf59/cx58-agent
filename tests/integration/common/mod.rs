@@ -144,6 +144,7 @@ async fn try_resolve_report_ids(
         all: true,
         period: None,
         amount: None,
+        exact_datetime: None,
     };
     let mut images: Vec<_> = get_documents(&&params, &state.db, node_id)
         .await?

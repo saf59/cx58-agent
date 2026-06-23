@@ -406,7 +406,8 @@ mod tests {
     #[test]
     fn test_json_serialization() {
         let err = AppError::bad_request("Invalid data");
-        let json = serde_json::to_string(&err).unwrap();
-        assert!(json.contains("BAD_REQUEST"));
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(json["code"], "BadRequest");
+        assert_eq!(json["message"], "Invalid data");
     }
 }

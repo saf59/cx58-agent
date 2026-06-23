@@ -19,6 +19,7 @@ use crate::agents::agents_helper::{
 };
 use crate::localization::LocalizationManager;
 use crate::templating::TemplateManager;
+use chrono::NaiveDate;
 // Ollama uses OpenAI-compatible API
 use rig::client::CompletionClient;
 use rig::completion::CompletionModel;
@@ -171,7 +172,7 @@ impl IntentRouter {
             );
             AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
         })?;
-        normalize_classification_result(&mut result, context);
+        normalize_classification_result(&mut result, context, message);
 
         // determines that optional context is needed but missing:
         // - Set a flag in the result indicating context request needed
@@ -239,7 +240,17 @@ impl IntentRouter {
     }
 }
 
-fn normalize_classification_result(result: &mut ClassificationResult, context: &UserContext) {
+fn normalize_classification_result(
+    result: &mut ClassificationResult,
+    context: &UserContext,
+    message: &str,
+) {
+    if result.extracted_parameters.object_identifier.is_none()
+        && let Some(object_identifier) = extract_quoted_object_name(message)
+    {
+        result.extracted_parameters.object_identifier = Some(object_identifier);
+    }
+
     if let Some(object_identifier) = result.extracted_parameters.object_identifier.as_deref() {
         let normalized = object_identifier.trim();
         if normalized.is_empty()
@@ -248,12 +259,388 @@ fn normalize_classification_result(result: &mut ClassificationResult, context: &
             || normalized.eq_ignore_ascii_case("none")
         {
             result.extracted_parameters.object_identifier = None;
+        } else if uuid::Uuid::parse_str(normalized).is_ok() && !message.contains(normalized) {
+            tracing::warn!(
+                object_identifier = normalized,
+                object_id = ?context.object_id,
+                current_report_id = ?context.current_report_id,
+                previous_report_id = ?context.previous_report_id,
+                "IntentRouter: dropping UUID copied from context as object_identifier"
+            );
+            result.extracted_parameters.object_identifier = None;
         }
     }
 
+    if is_endpoint_comparison_request(message) {
+        result.intent = Intent::CompareReports;
+        let params = ensure_task_params(&mut result.extracted_parameters);
+        params.last = false;
+        params.all = true;
+        params.period = None;
+        params.amount = None;
+        params.exact_datetime = None;
+    } else if let Some(exact_datetime) = extract_exact_datetime(message) {
+        result.intent = if is_explicit_report_description_request(message) {
+            Intent::DescribeReport
+        } else {
+            Intent::GetReportList
+        };
+        let params = ensure_task_params(&mut result.extracted_parameters);
+        params.last = false;
+        params.all = true;
+        params.period = None;
+        params.amount = None;
+        params.exact_datetime = Some(exact_datetime);
+    }
+
+    let can_resolve_reports = result.extracted_parameters.task_params.is_some();
     result.missing_context.retain(|field| match field {
-        ContextField::ObjectId => context.object_id.is_none(),
-        ContextField::CurrentReportId => context.current_report_id.is_none(),
-        ContextField::PreviousReportId => context.previous_report_id.is_none(),
+        ContextField::ObjectId => {
+            needs_object_id(&result.intent)
+                && context.object_id.is_none()
+                && result.extracted_parameters.object_identifier.is_none()
+        }
+        ContextField::CurrentReportId => {
+            needs_current_report_id(&result.intent)
+                && context.current_report_id.is_none()
+                && !can_resolve_reports
+        }
+        ContextField::PreviousReportId => {
+            matches!(result.intent, Intent::CompareReports)
+                && context.previous_report_id.is_none()
+                && !can_resolve_reports
+        }
     });
+}
+
+fn needs_object_id(intent: &Intent) -> bool {
+    matches!(
+        intent,
+        Intent::GetReportList | Intent::DescribeReport | Intent::CompareReports
+    )
+}
+
+fn needs_current_report_id(intent: &Intent) -> bool {
+    matches!(intent, Intent::DescribeReport | Intent::CompareReports)
+}
+
+fn ensure_task_params(extracted: &mut ExtractedParameters) -> &mut TaskParameters {
+    extracted.task_params.get_or_insert_with(|| TaskParameters {
+        last: false,
+        all: false,
+        period: None,
+        amount: None,
+        exact_datetime: None,
+    })
+}
+
+fn extract_quoted_object_name(message: &str) -> Option<String> {
+    let quoted = quoted_segments(message);
+    quoted
+        .into_iter()
+        .find(|segment| {
+            let lower = segment.to_lowercase();
+            !lower.contains("report")
+                && !lower.contains("bericht")
+                && segment.chars().any(|ch| ch == '-' || ch == '–')
+        })
+        .map(|segment| segment.trim().to_string())
+}
+
+fn quoted_segments(message: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+
+    for ch in message.chars() {
+        match (quote, ch) {
+            (None, '"' | '\'' | '“' | '„') => {
+                quote = Some(ch);
+                current.clear();
+            }
+            (Some(start), '"' | '\'' | '”' | '“' | '„') if quote_closes(start, ch) => {
+                let segment = current.trim();
+                if !segment.is_empty() {
+                    segments.push(segment.to_string());
+                }
+                current.clear();
+                quote = None;
+            }
+            (Some(_), _) => current.push(ch),
+            (None, _) => {}
+        }
+    }
+
+    segments
+}
+
+fn quote_closes(start: char, ch: char) -> bool {
+    matches!(
+        (start, ch),
+        ('"', '"') | ('\'', '\'') | ('“', '”') | ('„', '“') | ('„', '”')
+    )
+}
+
+fn is_endpoint_comparison_request(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    let asks_for_change =
+        lower.contains("change") || lower.contains("changes") || lower.contains("änderung");
+    let has_report = lower.contains("report") || lower.contains("bericht");
+    let has_endpoint_pair = (lower.contains("oldest") && lower.contains("newest"))
+        || (lower.contains("first") && lower.contains("last"))
+        || (lower.contains("ersten") && lower.contains("letzten"))
+        || (lower.contains("ältesten") && lower.contains("neuesten"));
+
+    has_report && asks_for_change && has_endpoint_pair
+}
+
+fn is_explicit_report_description_request(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    let has_report = lower.contains("report") || lower.contains("bericht");
+    let asks_for_description = lower.contains("describe")
+        || lower.contains("description")
+        || lower.contains("beschreib")
+        || lower.contains("analyze")
+        || lower.contains("analyse")
+        || lower.contains("analysiere");
+
+    has_report && asks_for_description
+}
+
+fn extract_exact_datetime(message: &str) -> Option<chrono::NaiveDateTime> {
+    let words = tokenize_datetime_words(message);
+
+    for (idx, word) in words.iter().enumerate() {
+        let Some(month) = month_number(word) else {
+            continue;
+        };
+        let day = idx
+            .checked_sub(1)
+            .and_then(|day_idx| leading_number(&words[day_idx]))?;
+        let year = words
+            .iter()
+            .skip(idx + 1)
+            .find_map(|word| parse_year(word))?;
+        let (hour, minute) = parse_time_after_month(&words[idx + 1..]).unwrap_or((0, 0));
+
+        return NaiveDate::from_ymd_opt(year, month, day)
+            .and_then(|date| date.and_hms_opt(hour, minute, 0));
+    }
+
+    None
+}
+
+fn tokenize_datetime_words(message: &str) -> Vec<String> {
+    message
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|ch: char| {
+                ch == ','
+                    || ch == '"'
+                    || ch == '\''
+                    || ch == '“'
+                    || ch == '”'
+                    || ch == '„'
+                    || ch == '?'
+                    || ch == '!'
+            })
+            .trim_end_matches('.')
+            .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+fn month_number(word: &str) -> Option<u32> {
+    match word {
+        "january" | "jan" | "januar" => Some(1),
+        "february" | "feb" | "februar" => Some(2),
+        "march" | "mar" | "märz" | "maerz" => Some(3),
+        "april" | "apr" => Some(4),
+        "may" | "mai" => Some(5),
+        "june" | "jun" | "juni" => Some(6),
+        "july" | "jul" | "juli" => Some(7),
+        "august" | "aug" => Some(8),
+        "september" | "sep" | "sept" => Some(9),
+        "october" | "oct" | "oktober" | "okt" => Some(10),
+        "november" | "nov" => Some(11),
+        "december" | "dec" | "dezember" | "dez" => Some(12),
+        _ => None,
+    }
+}
+
+fn leading_number(word: &str) -> Option<u32> {
+    let digits: String = word.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
+fn parse_year(word: &str) -> Option<i32> {
+    let year = leading_number(word)?;
+    if (1900..=2200).contains(&year) {
+        Some(year as i32)
+    } else {
+        None
+    }
+}
+
+fn parse_time_after_month(words: &[String]) -> Option<(u32, u32)> {
+    let year_idx = words.iter().position(|word| parse_year(word).is_some())?;
+    let tail = &words[year_idx + 1..];
+
+    for (idx, word) in tail.iter().enumerate() {
+        if let Some((hour, minute)) = parse_clock_word(word) {
+            let period = tail.get(idx + 1).map(String::as_str);
+            return Some(apply_period(hour, minute, period));
+        }
+    }
+
+    None
+}
+
+fn parse_clock_word(word: &str) -> Option<(u32, u32)> {
+    let clean = word.trim_end_matches("uhr");
+    if let Some((hour, minute)) = clean.split_once(':') {
+        return Some((hour.parse().ok()?, minute.parse().ok()?));
+    }
+    leading_number(clean).map(|hour| (hour, 0))
+}
+
+fn apply_period(hour: u32, minute: u32, period: Option<&str>) -> (u32, u32) {
+    match period {
+        Some("pm") if hour < 12 => (hour + 12, minute),
+        Some("am") if hour == 12 => (0, minute),
+        _ => (hour, minute),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn context_without_selection() -> UserContext {
+        UserContext {
+            user_id: "user".to_string(),
+            chat_id: "chat".to_string(),
+            language: Language::English,
+            object_id: None,
+            current_report_id: None,
+            previous_report_id: None,
+        }
+    }
+
+    fn empty_classification(intent: Intent) -> ClassificationResult {
+        ClassificationResult {
+            intent,
+            confidence: 0.5,
+            extracted_parameters: ExtractedParameters {
+                task_params: None,
+                object_identifier: None,
+                time_reference: None,
+                report_references: Vec::new(),
+            },
+            missing_context: vec![
+                ContextField::ObjectId,
+                ContextField::CurrentReportId,
+                ContextField::PreviousReportId,
+            ],
+            reasoning: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn normalizes_oldest_newest_changes_to_compare_all_reports() {
+        let mut result = empty_classification(Intent::DescribeReport);
+        normalize_classification_result(
+            &mut result,
+            &context_without_selection(),
+            "Please show me the changes from \"EG - Bad\" from the oldest report to the newest report. Thanks!",
+        );
+
+        assert!(matches!(result.intent, Intent::CompareReports));
+        assert_eq!(
+            result.extracted_parameters.object_identifier.as_deref(),
+            Some("EG - Bad")
+        );
+        let params = result.extracted_parameters.task_params.unwrap();
+        assert!(params.all);
+        assert!(!params.last);
+        assert!(params.exact_datetime.is_none());
+        assert!(!result.missing_context.contains(&ContextField::ObjectId));
+    }
+
+    #[test]
+    fn normalizes_german_first_last_changes_to_compare_all_reports() {
+        let mut result = empty_classification(Intent::DescribeReport);
+        normalize_classification_result(
+            &mut result,
+            &context_without_selection(),
+            "Bitte zeige mir die Änderungen von \"EG - Bad\" vom letzten Bericht zum ersten Bericht. Danke!",
+        );
+
+        assert!(matches!(result.intent, Intent::CompareReports));
+        assert_eq!(
+            result.extracted_parameters.object_identifier.as_deref(),
+            Some("EG - Bad")
+        );
+        assert!(result.extracted_parameters.task_params.unwrap().all);
+    }
+
+    #[test]
+    fn normalizes_exact_datetime_report_description() {
+        let mut result = empty_classification(Intent::GetReportList);
+        normalize_classification_result(
+            &mut result,
+            &context_without_selection(),
+            "Please, show me the report \"EG - Bad\" from 22nd May, 2026, 8 pm. And please describe the report. Thanks",
+        );
+
+        assert!(matches!(result.intent, Intent::DescribeReport));
+        assert_eq!(
+            result.extracted_parameters.object_identifier.as_deref(),
+            Some("EG - Bad")
+        );
+        let exact = result
+            .extracted_parameters
+            .task_params
+            .unwrap()
+            .exact_datetime
+            .unwrap();
+        assert_eq!(
+            exact.format("%d.%m.%Y %H:%M:%S").to_string(),
+            "22.05.2026 20:00:00"
+        );
+        assert!(!result.missing_context.contains(&ContextField::ObjectId));
+        assert!(
+            !result
+                .missing_context
+                .contains(&ContextField::CurrentReportId)
+        );
+    }
+
+    #[test]
+    fn normalizes_exact_datetime_report_show_to_report_list() {
+        let mut result = empty_classification(Intent::DescribeReport);
+        normalize_classification_result(
+            &mut result,
+            &context_without_selection(),
+            "show me the report \"EG - Bad\" from 22nd May, 2026, 8 pm.",
+        );
+
+        assert!(matches!(result.intent, Intent::GetReportList));
+        assert_eq!(
+            result.extracted_parameters.object_identifier.as_deref(),
+            Some("EG - Bad")
+        );
+        let exact = result
+            .extracted_parameters
+            .task_params
+            .unwrap()
+            .exact_datetime
+            .unwrap();
+        assert_eq!(
+            exact.format("%d.%m.%Y %H:%M:%S").to_string(),
+            "22.05.2026 20:00:00"
+        );
+        assert!(result.missing_context.is_empty());
+    }
 }

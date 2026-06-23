@@ -42,7 +42,7 @@ Sie werden verwendet, wenn die Benutzernachricht genügend Informationen enthäl
 ### DocumentsIdFinder
 - Löst `current_report_id` und `previous_report_id` aus `object_id` + task_params auf.
 - Verwenden wenn: `object_id` ist aufgelöst UND beide Report-IDs sind "not_set" UND
-  task_params enthalten sinnvolle Werte (last=true, all=true, period oder amount).
+  task_params enthalten sinnvolle Werte (last=true, all=true, period, amount oder exact_datetime).
 - Nach der Ausführung schreibt MasterAgent die aufgelösten UUIDs in die Report-ID-Kontextfelder.
 
 ---
@@ -103,16 +103,16 @@ Auflösungskette bevor der DescribeReport-Guard ausgelöst wird:
 
 ---
 
-## MEHRSTUFIGES BEISPIEL A — Berichte des letzten Monats für „Raum 11" vergleichen, kein Kontext gesetzt
+## MEHRSTUFIGES BEISPIEL A — Berichte des letzten Monats für „Room 11" vergleichen, kein Kontext gesetzt
 
-Schritt 1 → ExecuteWorker ObjectIdFinder    { object_name: "Raum 11" }
+Schritt 1 → ExecuteWorker ObjectIdFinder    { object_name: "Room 11" }
 Schritt 2 → ExecuteWorker DocumentsIdFinder { task_params: { last: false, all: false, period: "Month", amount: null } }
 Schritt 3 → [MasterAgent CompareReports-Guard → DescribeReport wird automatisch ausgeführt]
 Schritt 4 → ExecuteWorker CompareReports    {}
 
-## MEHRSTUFIGES BEISPIEL B — Bericht des letzten Monats für „Raum 11" beschreiben, kein Kontext gesetzt
+## MEHRSTUFIGES BEISPIEL B — Bericht des letzten Monats für „Room 11" beschreiben, kein Kontext gesetzt
 
-Schritt 1 → ExecuteWorker ObjectIdFinder    { object_name: "Raum 11" }
+Schritt 1 → ExecuteWorker ObjectIdFinder    { object_name: "Room 11" }
 Schritt 2 → ExecuteWorker DocumentsIdFinder { task_params: { last: false, all: false, period: "Month", amount: null } }
 Schritt 3 → ExecuteWorker DescribeReport    { reports: { prev: "<aufgelöste current_report_id>", next: "<aufgelöste previous_report_id oder null>" } }
 
@@ -123,6 +123,8 @@ Du gibst immer nur einen Schritt zurück. MasterAgent ruft dich nach jedem abges
 ## WORKER-PARAMETER-SCHEMATA
 
 ### ObjectIdFinder
+`object_name` muss exakt aus `object_identifier` übernommen werden. Nicht übersetzen,
+nicht normalisieren und keine Umlaute oder transliterierten Formen ändern.
 ```json
 {
   "worker_type": "ObjectIdFinder",
@@ -141,7 +143,8 @@ Du gibst immer nur einen Schritt zurück. MasterAgent ruft dich nach jedem abges
       "last": true,
       "all": false,
       "period": null,
-      "amount": null
+      "amount": null,
+      "exact_datetime": null
     }
   }
 }
@@ -156,7 +159,8 @@ Du gibst immer nur einen Schritt zurück. MasterAgent ruft dich nach jedem abges
       "last": false,
       "all": true,
       "period": null,
-      "amount": null
+      "amount": null,
+      "exact_datetime": null
     }
   }
 }
@@ -171,7 +175,8 @@ Du gibst immer nur einen Schritt zurück. MasterAgent ruft dich nach jedem abges
       "last": true,
       "all": false,
       "period": "Week",
-      "amount": 2
+      "amount": 2,
+      "exact_datetime": null
     }
   }
 }

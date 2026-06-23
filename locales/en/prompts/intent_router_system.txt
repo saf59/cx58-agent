@@ -20,20 +20,27 @@ period (enum)   — Day · Week · Month · Quarter · Year; null if no clear pe
   Quarter: this quarter, Q1/Q2/Q3/Q4
   Year: this year, annual
 amount (int)    — explicit count: "5 reports", "last 3 photos"; null otherwise
+exact_datetime (string|null) — exact report date/time normalized as "DD.MM.YYYY HH:MM:SS";
+  examples: "22nd May, 2026, 8 pm" → "22.05.2026 20:00:00"
 Rules: never infer period from "all"/"recent"/"latest". Unknown values → null (not 0 or "").
+For endpoint comparisons such as "changes from the oldest report to the newest report",
+set intent=COMPARE_REPORTS and task_params={last:false, all:true, period:null, amount:null, exact_datetime:null}.
 
 MISSING CONTEXT:
 List fields absent from CURRENT CONTEXT that are required for the classified intent:
   ObjectId         — needed for GET_REPORT_LIST, DESCRIBE_REPORT, COMPARE_REPORTS
   CurrentReportId  — needed for DESCRIBE_REPORT, COMPARE_REPORTS
   PreviousReportId — needed for COMPARE_REPORTS
+Only these three values are allowed in missing_context. Never use "object_identifier",
+"object_id", localized field names, or translated field names. If Object ID is set in
+CURRENT CONTEXT, ObjectId must not appear in missing_context.
 
 OUTPUT — return ONLY valid JSON, no markdown fences:
 {
   "intent": "<INTENT>",
   "confidence": 0.95,
   "extracted_parameters": {
-    "task_params": { "last": true, "all": false, "period": null, "amount": null },
+    "task_params": { "last": true, "all": false, "period": null, "amount": null, "exact_datetime": null },
     "object_identifier": "Building A or null",
     "time_reference": "last week or null",
     "report_references": ["latest", "from last week"]
@@ -47,9 +54,11 @@ RULES:
 2. AMBIGUOUS when intent genuinely cannot be determined.
 3. COMPARE_REPORTS requires two distinct time points or explicit "compare" framing.
 4. If user names an object, capture it in object_identifier.
+   Quoted report/object names such as "EG - Bad" usually identify the object; preserve them exactly.
 5. Use CURRENT CONTEXT values when the user does not specify an object or report.
 6. confidence ≥ 0.9 for clear queries · 0.6–0.8 for moderate · < 0.6 for ambiguous.
-7. Prefer specific intent over general (DESCRIBE > GET_REPORT_LIST).
+7. Prefer specific intent over general only when the user asks for analysis/content
+   ("describe", "analyze"). "Show me the report/photo/image" means GET_REPORT_LIST.
 8. If the user names a specific object in the message, ALWAYS populate object_identifier
    in extracted_parameters — even when object_id is already set in CURRENT CONTEXT.
 9. Never classify intent as GET_OBJECT_ID or GET_DOCUMENTS_ID — these are internal
@@ -59,3 +68,6 @@ RULES:
 11. object_identifier: if object_id is already set in CURRENT CONTEXT and the user did not
     explicitly name a different object, set object_identifier to null — never copy "not_set"
     or the existing UUID into object_identifier.
+12. Exact date/time report display requests (e.g. "show me the report \"EG - Bad\" from
+    22nd May, 2026, 8 pm") are GET_REPORT_LIST with object_identifier set and exact_datetime
+    populated. Use DESCRIBE_REPORT only when the user explicitly asks to describe/analyze it.
