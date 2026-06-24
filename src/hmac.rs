@@ -84,32 +84,6 @@ pub async fn verify_signature(
     Ok(next.run(req).await)
 }
 
-pub async fn verify_signature_when_present(
-    State(state): State<Arc<AppState>>,
-    req: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    let (parts, body) = req.into_parts();
-    let has_timestamp = parts.headers.contains_key("X-Timestamp");
-    let has_signature = parts.headers.contains_key("X-Signature");
-    let bytes = axum::body::to_bytes(body, MAX_HMAC_BODY_BYTES)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if has_timestamp || has_signature {
-        verify_signature_bytes(&state.ai_config.agent_secret, &parts.headers, &bytes)?;
-    } else {
-        tracing::warn!(
-            method = %parts.method,
-            path = %parts.uri.path(),
-            "Unsigned legacy agent request accepted temporarily; add HMAC in admin boundary pass"
-        );
-    }
-
-    let req = Request::from_parts(parts, Body::from(bytes));
-    Ok(next.run(req).await)
-}
-
 fn verify_signature_bytes(
     agent_secret: &str,
     headers: &HeaderMap,
