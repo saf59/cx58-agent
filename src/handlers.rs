@@ -14,7 +14,7 @@ use crate::model_settings::{
     load_user_model_settings, required_capability_label, save_user_model_settings, supports_role,
 };
 pub use crate::storage::StorageService;
-use crate::storage::set_storage_url;
+use crate::storage::{apply_storage_url_update, resolve_storage_url_updates};
 use axum::http::StatusCode;
 use axum::response::Sse;
 use axum::response::sse::{Event, KeepAlive};
@@ -48,15 +48,7 @@ pub async fn get_tree_handler(
 ) -> Result<Json<Vec<TreeNode>>> {
     let mut tree = get_tree(&state.db, &user_id, query.with_leafs).await?;
 
-    // Process ImageLeaf nodes
-    for node in &mut tree {
-        if matches!(node.node_type, NodeType::ImageLeaf)
-            && let Some(obj) = node.data.as_object_mut()
-        {
-            let node_id = &node.id;
-            set_storage_url(state.clone(), obj, node_id).await;
-        }
-    }
+    attach_tree_storage_urls(state, &mut tree).await;
 
     Ok(Json(tree))
 }
@@ -71,16 +63,58 @@ pub async fn reports_handler(
         .await
         .map_err(|_e| AppError::internal("Failed to fetch reports"))?;
 
-    // Attach storage URLs to image-leaf nodes.
-    for node in &mut data {
-        if matches!(node.node_type, NodeType::ImageLeaf)
-            && let Some(obj) = node.data.as_object_mut()
-        {
-            let node_id = &node.id;
-            set_storage_url(state.clone(), obj, node_id).await;
+    attach_report_storage_urls(state, &mut data).await;
+    Ok(Json(data))
+}
+
+async fn attach_tree_storage_urls(state: Arc<AppState>, nodes: &mut [TreeNode]) {
+    let requests = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| {
+            if !matches!(node.node_type, NodeType::ImageLeaf) {
+                return None;
+            }
+            let storage_path = node
+                .data
+                .as_object()
+                .and_then(|obj| obj.get("storage_path"))
+                .and_then(|v| v.as_str())?
+                .to_string();
+            Some((index, node.id, storage_path))
+        })
+        .collect();
+
+    for (index, update) in resolve_storage_url_updates(state, requests).await {
+        if let Some(obj) = nodes[index].data.as_object_mut() {
+            apply_storage_url_update(obj, update);
         }
     }
-    Ok(Json(data))
+}
+
+async fn attach_report_storage_urls(state: Arc<AppState>, nodes: &mut [NodeWithLeaf]) {
+    let requests = nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| {
+            if !matches!(node.node_type, NodeType::ImageLeaf) {
+                return None;
+            }
+            let storage_path = node
+                .data
+                .as_object()
+                .and_then(|obj| obj.get("storage_path"))
+                .and_then(|v| v.as_str())?
+                .to_string();
+            Some((index, node.id, storage_path))
+        })
+        .collect();
+
+    for (index, update) in resolve_storage_url_updates(state, requests).await {
+        if let Some(obj) = nodes[index].data.as_object_mut() {
+            apply_storage_url_update(obj, update);
+        }
+    }
 }
 
 #[derive(Deserialize)]

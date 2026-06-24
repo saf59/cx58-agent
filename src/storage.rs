@@ -14,6 +14,7 @@ use axum::{
 };
 use bytes::Bytes;
 use chrono::Datelike;
+use futures::{StreamExt, stream};
 use image::DynamicImage;
 use image::codecs::jpeg::JpegEncoder;
 use reqwest::header::HeaderName;
@@ -34,6 +35,7 @@ pub const MAX_UPLOAD_BODY_BYTES: usize = 25 * 1024 * 1024;
 const MAX_STORED_IMAGE_MB: u64 = 10;
 const MAX_STORED_IMAGE_SIDE: u32 = 1800;
 const JPEG_UPLOAD_QUALITY: u8 = 85;
+const STORAGE_URL_CONCURRENCY: usize = 8;
 
 struct PreparedUploadImage {
     data: Bytes,
@@ -1064,9 +1066,11 @@ pub async fn create_public_bucket(config: &S3Config, bucket_name: &str) -> Resul
 mod tests {
     use crate::init::S3Config;
     use crate::storage::create_public_bucket;
+    use crate::storage::{StorageUrlUpdate, apply_storage_url_update};
     use crate::storage::{apply_exif_orientation, tiff_orientation};
     use bytes::Bytes;
     use image::DynamicImage;
+    use serde_json::Map;
     use std::fs;
     use uuid::Uuid;
 
@@ -1087,6 +1091,27 @@ mod tests {
 
         assert_eq!(rotated.width(), 3);
         assert_eq!(rotated.height(), 2);
+    }
+
+    #[test]
+    fn test_apply_storage_url_update() {
+        let mut obj = Map::new();
+        apply_storage_url_update(
+            &mut obj,
+            StorageUrlUpdate {
+                url: Some("https://signed.example/image".to_string()),
+                thumbnail_url: Some("https://signed.example/thumb".to_string()),
+            },
+        );
+
+        assert_eq!(
+            obj.get("url").and_then(|v| v.as_str()),
+            Some("https://signed.example/image")
+        );
+        assert_eq!(
+            obj.get("thumbnail_url").and_then(|v| v.as_str()),
+            Some("https://signed.example/thumb")
+        );
     }
 
     #[tokio::test]
@@ -1690,46 +1715,81 @@ mod tests {
     }
 }
 
-pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>, node_id: &Uuid) {
-    // Copy storage_path to String to avoid borrowing conflicts
-    let storage_path = obj
-        .get("storage_path")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+#[derive(Debug, Default)]
+pub struct StorageUrlUpdate {
+    pub url: Option<String>,
+    pub thumbnail_url: Option<String>,
+}
 
-    if let Some(storage_path) = storage_path {
-        // Generate signed URL for original image
-        match state
-            .storage
-            .generate_presigned_url(&storage_path, 86400)
-            .await
-        {
-            Ok(url) => {
-                //info!("Ok utl: {:?}", &url);
-                obj.insert("url".to_string(), serde_json::json!(url));
-            }
-            Err(e) => {
-                tracing::error!("Failed to generate URL for {}: {}", storage_path, e);
-            }
+pub async fn resolve_storage_url_updates(
+    state: Arc<AppState>,
+    requests: Vec<(usize, Uuid, String)>,
+) -> Vec<(usize, StorageUrlUpdate)> {
+    stream::iter(requests.into_iter().map(|(index, node_id, storage_path)| {
+        let state = state.clone();
+        async move {
+            let update = resolve_storage_url_update(state, node_id, storage_path).await;
+            (index, update)
         }
+    }))
+    .buffer_unordered(STORAGE_URL_CONCURRENCY)
+    .collect()
+    .await
+}
 
-        // Get or create thumbnail (already with public URL)
-        match state
-            .storage
-            .get_or_create_thumbnail(node_id, &storage_path, 300, 300)
-            .await
-        {
-            Ok(thumbnail) => {
-                //info!("Ok thumbnail: {:?}", &thumbnail);
-                // thumbnail.url is already public - just insert it
-                obj.insert(
-                    "thumbnail_url".to_string(),
-                    serde_json::json!(thumbnail.public_url),
-                );
-            }
-            Err(e) => {
-                tracing::error!("Failed to create thumbnail for {}: {}", storage_path, e);
-            }
+pub fn apply_storage_url_update(obj: &mut Map<String, Value>, update: StorageUrlUpdate) {
+    if let Some(url) = update.url {
+        obj.insert("url".to_string(), serde_json::json!(url));
+    }
+    if let Some(thumbnail_url) = update.thumbnail_url {
+        obj.insert(
+            "thumbnail_url".to_string(),
+            serde_json::json!(thumbnail_url),
+        );
+    }
+}
+
+pub async fn set_storage_url(state: Arc<AppState>, obj: &mut Map<String, Value>, node_id: &Uuid) {
+    if let Some(storage_path) = storage_path_from_json(obj) {
+        let update = resolve_storage_url_update(state, *node_id, storage_path).await;
+        apply_storage_url_update(obj, update);
+    }
+}
+
+fn storage_path_from_json(obj: &Map<String, Value>) -> Option<String> {
+    obj.get("storage_path")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+async fn resolve_storage_url_update(
+    state: Arc<AppState>,
+    node_id: Uuid,
+    storage_path: String,
+) -> StorageUrlUpdate {
+    let mut update = StorageUrlUpdate::default();
+
+    match state
+        .storage
+        .generate_presigned_url(&storage_path, 86400)
+        .await
+    {
+        Ok(url) => update.url = Some(url),
+        Err(e) => {
+            tracing::error!("Failed to generate URL for {}: {}", storage_path, e);
         }
     }
+
+    match state
+        .storage
+        .get_or_create_thumbnail(&node_id, &storage_path, 300, 300)
+        .await
+    {
+        Ok(thumbnail) => update.thumbnail_url = Some(thumbnail.public_url),
+        Err(e) => {
+            tracing::error!("Failed to create thumbnail for {}: {}", storage_path, e);
+        }
+    }
+
+    update
 }
