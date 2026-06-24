@@ -27,6 +27,7 @@ use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -264,10 +265,10 @@ pub async fn chat_stream_handler(
 
                     yield Ok(sse_event);
 
-                    // Check if this is a terminal event
+                    // Keep reading after Error so the top-level Completed event
+                    // remains observable by clients.
                     match event {
                         StreamEvent::Completed { .. }
-                        | StreamEvent::Error { .. }
                         | StreamEvent::Cancelled { .. } => {
                             break;
                         }
@@ -352,11 +353,28 @@ pub async fn health_check(State(state): State<Arc<AppState>>) -> Json<HealthStat
             .await
             .is_ok();
     */
-    health.services.s3 = state.storage.exists("health-check").await.unwrap_or(true);
+    health.services.s3 = match state.storage.list_user_images("health-check").await {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::warn!("S3 health check failed: {}", e);
+            false
+        }
+    };
 
-    health.services.ollama = reqwest::get(format!("{}/api/tags", state.ai_config.url))
-        .await
-        .is_ok();
+    health.services.ollama = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()
+    {
+        Ok(client) => client
+            .get(format!("{}/api/tags", state.ai_config.url))
+            .send()
+            .await
+            .is_ok(),
+        Err(e) => {
+            tracing::warn!("Failed to build Ollama health client: {}", e);
+            false
+        }
+    };
 
     if !health.is_healthy() {
         health.status = "degraded".to_string();

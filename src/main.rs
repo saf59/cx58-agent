@@ -11,7 +11,9 @@ use cx58_agent::handlers::{
     chat_stream_cancel, chat_stream_handler, get_tree_handler, get_user_models_handler,
     health_check, reports_handler, update_report_datetime_handler, update_user_models_handler,
 };
-use cx58_agent::hmac::{RateLimiter, rate_limit_middleware, verify_signature};
+use cx58_agent::hmac::{
+    RateLimiter, rate_limit_middleware, verify_signature, verify_signature_when_present,
+};
 use cx58_agent::init::app_init;
 use cx58_agent::storage::{MAX_UPLOAD_BODY_BYTES, delete_image_handler, upload_image_handler};
 use tower_http::trace::TraceLayer;
@@ -37,9 +39,7 @@ fn create_app_router(state: Arc<AppState>) -> Router {
             verify_signature,
         ));
 
-    Router::new()
-        .merge(protected_routes)
-        // public routes
+    let compatibility_hmac_routes = Router::new()
         .route(
             "/agent/chat/cancel/{request_id}",
             delete(chat_stream_cancel),
@@ -52,6 +52,15 @@ fn create_app_router(state: Arc<AppState>) -> Router {
         )
         //.route("/agent/images", get(get_image_handler))
         .route("/agent/images/{node_id}", delete(delete_image_handler))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            verify_signature_when_present,
+        ));
+
+    Router::new()
+        .merge(protected_routes)
+        .merge(compatibility_hmac_routes)
+        // public route
         .route("/agent/health", get(health_check))
         .layer(middleware::from_fn_with_state(
             rate_limiter.clone(),

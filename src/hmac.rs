@@ -3,7 +3,7 @@ use axum::extract::State;
 use axum::{
     body::Body,
     extract::{ConnectInfo, Request},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::Response,
 };
@@ -18,6 +18,7 @@ use std::{
 use tokio::sync::RwLock;
 
 type HmacSha256 = Hmac<Sha256>;
+const MAX_HMAC_BODY_BYTES: usize = 30 * 1024 * 1024;
 
 // Rate limiter
 #[derive(Clone)]
@@ -73,16 +74,54 @@ pub async fn verify_signature(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let (parts, body) = req.into_parts();
+    let bytes = axum::body::to_bytes(body, MAX_HMAC_BODY_BYTES)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let timestamp = parts
-        .headers
+    verify_signature_bytes(&state.ai_config.agent_secret, &parts.headers, &bytes)?;
+
+    let req = Request::from_parts(parts, Body::from(bytes));
+    Ok(next.run(req).await)
+}
+
+pub async fn verify_signature_when_present(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let (parts, body) = req.into_parts();
+    let has_timestamp = parts.headers.contains_key("X-Timestamp");
+    let has_signature = parts.headers.contains_key("X-Signature");
+    let bytes = axum::body::to_bytes(body, MAX_HMAC_BODY_BYTES)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if has_timestamp || has_signature {
+        verify_signature_bytes(&state.ai_config.agent_secret, &parts.headers, &bytes)?;
+    } else {
+        tracing::warn!(
+            method = %parts.method,
+            path = %parts.uri.path(),
+            "Unsigned legacy agent request accepted temporarily; add HMAC in admin boundary pass"
+        );
+    }
+
+    let req = Request::from_parts(parts, Body::from(bytes));
+    Ok(next.run(req).await)
+}
+
+fn verify_signature_bytes(
+    agent_secret: &str,
+    headers: &HeaderMap,
+    bytes: &[u8],
+) -> Result<(), StatusCode> {
+    let timestamp = headers
         .get("X-Timestamp")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<i64>().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let provided_signature = parts
-        .headers
+    let provided_signature = headers
         .get("X-Signature")
         .and_then(|v| v.to_str().ok())
         .ok_or(StatusCode::UNAUTHORIZED)?;
@@ -94,17 +133,13 @@ pub async fn verify_signature(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let bytes = axum::body::to_bytes(body, usize::MAX)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
     let provided_signature_bytes = hex::decode(provided_signature).map_err(|e| {
         tracing::warn!("Invalid signature format: {}", e);
         StatusCode::UNAUTHORIZED
     })?;
 
     // Create HMAC
-    let mut mac = HmacSha256::new_from_slice(state.ai_config.agent_secret.as_bytes())
+    let mut mac = HmacSha256::new_from_slice(agent_secret.as_bytes())
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     mac.update(timestamp.to_string().as_bytes());
@@ -117,7 +152,68 @@ pub async fn verify_signature(
     })?;
 
     tracing::debug!("HMAC signature verified successfully");
+    Ok(())
+}
 
-    let req = Request::from_parts(parts, Body::from(bytes));
-    Ok(next.run(req).await)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn signed_headers(secret: &str, timestamp: i64, body: &[u8]) -> HeaderMap {
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(timestamp.to_string().as_bytes());
+        mac.update(body);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Timestamp",
+            HeaderValue::from_str(&timestamp.to_string()).unwrap(),
+        );
+        headers.insert(
+            "X-Signature",
+            HeaderValue::from_str(&hex::encode(mac.finalize().into_bytes())).unwrap(),
+        );
+        headers
+    }
+
+    #[test]
+    fn verify_signature_bytes_accepts_valid_signature() {
+        let secret = "demo-secret";
+        let body = br#"{"message":"hello"}"#;
+        let headers = signed_headers(secret, chrono::Utc::now().timestamp(), body);
+
+        assert_eq!(verify_signature_bytes(secret, &headers, body), Ok(()));
+    }
+
+    #[test]
+    fn verify_signature_bytes_rejects_tampered_body() {
+        let secret = "demo-secret";
+        let headers = signed_headers(secret, chrono::Utc::now().timestamp(), b"original");
+
+        assert_eq!(
+            verify_signature_bytes(secret, &headers, b"tampered"),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+    }
+
+    #[test]
+    fn verify_signature_bytes_rejects_stale_timestamp() {
+        let secret = "demo-secret";
+        let body = b"body";
+        let headers = signed_headers(secret, chrono::Utc::now().timestamp() - 120, body);
+
+        assert_eq!(
+            verify_signature_bytes(secret, &headers, body),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+    }
+
+    #[test]
+    fn verify_signature_bytes_rejects_missing_headers() {
+        assert_eq!(
+            verify_signature_bytes("demo-secret", &HeaderMap::new(), b""),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+    }
 }

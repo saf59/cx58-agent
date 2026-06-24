@@ -23,6 +23,7 @@ use s3::creds::Credentials;
 use s3::region::Region;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use sqlx::Row;
 use std::io::Cursor;
 use std::path::Path as StdPath;
 use std::str::FromStr;
@@ -673,7 +674,7 @@ pub async fn upload_image_handler(
         .await?;
 
     // Insert into database with parent_id
-    sqlx::query!(
+    let insert_result = sqlx::query!(
         r#"
         INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)
         VALUES (
@@ -698,7 +699,23 @@ pub async fn upload_image_handler(
         berlin_datetime
     )
     .execute(&state.db)
-    .await?;
+    .await;
+
+    if let Err(e) = insert_result {
+        if let Err(cleanup_error) = state
+            .storage
+            .delete_image(&storage_result.storage_path)
+            .await
+        {
+            tracing::error!(
+                node_id = %node_id,
+                storage_path = %storage_result.storage_path,
+                error = %cleanup_error,
+                "Failed to clean up S3 object after DB insert failure"
+            );
+        }
+        return Err(e.into());
+    }
 
     Ok(Json(ImageLeafResponse {
         node_id,
@@ -943,23 +960,33 @@ pub async fn delete_image_handler(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<Uuid>,
 ) -> Result<StatusCode> {
-    let node = sqlx::query!(
-        r#"SELECT data FROM tree_nodes WHERE id = $1 AND node_type = 'ImageLeaf'"#,
-        node_id,
+    let node = sqlx::query(
+        r#"
+        DELETE FROM tree_nodes
+        WHERE id = $1 AND node_type = 'ImageLeaf'::node_type_enum
+        RETURNING data
+        "#,
     )
+    .bind(node_id)
     .fetch_one(&state.db)
     .await?;
+
     let storage_path = node
-        .data
+        .try_get::<Value, _>("data")?
         .get("storage_path")
         .and_then(|v| v.as_str())
+        .map(str::to_owned)
         .ok_or_else(|| AppError::bad_request("No storage path"))?;
-    state.storage.delete_image(storage_path).await?;
 
-    sqlx::query!("DELETE FROM tree_nodes WHERE id = $1", node_id)
-        .execute(&state.db)
-        .await?;
-    tracing::debug!("Deleted DB record for node {}", node_id);
+    if let Err(e) = state.storage.delete_image(&storage_path).await {
+        tracing::error!(
+            node_id = %node_id,
+            storage_path = %storage_path,
+            error = %e,
+            "Deleted DB record but failed to delete S3 object"
+        );
+    }
+    tracing::debug!(node_id = %node_id, storage_path = %storage_path, "Deleted image DB record");
     Ok(StatusCode::NO_CONTENT)
 }
 

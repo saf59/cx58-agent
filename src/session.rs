@@ -53,9 +53,10 @@ pub fn append_history(existing: &JsonValue, user_msg: &str, assistant_msg: &str)
 }
 
 /// Load the session for the given user_id + chat_id.
-/// Returns None if no session exists or on DB error (non-fatal).
+/// Returns None if no session exists. DB errors are logged and treated as
+/// non-fatal so they never abort the stream.
 pub async fn load_session(db: &PgPool, user_id: &str, chat_id: &str) -> Option<ChatSession> {
-    sqlx::query_as!(
+    match sqlx::query_as!(
         ChatSession,
         r#"SELECT user_id, chat_id, object_id, prev_leaf, next_leaf,
                   history as "history: JsonValue"
@@ -66,14 +67,17 @@ pub async fn load_session(db: &PgPool, user_id: &str, chat_id: &str) -> Option<C
     )
     .fetch_optional(db)
     .await
-    .ok()
-    .flatten()
+    {
+        Ok(session) => session,
+        Err(e) => {
+            tracing::warn!(user_id, chat_id, "Failed to load chat_session: {}", e);
+            None
+        }
+    }
 }
 
-/// Persist resolved IDs and conversation history for the given user_id.
+/// Persist resolved IDs and conversation history for the given user/chat pair.
 ///
-/// One row per user — if chat_id changes, all previous IDs and history are
-/// discarded and replaced with values from the current request.
 /// Errors are logged as warnings and swallowed so they never abort the stream.
 pub async fn save_session(
     db: &PgPool,
@@ -83,7 +87,7 @@ pub async fn save_session(
     prev_leaf: Option<&str>,
     next_leaf: Option<&str>,
 ) {
-    save_session_with_history(db, user_id, chat_id, object_id, prev_leaf, next_leaf, None).await;
+    save_session_inner(db, user_id, chat_id, object_id, prev_leaf, next_leaf, None).await;
 }
 
 /// Like save_session but also updates the conversation history column.
@@ -96,32 +100,89 @@ pub async fn save_session_with_history(
     next_leaf: Option<&str>,
     history: Option<&JsonValue>,
 ) {
-    let history_value = history.cloned().unwrap_or_else(|| serde_json::json!([]));
-
-    let result = sqlx::query!(
-        r#"INSERT INTO chat_session (user_id, chat_id, object_id, prev_leaf, next_leaf, history, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-               chat_id    = $2,
-               object_id  = $3,
-               prev_leaf  = $4,
-               next_leaf  = $5,
-               history    = CASE
-                                WHEN chat_session.chat_id = $2 THEN $6
-                                ELSE '[]'::jsonb
-                            END,
-               updated_at = NOW()"#,
+    save_session_inner(
+        db,
         user_id,
         chat_id,
         object_id,
         prev_leaf,
         next_leaf,
-        history_value,
+        history.cloned(),
     )
+    .await;
+}
+
+async fn save_session_inner(
+    db: &PgPool,
+    user_id: &str,
+    chat_id: &str,
+    object_id: Option<&str>,
+    prev_leaf: Option<&str>,
+    next_leaf: Option<&str>,
+    history: Option<JsonValue>,
+) {
+    let result = sqlx::query(
+        r#"INSERT INTO chat_session (user_id, chat_id, object_id, prev_leaf, next_leaf, history, updated_at)
+           VALUES ($1, $2, $3, $4, $5, COALESCE($6, '[]'::jsonb), NOW())
+           ON CONFLICT (user_id, chat_id) DO UPDATE SET
+               object_id  = EXCLUDED.object_id,
+               prev_leaf  = EXCLUDED.prev_leaf,
+               next_leaf  = EXCLUDED.next_leaf,
+               history    = COALESCE($6, chat_session.history),
+               updated_at = NOW()"#,
+    )
+    .bind(user_id)
+    .bind(chat_id)
+    .bind(object_id)
+    .bind(prev_leaf)
+    .bind(next_leaf)
+    .bind(history)
     .execute(db)
     .await;
 
     if let Err(e) = result {
         tracing::warn!(user_id, chat_id, "Failed to save chat_session: {}", e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn append_history_keeps_last_entries() {
+        let mut existing = Vec::new();
+        for i in 0..30 {
+            existing.push(serde_json::json!({"role": "user", "text": format!("old-{i}")}));
+        }
+
+        let updated = append_history(&JsonValue::Array(existing), "new-user", "new-assistant");
+        let entries = updated.as_array().unwrap();
+
+        assert_eq!(entries.len(), MAX_HISTORY_ENTRIES * 2);
+        assert_eq!(entries.last().unwrap()["text"], "new-assistant");
+        assert_eq!(entries[entries.len() - 2]["text"], "new-user");
+    }
+
+    #[test]
+    fn history_strings_ignores_malformed_entries() {
+        let session = ChatSession {
+            user_id: "user".to_string(),
+            chat_id: "chat".to_string(),
+            object_id: None,
+            prev_leaf: None,
+            next_leaf: None,
+            history: serde_json::json!([
+                {"role": "user", "text": "hello"},
+                {"role": "assistant"},
+                {"text": "missing role"},
+                {"role": "assistant", "text": "hi"}
+            ]),
+        };
+
+        assert_eq!(
+            session.history_strings(),
+            vec!["user: hello".to_string(), "assistant: hi".to_string()]
+        );
     }
 }
