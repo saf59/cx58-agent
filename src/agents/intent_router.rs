@@ -271,7 +271,10 @@ fn normalize_classification_result(
         }
     }
 
-    if is_endpoint_comparison_request(message) {
+    if is_selected_pair_comparison_request(message, context) {
+        result.intent = Intent::CompareReports;
+        result.extracted_parameters.task_params = None;
+    } else if is_endpoint_comparison_request(message) {
         result.intent = Intent::CompareReports;
         let params = ensure_task_params(&mut result.extracted_parameters);
         params.last = false;
@@ -392,6 +395,23 @@ fn is_endpoint_comparison_request(message: &str) -> bool {
         || (lower.contains("ältesten") && lower.contains("neuesten"));
 
     has_report && asks_for_change && has_endpoint_pair
+}
+
+fn is_selected_pair_comparison_request(message: &str, context: &UserContext) -> bool {
+    let lower = message.to_lowercase();
+    let asks_for_comparison = lower.contains("change")
+        || lower.contains("changes")
+        || lower.contains("compare")
+        || lower.contains("comparison")
+        || lower.contains("difference")
+        || lower.contains("diff")
+        || lower.contains("änderung")
+        || lower.contains("änderungen")
+        || lower.contains("unterschied");
+
+    asks_for_comparison
+        && context.current_report_id.is_some()
+        && context.previous_report_id.is_some()
 }
 
 fn is_explicit_report_description_request(message: &str) -> bool {
@@ -528,6 +548,17 @@ mod tests {
         }
     }
 
+    fn context_with_selected_pair() -> UserContext {
+        UserContext {
+            user_id: "user".to_string(),
+            chat_id: "chat".to_string(),
+            language: Language::English,
+            object_id: Some("object-id".to_string()),
+            current_report_id: Some("newer-report-id".to_string()),
+            previous_report_id: Some("older-report-id".to_string()),
+        }
+    }
+
     fn empty_classification(intent: Intent) -> ClassificationResult {
         ClassificationResult {
             intent,
@@ -583,6 +614,16 @@ mod tests {
             Some("EG - Bad")
         );
         assert!(result.extracted_parameters.task_params.unwrap().all);
+    }
+
+    #[test]
+    fn normalizes_short_changes_with_selected_pair_to_compare_reports() {
+        let mut result = empty_classification(Intent::Ambiguous);
+        normalize_classification_result(&mut result, &context_with_selected_pair(), "Show changes");
+
+        assert!(matches!(result.intent, Intent::CompareReports));
+        assert!(result.extracted_parameters.task_params.is_none());
+        assert!(result.missing_context.is_empty());
     }
 
     #[test]
