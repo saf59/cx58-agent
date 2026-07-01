@@ -12,8 +12,8 @@ three-qwestions = Ich brauche deine Hilfe bei drei Arten von Aufgaben!
   3. Nachdenken.
 
 object-words = bauen konstruieren objekt erstellen machen
-document-words = bild bildaufnahme video bericht dokument datei
-description-words = beschreiben modifikation veränderung
+document-words = Bild Bildaufnahme Video Bericht Dokument Datei
+description-words = Modifikation Veränderung beschreiben
 comparison-words = vergleichen unterscheiden erkennen aktualisieren ändern
 last-words = letzte vorherige jüngste
 new-words = neu neueste
@@ -52,18 +52,18 @@ error-missing-field = Fehlendes Feld {$field}
 error-unknown-worker = Unbekannter Worker-Typ
 error-unknown-context-field = Unbekanntes Kontextfeld
 error-unknown-decision-type = Unbekannter Entscheidungstyp: {$decision_type}
-error-empty-report-id = report_id darf nicht leer sein
+error-empty-report-id = Report-ID darf nicht leer sein.
 
 # Orchestrator Messages
-orchestrator-cannot-process = Cannot process this request
+orchestrator-cannot-process = Diese Anfrage kann nicht verarbeitet werden.
 
 # Response Formatter Messages
-error-comparison-parse = Failed to parse comparison: {$error}
+error-comparison-parse = Vergleich konnte nicht geparst werden: {$error}
 
 # General Messages
-analyzing-query = Analysiere Anfrage
-fetching-data = Lade Daten
-processing-results = Verarbeite Ergebnisse
+analyzing-query = Analysiere Anfrage.
+fetching-data = Lade Daten.
+processing-results = Verarbeite Ergebnisse.
 
 context-not-set = nicht_gesetzt
 progress-executing-worker = Führe { $worker } aus...
@@ -115,7 +115,7 @@ error-llm-json-parse =
     Details: { $detail }
 
 error-template-render =
-    Die Vorlage „{ $template }" konnte nicht gerendert werden.
+    Die Vorlage „{ $template }" konnte nicht dargestellt werden.
     Bitte wenden Sie sich an den Support, wenn dieses Problem weiterhin auftritt.
 
 error-localization-key-missing =
