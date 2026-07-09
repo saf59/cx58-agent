@@ -3,6 +3,7 @@ use crate::db::NodeType;
 use crate::error::*;
 use crate::init::S3Config;
 use crate::models::*;
+use crate::report_datetime::parse_berlin_datetime_as_utc_naive;
 use axum::body::Body;
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderValue};
@@ -13,7 +14,6 @@ use axum::{
     http::StatusCode,
 };
 use bytes::Bytes;
-use chrono::Datelike;
 use futures::{StreamExt, stream};
 use image::DynamicImage;
 use image::codecs::jpeg::JpegEncoder;
@@ -650,11 +650,8 @@ pub async fn upload_image_handler(
     if berlin_datetime.is_empty() {
         return Err(AppError::bad_request("Missing berlin_datetime"));
     }
-    let datetime = chrono::NaiveDateTime::parse_from_str(&berlin_datetime, "%d.%m.%Y %H:%M:%S")
-        .map_err(|_e| AppError::bad_request("Invalid berlin_datetime format"))?;
-    if datetime.year() < 2000 || datetime.year() > 2100 {
-        return Err(AppError::bad_request("Invalid berlin_datetime year"));
-    }
+    let updated_at_utc = parse_berlin_datetime_as_utc_naive(&berlin_datetime)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
 
     let prepared_image = tokio::task::spawn_blocking(move || normalize_upload_image(image_data))
         .await
@@ -676,7 +673,7 @@ pub async fn upload_image_handler(
         .await?;
 
     // Insert into database with parent_id
-    let insert_result = sqlx::query!(
+    let insert_result = sqlx::query(
         r#"
         INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)
         VALUES (
@@ -684,22 +681,22 @@ pub async fn upload_image_handler(
             $2,
             $3,
             $4,
-            timezone('UTC', to_timestamp($5, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+            $5
         )
         "#,
-        node_id,
-        parent_id,
-        NodeType::ImageLeaf as NodeType,
-        serde_json::json!({
-            "url": storage_result.public_url,
-            "src": filename,
-            "storage_path": storage_result.storage_path,
-            "size": storage_result.size,
-            "mime_type": storage_result.mime_type,
-            "hash": storage_result.hash,
-        }),
-        berlin_datetime
     )
+    .bind(node_id)
+    .bind(parent_id)
+    .bind(NodeType::ImageLeaf)
+    .bind(serde_json::json!({
+        "url": storage_result.public_url,
+        "src": filename,
+        "storage_path": storage_result.storage_path,
+        "size": storage_result.size,
+        "mime_type": storage_result.mime_type,
+        "hash": storage_result.hash,
+    }))
+    .bind(updated_at_utc)
     .execute(&state.db)
     .await;
 

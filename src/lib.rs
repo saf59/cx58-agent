@@ -11,6 +11,7 @@ pub mod localization;
 pub mod model_settings;
 pub mod models;
 pub mod prompt_context;
+pub mod report_datetime;
 pub mod session;
 pub mod storage;
 pub mod templating;

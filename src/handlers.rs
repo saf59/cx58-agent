@@ -13,6 +13,7 @@ use crate::model_settings::{
     UserModelSettings, UserModelsResponse, inspect_ollama_model, list_ollama_models,
     load_user_model_settings, required_capability_label, save_user_model_settings, supports_role,
 };
+use crate::report_datetime::parse_berlin_datetime_as_utc_naive;
 pub use crate::storage::StorageService;
 use crate::storage::{apply_storage_url_update, resolve_storage_url_updates};
 use axum::http::StatusCode;
@@ -22,7 +23,6 @@ use axum::{
     Json,
     extract::{Path, State},
 };
-use chrono::Datelike;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -129,22 +129,18 @@ pub async fn update_report_datetime_handler(
 ) -> Result<StatusCode> {
     let node_id =
         Uuid::parse_str(&node_id).map_err(|_e| AppError::bad_request("Invalid node_id format"))?;
-    let datetime =
-        chrono::NaiveDateTime::parse_from_str(&request.berlin_datetime, "%d.%m.%Y %H:%M:%S")
-            .map_err(|_e| AppError::bad_request("Invalid berlin_datetime format"))?;
-    if datetime.year() < 2000 || datetime.year() > 2100 {
-        return Err(AppError::bad_request("Invalid berlin_datetime year"));
-    }
+    let updated_at_utc = parse_berlin_datetime_as_utc_naive(&request.berlin_datetime)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
 
     let result = sqlx::query(
         r#"
         UPDATE tree_nodes
-        SET updated_at = timezone('UTC', to_timestamp($2, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+        SET updated_at = $2
         WHERE id = $1 AND node_type = 'ImageLeaf'::node_type_enum
         "#,
     )
     .bind(node_id)
-    .bind(request.berlin_datetime)
+    .bind(updated_at_utc)
     .execute(&state.db)
     .await?;
 

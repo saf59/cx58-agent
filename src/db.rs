@@ -229,7 +229,7 @@ pub async fn update_leaf_datetime(
     let result: (Uuid,) = sqlx::query_as(
         r#"
         UPDATE tree_nodes
-        SET updated_at = timezone('UTC', to_timestamp($2, 'DD.MM.YYYY HH24:MI:SS') AT TIME ZONE 'Europe/Berlin')
+        SET updated_at = (to_timestamp($2, 'DD.MM.YYYY HH24:MI:SS')::timestamp AT TIME ZONE 'Europe/Berlin') AT TIME ZONE 'UTC'
         WHERE data->>'src' = $1
         RETURNING id
         "#,
