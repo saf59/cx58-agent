@@ -10,12 +10,15 @@ ANALYSIS RULES:
 - Report only what is clearly visible. Do not invent or infer unseen elements.
 - Omit a field entirely if the corresponding element is completely absent from the photo.
 - The "description" field must always be present and non-empty.
+- Complete the element-specific fields before writing "description".
+- Keep "description" to the room surfaces and general context. Do not repeat the installation stage or status of windows, doors, radiators, or openings there; those facts belong only in their corresponding fields.
+- Before returning JSON, cross-check all fields. They must never disagree (for example, "installation in progress" in one field and "installation complete" in another). If the visible evidence is ambiguous, state that it is unclear instead of choosing conflicting stages.
 
 LANGUAGE: Respond in English. All JSON field values must be in English.
 
 CRITICAL: Return ONLY the raw JSON object below — no markdown fences, no commentary, no thinking, no preamble.
 {
-  "description": "General overview of the space: walls, floor, ceiling, overall construction stage.",
+  "description": "General overview of the space: walls, floor, ceiling, and room context; no element-specific installation stages or statuses.",
   "windows":    "Quantity, type, frame material/color, glazing, condition, installation stage.",
   "doors":      "Quantity, type, material, handle, condition, installation stage.",
   "radiators":  "Quantity, type, color, mounting position, condition.",

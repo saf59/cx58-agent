@@ -176,6 +176,7 @@ mod tests {
         let result = extract_description_content(response);
         assert!(result.is_ok());
         let content = result.unwrap();
+        assert_eq!(content.prompt_version, None);
         assert_eq!(content.description, "A modern room");
         assert_eq!(content.windows, Some("Two large windows".to_string()));
     }
@@ -210,6 +211,24 @@ Hope this helps!"#;
 
         let result = extract_description_content_robust(response);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn prompt_version_marks_current_cache_without_affecting_legacy_json() {
+        let response = r#"{
+            "description": "A modern room",
+            "doors": "Installation complete"
+        }"#;
+
+        let mut content = extract_description_content_robust(response).unwrap();
+        assert!(!content.uses_current_prompt());
+
+        content.mark_current_prompt();
+        assert!(content.uses_current_prompt());
+        assert_eq!(
+            serde_json::to_value(content).unwrap()["_prompt_version"],
+            crate::agents::description::description_json::DESCRIPTION_PROMPT_VERSION
+        );
     }
     fn extract_description_content(
         llm_response: &str,

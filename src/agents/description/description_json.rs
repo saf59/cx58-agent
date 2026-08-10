@@ -3,9 +3,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
+pub const DESCRIPTION_PROMPT_VERSION: &str = "2";
+
 /// Parsed structure of the description JSON content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DescriptionContent {
+    #[serde(
+        rename = "_prompt_version",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_version: Option<String>,
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub windows: Option<String>,
@@ -15,6 +23,16 @@ pub struct DescriptionContent {
     pub radiators: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openings: Option<String>,
+}
+
+impl DescriptionContent {
+    pub fn uses_current_prompt(&self) -> bool {
+        self.prompt_version.as_deref() == Some(DESCRIPTION_PROMPT_VERSION)
+    }
+
+    pub fn mark_current_prompt(&mut self) {
+        self.prompt_version = Some(DESCRIPTION_PROMPT_VERSION.to_string());
+    }
 }
 
 /// Complete description data ready to send via SSE

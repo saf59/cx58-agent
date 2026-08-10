@@ -89,8 +89,8 @@ use crate::localization::LocalizationManager;
 use crate::model_settings::effective_ai_config;
 use crate::templating::TemplateManager;
 use crate::{
-    AgentContext, AgentRequest, AiConfig, AppState, RequestManager, StreamEvent, append_history,
-    load_session, save_session, save_session_with_history,
+    AgentContext, AgentRequest, AiConfig, AppState, ChatSession, RequestManager, StreamEvent,
+    append_history, load_session, save_session, save_session_with_history,
 };
 
 /// # MasterAgent
@@ -119,6 +119,20 @@ use crate::{
 /// ```
 
 const MAX_ORCHESTRATION_STEPS: u32 = 8;
+
+fn apply_cached_request_context(request: &mut AgentRequest, session: &ChatSession) {
+    let has_explicit_report_context = request.prev_leaf.is_some() || request.next_leaf.is_some();
+
+    if request.object_id.is_none() {
+        request.object_id = session.object_id.clone();
+
+        if !has_explicit_report_context {
+            request.prev_leaf = session.prev_leaf.clone();
+            request.next_leaf = session.next_leaf.clone();
+        }
+    }
+}
+
 pub struct MasterAgent {
     client: Arc<ollama::Client>,
     config: AiConfig,
@@ -206,15 +220,7 @@ impl MasterAgent {
             {
                 // Extract history before partial moves of Option<String> fields.
                 conversation_history = session.history_strings();
-                if request.object_id.is_none() {
-                    request.object_id = session.object_id;
-                    if request.prev_leaf.is_none() {
-                        request.prev_leaf = session.prev_leaf;
-                    }
-                    if request.next_leaf.is_none() {
-                        request.next_leaf = session.next_leaf;
-                    }
-                }
+                apply_cached_request_context(&mut request, &session);
             }
 
             let cancellation_token = agent.request_manager.register(request_id.clone()).await;
@@ -1230,5 +1236,81 @@ impl Clone for MasterAgent {
             lang_manager: self.lang_manager.clone(),
             template_manager: self.template_manager.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod cached_request_context_tests {
+    use super::*;
+
+    fn request(
+        object_id: Option<&str>,
+        prev_leaf: Option<&str>,
+        next_leaf: Option<&str>,
+    ) -> AgentRequest {
+        AgentRequest {
+            message: "show description".to_string(),
+            user_id: "user@example.test".to_string(),
+            chat_id: "chat".to_string(),
+            language: "en".to_string(),
+            object_id: object_id.map(str::to_string),
+            prev_leaf: prev_leaf.map(str::to_string),
+            next_leaf: next_leaf.map(str::to_string),
+            metadata: None,
+        }
+    }
+
+    fn session() -> ChatSession {
+        ChatSession {
+            user_id: "user@example.test".to_string(),
+            chat_id: "chat".to_string(),
+            object_id: Some("cached-object".to_string()),
+            prev_leaf: Some("cached-current".to_string()),
+            next_leaf: Some("cached-previous".to_string()),
+            history: serde_json::json!([]),
+        }
+    }
+
+    #[test]
+    fn one_explicit_report_id_is_not_completed_from_cache() {
+        let mut request = request(None, Some("selected-report"), None);
+
+        apply_cached_request_context(&mut request, &session());
+
+        assert_eq!(request.object_id.as_deref(), Some("cached-object"));
+        assert_eq!(request.prev_leaf.as_deref(), Some("selected-report"));
+        assert_eq!(request.next_leaf, None);
+    }
+
+    #[test]
+    fn two_explicit_report_ids_are_preserved() {
+        let mut request = request(None, Some("selected-current"), Some("selected-previous"));
+
+        apply_cached_request_context(&mut request, &session());
+
+        assert_eq!(request.prev_leaf.as_deref(), Some("selected-current"));
+        assert_eq!(request.next_leaf.as_deref(), Some("selected-previous"));
+    }
+
+    #[test]
+    fn empty_report_context_can_inherit_cached_pair() {
+        let mut request = request(None, None, None);
+
+        apply_cached_request_context(&mut request, &session());
+
+        assert_eq!(request.object_id.as_deref(), Some("cached-object"));
+        assert_eq!(request.prev_leaf.as_deref(), Some("cached-current"));
+        assert_eq!(request.next_leaf.as_deref(), Some("cached-previous"));
+    }
+
+    #[test]
+    fn explicit_object_context_does_not_inherit_cached_reports() {
+        let mut request = request(Some("selected-object"), None, None);
+
+        apply_cached_request_context(&mut request, &session());
+
+        assert_eq!(request.object_id.as_deref(), Some("selected-object"));
+        assert_eq!(request.prev_leaf, None);
+        assert_eq!(request.next_leaf, None);
     }
 }

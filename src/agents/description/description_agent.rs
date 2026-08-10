@@ -159,8 +159,12 @@ impl DescriptionAgent {
         let report_type = object_name.split('/').last().unwrap_or(report_type);
 
         // Check if we have a matching description
-        let existing_desc = descriptions.first();
-        //.iter().find(|d| d.model_name == model_name);
+        let existing_desc = descriptions.iter().find(|description| {
+            serde_json::from_str::<
+                crate::agents::description::description_json::DescriptionContent,
+            >(&description.description)
+            .is_ok_and(|content| content.uses_current_prompt())
+        });
 
         if let Some(image_desc) = existing_desc {
             tracing::info!(
@@ -344,7 +348,7 @@ impl DescriptionAgent {
         };
 
         // Parse the description content
-        let content = match extract_description_content_robust(&description_text) {
+        let mut content = match extract_description_content_robust(&description_text) {
             Ok(c) => c,
             Err(e) => {
                 tracing::error!(
@@ -371,6 +375,7 @@ impl DescriptionAgent {
                 )));
             }
         };
+        content.mark_current_prompt();
 
         // Convert back to JSON string for storage
         let description_json =

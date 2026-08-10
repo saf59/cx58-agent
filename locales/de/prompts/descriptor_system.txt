@@ -10,12 +10,15 @@ ANALYSEREGELN:
 - Nur klar Sichtbares erfassen. Nichts erfinden oder ableiten.
 - Ein Feld weglassen, wenn das entsprechende Element im Foto vollständig fehlt.
 - Das Feld "description" muss immer vorhanden und nicht leer sein.
+- Zuerst die elementspezifischen Felder ausfüllen, danach "description" verfassen.
+- "description" auf Raumoberflächen und den allgemeinen Kontext beschränken. Die Einbauphase oder den Zustand von Fenstern, Türen, Heizkörpern oder Öffnungen dort nicht wiederholen; diese Angaben gehören ausschließlich in die jeweiligen Felder.
+- Vor der JSON-Ausgabe alle Felder gegeneinander prüfen. Sie dürfen sich niemals widersprechen (zum Beispiel „Einbau läuft“ in einem Feld und „Einbau abgeschlossen“ in einem anderen). Bei uneindeutiger sichtbarer Evidenz als unklar kennzeichnen, statt widersprüchliche Phasen anzugeben.
 
 SPRACHE: Auf Deutsch antworten. Alle JSON-Feldwerte müssen auf Deutsch sein.
 
 KRITISCH: Nur das rohe JSON-Objekt zurückgeben — keine Markdown-Fences, keine Kommentare, kein Denken, keine Präambel.
 {
-  "description": "Allgemeiner Überblick über den Raum: Wände, Boden, Decke, allgemeiner Baufortschritt.",
+  "description": "Allgemeiner Überblick über den Raum: Wände, Boden, Decke und Raumkontext; keine elementspezifischen Einbauphasen oder Zustände.",
   "windows":    "Anzahl, Typ, Rahmenmaterial/-farbe, Verglasung, Zustand, Einbauphase.",
   "doors":      "Anzahl, Typ, Material, Griff, Zustand, Einbauphase.",
   "radiators":  "Anzahl, Typ, Farbe, Montageposition, Zustand.",
