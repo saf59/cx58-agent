@@ -87,3 +87,17 @@ impl RequestManager {
         requests.remove(request_id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn completed_request_cannot_be_cancelled_after_unregister() {
+        let manager = RequestManager::new();
+        manager.register("request-1".to_string()).await;
+
+        manager.unregister("request-1").await;
+        assert!(!manager.cancel("request-1").await);
+    }
+}

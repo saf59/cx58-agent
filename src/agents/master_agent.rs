@@ -75,6 +75,13 @@ use tokio::sync::mpsc::Sender;
 use unicode_segmentation::UnicodeSegmentation;
 use uuid::Uuid;
 
+fn cancelled_stream_event(error: &AgentError, request_id: &str) -> Option<StreamEvent> {
+    matches!(error, AgentError::Cancelled).then(|| StreamEvent::Cancelled {
+        request_id: request_id.to_string(),
+        reason: "by_user".to_string(),
+    })
+}
+
 use super::{
     ChatAgent, ComparisonAgent, DescriptionAgent, DocumentAgent, ObjectAgent,
     intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter,
@@ -259,22 +266,28 @@ impl MasterAgent {
                     })
                 });
 
-                let error_msg = agent_error.localized_message(lang_code, &lang_manager);
+                if let Some(event) = cancelled_stream_event(&agent_error, &context.request_id) {
+                    let _ = tx.send(event).await;
+                } else {
+                    let error_msg = agent_error.localized_message(lang_code, &lang_manager);
 
-                let _ = tx
-                    .send(StreamEvent::Error {
-                        request_id: context.request_id.clone(),
-                        error: error_msg,
-                    })
-                    .await;
-                let _ = tx
-                    .send(StreamEvent::Completed {
-                        request_id: context.request_id.clone(),
-                        total_time_ms: start_time.elapsed().as_millis() as u64,
-                        stats: AgentStats::default(),
-                    })
-                    .await;
+                    let _ = tx
+                        .send(StreamEvent::Error {
+                            request_id: context.request_id.clone(),
+                            error: error_msg,
+                        })
+                        .await;
+                    let _ = tx
+                        .send(StreamEvent::Completed {
+                            request_id: context.request_id.clone(),
+                            total_time_ms: start_time.elapsed().as_millis() as u64,
+                            stats: AgentStats::default(),
+                        })
+                        .await;
+                }
             }
+
+            agent.request_manager.unregister(&request_id).await;
         });
 
         rx
@@ -1312,5 +1325,17 @@ mod cached_request_context_tests {
         assert_eq!(request.object_id.as_deref(), Some("selected-object"));
         assert_eq!(request.prev_leaf, None);
         assert_eq!(request.next_leaf, None);
+    }
+
+    #[test]
+    fn cancellation_uses_cancelled_terminal_event() {
+        let event = cancelled_stream_event(&AgentError::Cancelled, "request-1");
+
+        assert!(matches!(
+            event,
+            Some(StreamEvent::Cancelled { request_id, reason })
+                if request_id == "request-1" && reason == "by_user"
+        ));
+        assert!(cancelled_stream_event(&AgentError::internal("failure"), "request-1").is_none());
     }
 }
