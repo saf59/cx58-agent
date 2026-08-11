@@ -91,11 +91,7 @@ pub async fn get_documents(
     pool: &PgPool,
     node_id: Uuid,
 ) -> Result<Vec<NodeWithLeaf>, AgentError> {
-    let limit = if parameters.all || parameters.exact_datetime.is_some() {
-        MAX_DOCUMENTS_ALL
-    } else {
-        2
-    };
+    let limit = document_limit(parameters);
     let amount = if parameters.all {
         MAX_DOCUMENTS_ALL as usize
     } else {
@@ -123,6 +119,20 @@ pub async fn get_documents(
         Ok(filter_exact_datetime(data, exact_datetime))
     } else {
         Ok(data)
+    }
+}
+
+fn document_limit(parameters: &TaskParameters) -> i32 {
+    if parameters.all || parameters.exact_datetime.is_some() {
+        MAX_DOCUMENTS_ALL
+    } else if parameters.last {
+        parameters
+            .amount
+            .unwrap_or(1)
+            .clamp(1, MAX_DOCUMENTS_ALL as usize) as i32
+    } else {
+        // Period queries are used to resolve comparison endpoints.
+        2
     }
 }
 
@@ -177,6 +187,26 @@ mod tests {
     use super::*;
     use chrono::Duration;
     use serde_json::json;
+
+    fn task_parameters(last: bool, all: bool, amount: Option<usize>) -> TaskParameters {
+        TaskParameters {
+            last,
+            all,
+            period: None,
+            amount,
+            exact_datetime: None,
+        }
+    }
+
+    #[test]
+    fn last_report_defaults_to_one_document() {
+        assert_eq!(document_limit(&task_parameters(true, false, None)), 1);
+    }
+
+    #[test]
+    fn explicit_last_report_amount_is_preserved() {
+        assert_eq!(document_limit(&task_parameters(true, false, Some(2))), 2);
+    }
 
     fn node(
         node_type: NodeType,

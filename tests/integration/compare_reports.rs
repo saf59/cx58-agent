@@ -11,6 +11,11 @@ fn assert_comparison(events: &[SseEvent]) {
         "comparison must contain 'object_name', got: {}",
         data
     );
+    assert!(
+        parsed.get("prev_id").is_some() && parsed.get("next_id").is_some(),
+        "comparison must contain report IDs, got: {}",
+        data
+    );
 }
 
 mod en {

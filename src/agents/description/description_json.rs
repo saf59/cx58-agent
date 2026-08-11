@@ -42,6 +42,10 @@ pub struct DescriptionData {
     pub object_id: Uuid,
     pub date: String,
     pub date_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_url: Option<String>,
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub windows: Option<String>,
@@ -71,6 +75,8 @@ pub fn build_description_data(
         object_id: *object_id,
         date: date.to_string(),
         date_id: image_desc.node_id, // node_id is date_id
+        thumbnail_url: None,
+        full_url: None,
         description: content.description,
         windows: content.windows,
         doors: content.doors,

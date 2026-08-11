@@ -175,7 +175,13 @@ impl DescriptionAgent {
 
             // Convert to JSON format
             let desc_json = self
-                .build_description_json_response(image_desc, &object_name, &node_id, lang_code)
+                .build_description_json_response(
+                    state,
+                    image_desc,
+                    &object_name,
+                    &node_id,
+                    lang_code,
+                )
                 .await
                 .map_err(|e| AgentError::internal(e))?;
             return Ok(Some((desc_json, Some(0))));
@@ -408,7 +414,7 @@ impl DescriptionAgent {
 
         // Build and return the JSON response
         let desc_json = self
-            .build_description_json_response(&saved_data, &object_name, &node_id, lang_code)
+            .build_description_json_response(state, &saved_data, &object_name, &node_id, lang_code)
             .await
             .map_err(|e| AgentError::internal(e))?;
         Ok(Some((desc_json, tokens)))
@@ -417,6 +423,7 @@ impl DescriptionAgent {
     /// Build JSON response from ImageDescription
     async fn build_description_json_response(
         &self,
+        state: &Arc<AppState>,
         image_desc: &ImageDescription,
         object_name: &str,
         node_id: &Uuid,
@@ -433,11 +440,28 @@ impl DescriptionAgent {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
 
+        let mut node_data =
+            crate::agents::description::description_helper::resolve_node_data(&state.db, node_id)
+                .await?;
+        if let Some(object) = node_data.as_object_mut() {
+            crate::storage::set_storage_url(state.clone(), object, node_id).await;
+        }
+        let thumbnail_url = node_data
+            .get("thumbnail_url")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let full_url = node_data
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
         let desc_data = DescriptionData {
             object: object_str,
             object_id: *node_id,
             date: date_str,
             date_id: image_desc.node_id.clone(),
+            thumbnail_url,
+            full_url,
             description: content.description,
             windows: content.windows,
             doors: content.doors,

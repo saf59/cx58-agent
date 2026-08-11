@@ -6,7 +6,7 @@
 // Input:  two Value objects with fields:
 //           object, date, description, windows, doors, radiators, openings
 // Output: a Value representing ComparisonData:
-//           object_name, prev_date, next_date, description,
+//           object_name, prev_id, prev_date, next_id, next_date, description,
 //           windows, doors, radiators, openings
 //
 // Prompt strategy:
@@ -51,6 +51,14 @@ pub struct ComparisonData {
     pub radiators: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openings: Option<String>,
+}
+
+fn with_report_ids(mut value: Value, prev_id: &str, next_id: &str) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert("prev_id".to_string(), json!(prev_id));
+        object.insert("next_id".to_string(), json!(next_id));
+    }
+    value
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +173,7 @@ impl ComparisonAgent {
             .await?
         {
             tracing::info!(prev_id, next_id, "Comparison cache HIT");
-            return Ok((cached, None));
+            return Ok((with_report_ids(cached, prev_id, next_id), None));
         }
 
         // Load system prompt.
@@ -238,7 +246,7 @@ impl ComparisonAgent {
         // Override dates with the values we computed (LLM may have got them wrong).
         parsed.prev_date = prev_date.to_string();
         parsed.next_date = next_date.to_string();
-        let result_json = json!(parsed);
+        let result_json = with_report_ids(json!(parsed), prev_id, next_id);
         // --- Cache store ---
         self.save_comparison(
             &state.db,
@@ -325,5 +333,23 @@ impl ComparisonAgent {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod report_id_tests {
+    use super::with_report_ids;
+    use serde_json::json;
+
+    #[test]
+    fn report_ids_are_added_to_cached_or_fresh_comparison_json() {
+        let value = with_report_ids(
+            json!({"object_name": "Building - Room"}),
+            "older-report-id",
+            "newer-report-id",
+        );
+
+        assert_eq!(value["prev_id"], "older-report-id");
+        assert_eq!(value["next_id"], "newer-report-id");
     }
 }
