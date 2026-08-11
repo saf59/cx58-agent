@@ -457,11 +457,22 @@ impl MasterAgent {
             current_context.object_id = None;
             current_context.current_report_id = None;
             current_context.previous_report_id = None;
-        } else if classification.extracted_parameters.task_params.is_some() {
-            // No explicit object name, but time/count params given — report IDs
-            // will be resolved by DocumentsIdFinder for the current object.
-            current_context.current_report_id = None;
-            current_context.previous_report_id = None;
+        } else {
+            // Quick description requests are relative to the selected report pair.
+            // Keep exactly one report so a preceding comparison cannot leak both
+            // endpoints into a single-description response.
+            let selected_from_context = Self::select_single_description_report(
+                &classification.intent,
+                &context.message,
+                &mut current_context,
+            );
+
+            if classification.extracted_parameters.task_params.is_some() && !selected_from_context {
+                // No explicit object name, but time/count params given — report IDs
+                // will be resolved by DocumentsIdFinder for the current object.
+                current_context.current_report_id = None;
+                current_context.previous_report_id = None;
+            }
         }
 
         let mut step_count = 0u32;
@@ -1201,6 +1212,70 @@ impl MasterAgent {
         None
     }
 
+    /// Resolves quick-action description wording against the report pair already
+    /// present in the chat context and reduces it to exactly one report.
+    ///
+    /// Returns `true` when the request was resolved from context. The caller then
+    /// skips task-parameter based ID resolution, because words such as "last" and
+    /// "previous" may otherwise be interpreted as a fresh database query.
+    fn select_single_description_report(
+        intent: &Intent,
+        message: &str,
+        context: &mut UserContext,
+    ) -> bool {
+        if !matches!(intent, Intent::DescribeReport) {
+            return false;
+        }
+
+        let lower = message.to_lowercase();
+        let asks_for_description = lower.contains("description")
+            || lower.contains("describe")
+            || lower.contains("beschreibung")
+            || lower.contains("beschreib");
+        if !asks_for_description {
+            return false;
+        }
+
+        let asks_for_previous = lower.contains("prev description")
+            || lower.contains("previous description")
+            || lower.contains("describe prev")
+            || lower.contains("describe previous")
+            || lower.contains("vorherige beschreibung")
+            || lower.contains("vorherigen bericht beschreib");
+
+        if asks_for_previous {
+            let Some(previous_report_id) = context.previous_report_id.take() else {
+                return false;
+            };
+            context.current_report_id = Some(previous_report_id);
+            tracing::info!(
+                current_report_id = ?context.current_report_id,
+                "DescribeReport: selected only the previous report from chat context"
+            );
+            return true;
+        }
+
+        let asks_for_latest = lower.contains("last description")
+            || lower.contains("latest description")
+            || lower.contains("describe last")
+            || lower.contains("describe latest")
+            || lower.contains("letzte beschreibung")
+            || lower.contains("neueste beschreibung")
+            || lower.contains("letzten bericht beschreib")
+            || lower.contains("neuesten bericht beschreib");
+
+        if asks_for_latest && context.current_report_id.is_some() {
+            context.previous_report_id = None;
+            tracing::info!(
+                current_report_id = ?context.current_report_id,
+                "DescribeReport: selected only the latest report from chat context"
+            );
+            return true;
+        }
+
+        false
+    }
+
     /// Writes resolved IDs from `ObjectIdFinder` and `DocumentsIdFinder` results
     /// back into `context` so subsequent orchestrator calls and workers see the
     /// updated values without an extra round-trip.
@@ -1282,6 +1357,77 @@ mod cached_request_context_tests {
             next_leaf: Some("cached-previous".to_string()),
             history: serde_json::json!([]),
         }
+    }
+
+    fn report_context() -> UserContext {
+        UserContext {
+            user_id: "user@example.test".to_string(),
+            chat_id: "chat".to_string(),
+            language: Language::English,
+            object_id: Some("object".to_string()),
+            current_report_id: Some("newer-report".to_string()),
+            previous_report_id: Some("older-report".to_string()),
+        }
+    }
+
+    #[test]
+    fn previous_description_selects_only_older_report() {
+        let mut context = report_context();
+
+        let selected = MasterAgent::select_single_description_report(
+            &Intent::DescribeReport,
+            "Show prev description",
+            &mut context,
+        );
+
+        assert!(selected);
+        assert_eq!(context.current_report_id.as_deref(), Some("older-report"));
+        assert_eq!(context.previous_report_id, None);
+    }
+
+    #[test]
+    fn german_previous_description_selects_only_older_report() {
+        let mut context = report_context();
+
+        let selected = MasterAgent::select_single_description_report(
+            &Intent::DescribeReport,
+            "Vorherige Beschreibung anzeigen",
+            &mut context,
+        );
+
+        assert!(selected);
+        assert_eq!(context.current_report_id.as_deref(), Some("older-report"));
+        assert_eq!(context.previous_report_id, None);
+    }
+
+    #[test]
+    fn latest_description_keeps_only_newer_report() {
+        let mut context = report_context();
+
+        let selected = MasterAgent::select_single_description_report(
+            &Intent::DescribeReport,
+            "Show last description",
+            &mut context,
+        );
+
+        assert!(selected);
+        assert_eq!(context.current_report_id.as_deref(), Some("newer-report"));
+        assert_eq!(context.previous_report_id, None);
+    }
+
+    #[test]
+    fn comparison_request_preserves_both_reports() {
+        let mut context = report_context();
+
+        let selected = MasterAgent::select_single_description_report(
+            &Intent::CompareReports,
+            "Show changes",
+            &mut context,
+        );
+
+        assert!(!selected);
+        assert_eq!(context.current_report_id.as_deref(), Some("newer-report"));
+        assert_eq!(context.previous_report_id.as_deref(), Some("older-report"));
     }
 
     #[test]
