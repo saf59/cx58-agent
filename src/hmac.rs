@@ -89,6 +89,11 @@ fn verify_signature_bytes(
     headers: &HeaderMap,
     bytes: &[u8],
 ) -> Result<(), StatusCode> {
+    if agent_secret.trim().is_empty() {
+        tracing::error!("AGENT_SECRET is empty; refusing HMAC verification");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
     let timestamp = headers
         .get("X-Timestamp")
         .and_then(|v| v.to_str().ok())
@@ -188,6 +193,17 @@ mod tests {
         assert_eq!(
             verify_signature_bytes("demo-secret", &HeaderMap::new(), b""),
             Err(StatusCode::UNAUTHORIZED)
+        );
+    }
+
+    #[test]
+    fn verify_signature_bytes_rejects_empty_server_secret() {
+        let body = b"body";
+        let headers = signed_headers("", chrono::Utc::now().timestamp(), body);
+
+        assert_eq!(
+            verify_signature_bytes("", &headers, body),
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         );
     }
 }

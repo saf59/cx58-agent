@@ -62,9 +62,21 @@ impl AiConfig {
             vision_model: std::env::var("VISION_MODEL")
                 .unwrap_or_else(|_| "llama3.2-vision".to_string()),
             chat_model: std::env::var("CHAT_MODEL").unwrap_or_else(|_| "qwen3.5:9b".to_string()),
-            agent_secret: std::env::var("AGENT_SECRET").unwrap_or_else(|_| "None".to_string()),
+            agent_secret: required_agent_secret()?,
         })
     }
+}
+
+fn required_agent_secret() -> std::result::Result<String, Box<dyn std::error::Error>> {
+    let secret = std::env::var("AGENT_SECRET")?;
+    if secret.trim().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "AGENT_SECRET must not be empty",
+        )
+        .into());
+    }
+    Ok(secret)
 }
 #[derive(Clone)]
 pub struct AppState {
