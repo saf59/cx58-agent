@@ -1124,6 +1124,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn example_usage() {
         dotenv::from_path(".env.test").ok();
 
@@ -1236,6 +1237,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_presigned_put_url() {
         dotenv::from_path(".env.test").ok();
 
@@ -1275,6 +1277,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_presigned_url_with_custom_headers() {
         dotenv::from_path(".env.test").ok();
 
@@ -1314,6 +1317,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_presigned_url_through_proxy() {
         dotenv::from_path(".env.test").ok();
         let config = S3Config::from_env().unwrap();
@@ -1354,6 +1358,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_create() {
         dotenv::from_path(".env.test").ok();
         let config = S3Config::from_env().unwrap();
@@ -1362,6 +1367,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_upload_image() {
         dotenv::from_path(".env.test").ok();
         let config = S3Config::from_env().unwrap();
@@ -1406,6 +1412,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_upload_thumbnail() {
         dotenv::from_path(".env.test").ok();
 
@@ -1470,6 +1477,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_upload_image_with_different_extensions() {
         dotenv::from_path(".env.test").ok();
 
@@ -1499,6 +1507,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_create_thumbnail() {
         dotenv::from_path(".env.test").ok();
 
@@ -1561,6 +1570,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_get_or_create_thumbnail() {
         dotenv::from_path(".env.test").ok();
 
@@ -1645,6 +1655,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_object_exists() {
         dotenv::from_path(".env.test").ok();
 
@@ -1686,6 +1697,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires S3 service configured by .env.test"]
     async fn test_download_image() {
         dotenv::from_path(".env.test").ok();
 
