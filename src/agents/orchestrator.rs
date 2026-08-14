@@ -588,14 +588,50 @@ impl Orchestrator {
 
                     // Vision Analysis Worker: Processes single image from S3
                     "DescribeReport" | "DESCRIBE_REPORT" => {
-                        let current_report_id = action_data["parameters"]["reports"]["prev"]
-                            .as_str()
-                            .ok_or_else(|| {
-                                let err = AgentError::internal("Missing prev report_id");
-                                tracing::error!("Orchestrator parse parameters: {}", err);
-                                err
-                            })?
-                            .to_string();
+                        let llm_current_report_id =
+                            action_data["parameters"]["reports"]["prev"].as_str();
+
+                        // Report IDs already resolved by the client/session or by
+                        // DocumentsIdFinder are authoritative. The orchestrator LLM
+                        // sees both object_id and report IDs in its prompt and may
+                        // occasionally copy the object's UUID into reports.prev.
+                        // Both values are valid UUIDs, so syntax validation alone
+                        // cannot catch that mix-up before DescriptionAgent queries it
+                        // as an ImageLeaf.
+                        let (current_report_id, previous_report_id) = if let Some(
+                            context_report_id,
+                        ) =
+                            &context.current_report_id
+                        {
+                            if llm_current_report_id != Some(context_report_id.as_str()) {
+                                tracing::warn!(
+                                    llm_report_id = ?llm_current_report_id,
+                                    context_report_id = %context_report_id,
+                                    "DescribeReport: ignoring LLM report ID in favor of resolved context"
+                                );
+                            }
+                            (
+                                context_report_id.clone(),
+                                context.previous_report_id.clone(),
+                            )
+                        } else {
+                            let current_report_id = llm_current_report_id
+                                .ok_or_else(|| {
+                                    let err = AgentError::internal("Missing prev report_id");
+                                    tracing::error!("Orchestrator parse parameters: {}", err);
+                                    err
+                                })?
+                                .to_string();
+
+                            // Previous report is optional. Filter placeholders
+                            // that the LLM may copy verbatim from the context table.
+                            let previous_report_id = action_data["parameters"]["reports"]["next"]
+                                .as_str()
+                                .filter(|s| uuid::Uuid::parse_str(s).is_ok())
+                                .map(|s| s.to_string());
+
+                            (current_report_id, previous_report_id)
+                        };
 
                         // Validate report_id is not empty
                         if current_report_id.is_empty() {
@@ -614,13 +650,6 @@ impl Orchestrator {
                             tracing::error!("Orchestrator parse current_report_id: {}", err);
                             return Err(err);
                         }
-
-                        // Previous report is optional — filter out "not_set" placeholders that
-                        // the LLM may copy verbatim from the context table.
-                        let previous_report_id = action_data["parameters"]["reports"]["next"]
-                            .as_str()
-                            .filter(|s| uuid::Uuid::parse_str(s).is_ok())
-                            .map(|s| s.to_string());
 
                         let reports = ReportPair {
                             prev: current_report_id,
@@ -907,5 +936,55 @@ impl Orchestrator {
                 Err(err.into())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn describe_report_uses_resolved_context_instead_of_llm_object_id() {
+        let orchestrator = Orchestrator::new(
+            Arc::new(crate::helper::client(true)),
+            "test-model".to_string(),
+            Arc::new(LocalizationManager::new()),
+            Arc::new(TemplateManager::new()),
+        );
+        let context_report_id = "019d29da-6f5c-75e9-b436-08a183ab0001";
+        let object_id = "019d29da-6f5c-75e9-b436-08a183abfad7";
+        let context = UserContext {
+            user_id: "user@example.test".to_string(),
+            chat_id: "chat".to_string(),
+            language: Language::English,
+            object_id: Some(object_id.to_string()),
+            current_report_id: Some(context_report_id.to_string()),
+            previous_report_id: None,
+        };
+        let decision_json = serde_json::json!({
+            "decision": "ExecuteWorker",
+            "action": {
+                "worker_type": "DescribeReport",
+                "parameters": {
+                    "reports": {
+                        "prev": object_id,
+                        "next": object_id
+                    }
+                }
+            }
+        });
+
+        let decision = orchestrator
+            .parse_decision(decision_json, "en", &context, "request")
+            .expect("resolved context must produce a worker request");
+
+        let OrchestratorDecision::ExecuteWorker(worker_request) = decision else {
+            panic!("expected ExecuteWorker decision");
+        };
+        let WorkerParameters::DescribeReport { reports } = worker_request.parameters else {
+            panic!("expected DescribeReport parameters");
+        };
+        assert_eq!(reports.prev, context_report_id);
+        assert_eq!(reports.next, None);
     }
 }
