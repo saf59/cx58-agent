@@ -230,6 +230,37 @@ Hope this helps!"#;
             crate::agents::description::description_json::DESCRIPTION_PROMPT_VERSION
         );
     }
+
+    #[test]
+    fn structured_element_fields_are_normalized_to_text() {
+        let response = r#"{
+            "description": "Raum im Bauzustand.",
+            "windows": [],
+            "doors": [{
+                "Anzahl": 1,
+                "Typ": "Schwingtür",
+                "Material": "Holz",
+                "Griff": "silber",
+                "Zustand": "installiert",
+                "Einbauphase": "installiert"
+            }],
+            "radiators": [],
+            "openings": []
+        }"#;
+
+        let content = extract_description_content_robust(response).unwrap();
+
+        assert_eq!(content.windows, None);
+        assert_eq!(
+            content.doors.as_deref(),
+            Some(
+                "Anzahl: 1; Einbauphase: installiert; Griff: silber; Material: Holz; Typ: Schwingtür; Zustand: installiert"
+            )
+        );
+        assert_eq!(content.radiators, None);
+        assert_eq!(content.openings, None);
+    }
+
     fn extract_description_content(
         llm_response: &str,
     ) -> Result<DescriptionContent, Box<dyn std::error::Error + Send + Sync>> {

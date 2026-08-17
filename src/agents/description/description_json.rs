@@ -1,5 +1,5 @@
 use crate::db_description::ImageDescription;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
@@ -15,14 +15,71 @@ pub struct DescriptionContent {
     )]
     pub prompt_version: Option<String>,
     pub description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub windows: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub doors: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub radiators: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_text",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub openings: Option<String>,
+}
+
+fn deserialize_optional_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = JsonValue::deserialize(deserializer)?;
+    Ok(description_value_to_text(&value))
+}
+
+fn description_value_to_text(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::Null => None,
+        JsonValue::String(text) => non_empty(text.clone()),
+        JsonValue::Array(items) => non_empty(
+            items
+                .iter()
+                .filter_map(description_value_to_text)
+                .collect::<Vec<_>>()
+                .join(" | "),
+        ),
+        JsonValue::Object(fields) => non_empty(
+            fields
+                .iter()
+                .filter_map(|(key, value)| {
+                    description_value_to_text(value).map(|value| format!("{key}: {value}"))
+                })
+                .collect::<Vec<_>>()
+                .join("; "),
+        ),
+        JsonValue::Bool(value) => Some(value.to_string()),
+        JsonValue::Number(value) => Some(value.to_string()),
+    }
+}
+
+fn non_empty(text: String) -> Option<String> {
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 impl DescriptionContent {
