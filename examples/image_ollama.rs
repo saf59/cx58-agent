@@ -15,24 +15,18 @@ use tokio::fs;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let is_local = true;
     //let model = REMOTE_MODELS[10];
     let model = "qwen3-vl";
     //let img: &str = "D:/projects/rust/cx/cx58-agent/data/3w_5.jpg";
     //let img: &str = "./data/4к_1.jpg";
-    let img: &str = "./data/4k_4.jpg";
+    let img: &str = "./tests/fixtures/4k_4.jpg";
     //let prompt = "In this picture, all I see only three empty window openings.";
     let prompt = "Describe the picture!";
-    describe(model, is_local, img, prompt).await?;
+    describe(model, img, prompt).await?;
     Ok(())
 }
 
-async fn describe(
-    model: &str,
-    is_local: bool,
-    img: &str,
-    prompt: &str,
-) -> Result<(), anyhow::Error> {
+async fn describe(model: &str, img: &str, prompt: &str) -> Result<(), anyhow::Error> {
     let start = Instant::now();
     // Tracing
     tracing_subscriber::fmt()
@@ -133,8 +127,7 @@ struct Description {
 */
 
 pub fn create_description_system_prompt() -> String {
-    format!(
-        r#"
+    r#"
 You are a precise, reliable, and concise assistant.
 You are an expert in construction description.
 Your specialization is only windows, doors, radiators and empty openings for future installation of windows and doors.
@@ -148,19 +141,18 @@ If so, please describe it.
 Don't invent what you don't see!
 
 Response format (JSON only, no other text):
-{{
+{
   "description": "General and complete description of the object",
   "windows": "Detailed information about windows only",
   "doors": "Detailed information about doors only",
   "radiators": "Detailed information about radiators only",
   "openings": "Detailed information about openings only"
-}}
+}
 "#
-    )
+    .to_string()
 }
 pub fn create_description_system_big_prompt() -> String {
-    format!(
-        r#"
+    r#"
 You are a precise, reliable, and concise assistant.
 You are an expert in construction description.
 Your specialization is only windows, doors, radiators and empty openings for future installation of windows and doors.
@@ -174,22 +166,22 @@ If so, please describe it.
 Don't invent what you don't see!
 
 Response format (JSON only, no other text):
-{{
+{
   "description": "General and complete description of the object",
   "windows": "Detailed information about windows only",
   "doors": "Detailed information about doors only",
   "radiators": "Detailed information about radiators only",
   "openings": "Detailed information about openings only"
-}}
+}
 
 EXAMPLE OUTPUT:
-{{
+{
   "description": "A modern residential room with white walls and wooden flooring",
   "windows": "Two large double-glazed windows on the eastern wall with white frames",
   "doors": "Single wooden door with silver handle on the northern wall",
   "radiators": "White panel radiator mounted beneath the window",
   "openings": null
-}}
+}
 
 CRITICAL INSTRUCTIONS:
 - Return ONLY the JSON object, no additional text
@@ -198,7 +190,7 @@ CRITICAL INSTRUCTIONS:
 - Ensure all strings are properly escaped
 - The "description" field must always be present and non-empty
 "#
-    )
+    .to_string()
 }
 
 /// Alternative: Create prompt with schema example

@@ -48,6 +48,38 @@ pub struct IntentRouter {
     template_manager: Arc<TemplateManager>,
 }
 
+/// Classifies stable UI action labels without a model call.
+pub fn classify_known_action(message: &str, context: &UserContext) -> Option<ClassificationResult> {
+    let normalized = message
+        .trim()
+        .trim_end_matches(['.', '!', '?'])
+        .to_lowercase();
+    let intent = match normalized.as_str() {
+        "show descriptions" | "beschreibungen anzeigen" => Intent::DescribeReport,
+        "show reports" | "berichte anzeigen" => Intent::GetReportList,
+        "show objects" | "objekte anzeigen" => Intent::GetObjectTree,
+        "show changes" | "änderungen anzeigen"
+            if context.current_report_id.is_some() && context.previous_report_id.is_some() =>
+        {
+            Intent::CompareReports
+        }
+        _ => return None,
+    };
+
+    Some(ClassificationResult {
+        intent,
+        confidence: 1.0,
+        extracted_parameters: ExtractedParameters {
+            task_params: None,
+            object_identifier: None,
+            time_reference: None,
+            report_references: Vec::new(),
+        },
+        missing_context: Vec::new(),
+        reasoning: "deterministic_ui_action".to_string(),
+    })
+}
+
 // src/agents/intent_router.rs
 
 impl IntentRouter {
@@ -85,7 +117,6 @@ impl IntentRouter {
     ///
     /// # Returns
     /// A `ClassificationResult` containing the determined intent and extracted parameters
-
     pub async fn classify(
         &self,
         message: &str,
@@ -124,6 +155,7 @@ impl IntentRouter {
             .completion_request(&user_prompt)
             .preamble(system_prompt)
             .temperature(0.1)
+            .max_tokens(512)
             .build();
 
         // some queries require multiple workers. Consider adding logic to detect
@@ -165,12 +197,8 @@ impl IntentRouter {
                 "error",
                 &e.to_string(),
             );
-            tracing::error!(
-                "IntentRouter: failed to parse ClassificationResult: {}\nRaw response: {}",
-                e,
-                text
-            );
-            AgentError::internal(format!("{}\nResponse was: {}", error_msg, text))
+            tracing::error!(error = %e, "IntentRouter failed to parse ClassificationResult");
+            AgentError::internal(error_msg)
         })?;
         normalize_classification_result(&mut result, context, message);
 
@@ -328,7 +356,7 @@ fn needs_current_report_id(intent: &Intent) -> bool {
 }
 
 fn ensure_task_params(extracted: &mut ExtractedParameters) -> &mut TaskParameters {
-    extracted.task_params.get_or_insert_with(|| TaskParameters {
+    extracted.task_params.get_or_insert(TaskParameters {
         last: false,
         all: false,
         period: None,
@@ -428,6 +456,10 @@ fn is_explicit_report_description_request(message: &str) -> bool {
 }
 
 fn extract_exact_datetime(message: &str) -> Option<chrono::NaiveDateTime> {
+    if let Some(exact) = extract_numeric_datetime(message) {
+        return Some(exact);
+    }
+
     let words = tokenize_datetime_words(message);
 
     for (idx, word) in words.iter().enumerate() {
@@ -445,6 +477,37 @@ fn extract_exact_datetime(message: &str) -> Option<chrono::NaiveDateTime> {
 
         return NaiveDate::from_ymd_opt(year, month, day)
             .and_then(|date| date.and_hms_opt(hour, minute, 0));
+    }
+
+    None
+}
+
+/// Extracts canonical numeric report timestamps without relying on model output.
+fn extract_numeric_datetime(message: &str) -> Option<chrono::NaiveDateTime> {
+    let parts: Vec<_> = message
+        .split_whitespace()
+        .map(|part| {
+            part.trim_matches(|ch: char| {
+                matches!(
+                    ch,
+                    ',' | '"' | '\'' | '“' | '”' | '„' | '?' | '!' | '(' | ')'
+                )
+            })
+        })
+        .collect();
+
+    for pair in parts.windows(2) {
+        let candidate = format!("{} {}", pair[0], pair[1]);
+        for format in [
+            "%d.%m.%Y %H:%M:%S",
+            "%d.%m.%Y %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+        ] {
+            if let Ok(exact) = chrono::NaiveDateTime::parse_from_str(&candidate, format) {
+                return Some(exact);
+            }
+        }
     }
 
     None
@@ -557,6 +620,26 @@ mod tests {
             current_report_id: Some("newer-report-id".to_string()),
             previous_report_id: Some("older-report-id".to_string()),
         }
+    }
+
+    /// Verifies that the English description button bypasses model classification.
+    #[test]
+    fn classifies_english_description_action_deterministically() {
+        let result = classify_known_action("Show descriptions", &context_with_selected_pair())
+            .expect("known UI action was not classified");
+
+        assert!(matches!(result.intent, Intent::DescribeReport));
+        assert_eq!(result.reasoning, "deterministic_ui_action");
+    }
+
+    /// Verifies that the German description button bypasses model classification.
+    #[test]
+    fn classifies_german_description_action_deterministically() {
+        let result =
+            classify_known_action("Beschreibungen anzeigen", &context_with_selected_pair())
+                .expect("known UI action was not classified");
+
+        assert!(matches!(result.intent, Intent::DescribeReport));
     }
 
     fn empty_classification(intent: Intent) -> ClassificationResult {
@@ -683,5 +766,39 @@ mod tests {
             "22.05.2026 20:00:00"
         );
         assert!(result.missing_context.is_empty());
+    }
+
+    /// Verifies that the production-style German numeric timestamp is deterministic.
+    #[test]
+    fn normalizes_german_numeric_datetime_description() {
+        let mut result = empty_classification(Intent::GetReportList);
+        normalize_classification_result(
+            &mut result,
+            &context_without_selection(),
+            "Beschreibe Bericht Kitchen 07.07.2026 18:00:00",
+        );
+
+        assert!(matches!(result.intent, Intent::DescribeReport));
+        let exact = result
+            .extracted_parameters
+            .task_params
+            .unwrap()
+            .exact_datetime
+            .unwrap();
+        assert_eq!(
+            exact.format("%d.%m.%Y %H:%M:%S").to_string(),
+            "07.07.2026 18:00:00"
+        );
+    }
+
+    /// Verifies that quoted ISO timestamps are parsed without model assistance.
+    #[test]
+    fn extracts_quoted_iso_numeric_datetime() {
+        let exact = extract_exact_datetime("Show report from \"2026-07-07 18:00:00\"").unwrap();
+
+        assert_eq!(
+            exact.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-07-07 18:00:00"
+        );
     }
 }

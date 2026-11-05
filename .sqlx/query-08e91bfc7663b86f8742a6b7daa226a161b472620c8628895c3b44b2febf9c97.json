@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO comparison\n                (prev_id, next_id, lang, model, data)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (prev_id, next_id, lang, model)\n                DO UPDATE SET data = EXCLUDED.data\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "08e91bfc7663b86f8742a6b7daa226a161b472620c8628895c3b44b2febf9c97"
+}

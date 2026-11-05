@@ -92,6 +92,7 @@ Auflösungskette bevor der DescribeReport-Guard ausgelöst wird:
   → ExecuteWorker **CompareReports**
 
 ### RAG_QUERY
+- Dies ist ein interner Legacy-Name für kontextbezogenen Chat, nicht für Retrieval.
 - Sofort mit der ursprünglichen Benutzernachricht als Query ausführen.
 
 ### OUT_OF_SCOPE

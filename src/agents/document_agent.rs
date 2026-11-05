@@ -20,10 +20,11 @@ use crate::storage::set_storage_url;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
 
 pub const MAX_DOCUMENTS_ALL: i32 = 366;
+const DOCUMENT_OVERFLOW_PROBE: i32 = MAX_DOCUMENTS_ALL + 1;
 pub struct DocumentAgent {
     context: AgentContext,
-    event_tx: mpsc::Sender<StreamEvent>,
-    lang_manager: Arc<LocalizationManager>,
+    _event_tx: mpsc::Sender<StreamEvent>,
+    _lang_manager: Arc<LocalizationManager>,
 }
 
 impl DocumentAgent {
@@ -34,8 +35,8 @@ impl DocumentAgent {
     ) -> Self {
         Self {
             context,
-            event_tx,
-            lang_manager,
+            _event_tx: event_tx,
+            _lang_manager: lang_manager,
         }
     }
 
@@ -67,10 +68,7 @@ impl DocumentAgent {
                 user_id = %self.context.user_id,
                 "DocumentAgent: no documents found for node"
             );
-            let err = AgentError::NoDocumentsFound;
-            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
-                .await;
-            return Err(err.into());
+            return Err(AgentError::NoDocumentsFound);
         }
 
         // Attach storage URLs to image-leaf nodes.
@@ -91,6 +89,25 @@ pub async fn get_documents(
     pool: &PgPool,
     node_id: Uuid,
 ) -> Result<Vec<NodeWithLeaf>, AgentError> {
+    if let Some(exact_datetime) = parameters.exact_datetime {
+        let candidates = berlin_local_to_utc_candidates(exact_datetime);
+        let Some(from) = candidates.iter().min().copied() else {
+            return Ok(Vec::new());
+        };
+        let Some(to) = candidates.iter().max().copied() else {
+            return Ok(Vec::new());
+        };
+        let data = get_node_with_leafs(
+            pool,
+            node_id,
+            Some(DOCUMENT_OVERFLOW_PROBE),
+            Some(from - chrono::Duration::seconds(60)),
+            Some(to + chrono::Duration::seconds(60)),
+        )
+        .await?;
+        return Ok(filter_exact_datetime(data, exact_datetime));
+    }
+
     let limit = document_limit(parameters);
     let amount = if parameters.all {
         MAX_DOCUMENTS_ALL as usize
@@ -115,16 +132,23 @@ pub async fn get_documents(
     } else {
         get_node_with_leafs(pool, node_id, Some(limit), None, None).await?
     };
-    if let Some(exact_datetime) = parameters.exact_datetime {
-        Ok(filter_exact_datetime(data, exact_datetime))
-    } else {
-        Ok(data)
+    if parameters.all
+        && data
+            .iter()
+            .filter(|node| node.node_type == NodeType::ImageLeaf)
+            .count()
+            > MAX_DOCUMENTS_ALL as usize
+    {
+        return Err(AgentError::ResultLimitExceeded {
+            limit: MAX_DOCUMENTS_ALL as usize,
+        });
     }
+    Ok(data)
 }
 
 fn document_limit(parameters: &TaskParameters) -> i32 {
     if parameters.all || parameters.exact_datetime.is_some() {
-        MAX_DOCUMENTS_ALL
+        DOCUMENT_OVERFLOW_PROBE
     } else if parameters.last {
         parameters
             .amount

@@ -1,4 +1,4 @@
-//! | `RagQuery` | Ask questions about project data using RAG |
+//! | `RagQuery` | Legacy internal name for contextual project chat |
 //! | `OutOfScope` | Non-construction related queries |
 //! | `Ambiguous` | Unclear queries requiring clarification |
 //!
@@ -61,7 +61,7 @@
 //!
 //! ## Error Handling
 //!
-//! - Errors during processing send `StreamEvent::Error`, `StreamEvent::Completed` to SSE
+//! - Errors during processing send one terminal `StreamEvent::Error` to SSE
 //! - Tera template fallback used for error messages
 //! - Request lifecycle terminates on first error
 //!
@@ -70,6 +70,14 @@ use rig::providers::ollama;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Instant;
+
+use crate::agents::access_control::authorize_context;
+use crate::agents::input_validation::validate_request;
+use crate::agents::intent_router::classify_known_action;
+use crate::agents::planner::DeterministicPlanner;
+use crate::agents::runtime_policy::{
+    REQUEST_TIMEOUT, TEXT_LLM_SLOTS, TEXT_LLM_TIMEOUT, acquire_slot, run_cancellable,
+};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use unicode_segmentation::UnicodeSegmentation;
@@ -84,8 +92,7 @@ fn cancelled_stream_event(error: &AgentError, request_id: &str) -> Option<Stream
 
 use super::{
     ChatAgent, ComparisonAgent, DescriptionAgent, DocumentAgent, ObjectAgent,
-    intent_router::IntentRouter, orchestrator::Orchestrator, response_formatter::ResponseFormatter,
-    types::*,
+    intent_router::IntentRouter, response_formatter::ResponseFormatter, types::*,
 };
 
 use crate::agents::agent_error::AgentError;
@@ -124,7 +131,6 @@ use crate::{
 ///                        │  (Progress + Data)    │
 ///                        └───────────────────────┘
 /// ```
-
 const MAX_ORCHESTRATION_STEPS: u32 = 8;
 
 fn apply_cached_request_context(request: &mut AgentRequest, session: &ChatSession) {
@@ -145,7 +151,6 @@ pub struct MasterAgent {
     config: AiConfig,
     request_manager: Arc<RequestManager>,
     intent_router: Arc<IntentRouter>,
-    orchestrator: Arc<Orchestrator>,
     formatter: Arc<ResponseFormatter>,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
@@ -163,12 +168,6 @@ impl MasterAgent {
             intent_router: Arc::new(IntentRouter::new(
                 client.clone(),
                 config.chat_model.clone(),
-                lang_manager.clone(),
-                template_manager.clone(),
-            )),
-            orchestrator: Arc::new(Orchestrator::new(
-                client.clone(),
-                config.text_model.clone(),
                 lang_manager.clone(),
                 template_manager.clone(),
             )),
@@ -193,19 +192,17 @@ impl MasterAgent {
         request: AgentRequest,
     ) -> mpsc::Receiver<StreamEvent> {
         tracing::debug!(
-            "\nMessage: {:?}, object_id: {:?}, prev_leaf:{:?},next_leaf:{:?}",
-            &request.message,
-            &request.object_id,
-            &request.prev_leaf,
-            &request.next_leaf
+            message_bytes = request.message.len(),
+            has_object_id = request.object_id.is_some(),
+            has_current_report = request.prev_leaf.is_some(),
+            has_previous_report = request.next_leaf.is_some(),
+            "Agent request received"
         );
         let (tx, rx) = mpsc::channel(100);
 
         let lang_manager = self.lang_manager.clone();
         let state = state.clone();
         let agent = self.clone();
-        let start_time = Instant::now();
-
         tokio::spawn(async move {
             let request_id = Uuid::now_v7().to_string();
             let mut request = request;
@@ -221,12 +218,12 @@ impl MasterAgent {
             // Load session and fill missing fields from previous request.
             // history_strings is passed to IntentRouter so it can resolve
             // anaphoric references ("same as before", "that room again").
-            let mut conversation_history: Vec<String> = Vec::new();
+            let mut conversation_history: Vec<serde_json::Value> = Vec::new();
             if let Some(session) =
                 load_session(&request_state.db, &request.user_id, &request.chat_id).await
             {
                 // Extract history before partial moves of Option<String> fields.
-                conversation_history = session.history_strings();
+                conversation_history = session.history_entries();
                 apply_cached_request_context(&mut request, &session);
             }
 
@@ -245,15 +242,18 @@ impl MasterAgent {
                 })
                 .await;
 
-            if let Err(e) = agent
-                .process_request(
+            let process_result = tokio::time::timeout(
+                REQUEST_TIMEOUT,
+                agent.process_request(
                     request_state,
                     context.clone(),
                     tx.clone(),
                     conversation_history,
-                )
-                .await
-            {
+                ),
+            )
+            .await
+            .unwrap_or_else(|_| Err(Box::new(AgentError::DeadlineExceeded { stage: "request" })));
+            if let Err(e) = process_result {
                 // Determine the user's language for the error message.
                 let lang = Language::from_short(&context.language);
                 let lang_code = lang.to_code();
@@ -277,13 +277,6 @@ impl MasterAgent {
                             error: error_msg,
                         })
                         .await;
-                    let _ = tx
-                        .send(StreamEvent::Completed {
-                            request_id: context.request_id.clone(),
-                            total_time_ms: start_time.elapsed().as_millis() as u64,
-                            stats: AgentStats::default(),
-                        })
-                        .await;
                 }
             }
 
@@ -298,14 +291,27 @@ impl MasterAgent {
         state: Arc<AppState>,
         context: AgentContext,
         tx: Sender<StreamEvent>,
-        conversation_history: Vec<String>,
+        conversation_history: Vec<serde_json::Value>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start_time = Instant::now();
         let mut stats = AgentStats::start();
 
+        validate_request(&AgentRequest {
+            message: context.message.clone(),
+            user_id: context.user_id.clone(),
+            chat_id: context.chat_id.clone(),
+            language: context.language.clone(),
+            object_id: context.object_id.clone(),
+            prev_leaf: context.prev_leaf.clone(),
+            next_leaf: context.next_leaf.clone(),
+            metadata: Some(context.metadata.clone()),
+        })?;
+
         let user_context = context.to_user_context();
         let lang = user_context.language.clone();
         let lang_code = lang.to_code();
+
+        authorize_context(&state.db, &context).await?;
 
         let analyzing_msg = self.lang_manager.get_msg(lang_code, "progress-analyzing");
         tx.send(StreamEvent::Progress {
@@ -316,15 +322,33 @@ impl MasterAgent {
         })
         .await?;
         let intent_start = Instant::now();
-        let (classification, router_tokens) = self
-            .intent_router
-            .classify_with_model(
-                &context.message,
-                &user_context,
-                &conversation_history,
-                &state.ai_config.chat_model,
+        let (classification, router_tokens) = if let Some(known) =
+            classify_known_action(&context.message, &user_context)
+        {
+            (known, None)
+        } else {
+            let formatted_history = crate::session::format_history_entries(&conversation_history);
+            let _router_slot = acquire_slot(
+                &context.cancellation_token,
+                &TEXT_LLM_SLOTS,
+                TEXT_LLM_TIMEOUT,
+                "intent_router_queue",
             )
             .await?;
+            let classification_future = self.intent_router.classify_with_model(
+                &context.message,
+                &user_context,
+                &formatted_history,
+                &state.ai_config.chat_model,
+            );
+            run_cancellable(
+                &context.cancellation_token,
+                TEXT_LLM_TIMEOUT,
+                "intent_router",
+                classification_future,
+            )
+            .await?
+        };
         tracing::info!("Intent classification result: {:?}", &classification.intent);
         stats.record_router(
             router_tokens,
@@ -337,14 +361,24 @@ impl MasterAgent {
         // intentional: Orchestrator handles this via RequestContextFromUser
 
         if matches!(classification.intent, Intent::OutOfScope) {
-            let message = self
-                .formatter
-                .format_out_of_scope_with_model(
+            let _formatter_slot = acquire_slot(
+                &context.cancellation_token,
+                &TEXT_LLM_SLOTS,
+                TEXT_LLM_TIMEOUT,
+                "response_formatter_queue",
+            )
+            .await?;
+            let message = run_cancellable(
+                &context.cancellation_token,
+                TEXT_LLM_TIMEOUT,
+                "response_formatter",
+                self.formatter.format_out_of_scope_with_model(
                     &user_context.language,
                     &context.message,
                     &state.ai_config.text_model,
-                )
-                .await?;
+                ),
+            )
+            .await?;
 
             self.send_text_chunks(&tx, &message, &context.request_id)
                 .await?;
@@ -595,16 +629,7 @@ impl MasterAgent {
                 // Append current exchange to history so the next request can
                 // resolve anaphoric references ("that room again", "compare those two").
                 // We store the intent name as a compact assistant entry.
-                let current_history = serde_json::json!(
-                    conversation_history
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| {
-                            let role = if i % 2 == 0 { "user" } else { "assistant" };
-                            serde_json::json!({"role": role, "text": s})
-                        })
-                        .collect::<Vec<serde_json::Value>>()
-                );
+                let current_history = serde_json::Value::Array(conversation_history.clone());
                 let assistant_summary = format!("{:?}", classification.intent);
                 let updated_history =
                     append_history(&current_history, &context.message, &assistant_summary);
@@ -622,19 +647,13 @@ impl MasterAgent {
                     .await?;
                 break;
             }
-            let orch_start = Instant::now();
-            let (decision, orch_tokens) = self
-                .orchestrator
-                .decide_next_step_with_model(
-                    &classification,
-                    &current_context,
-                    &context.message,
-                    &context.request_id.to_string(),
-                    &worker_results,
-                    &state.ai_config.text_model,
-                )
-                .await?;
-            stats.record_orchestrator(orch_tokens, Some(orch_start.elapsed().as_millis() as u64));
+            let decision = DeterministicPlanner::decide(
+                &classification,
+                &current_context,
+                &context.message,
+                &context.request_id,
+                &worker_results,
+            )?;
             context.cancellation_token.check().await?;
 
             match decision {
@@ -773,8 +792,8 @@ impl MasterAgent {
 
                 OrchestratorDecision::FormatAndReturn => {
                     if matches!(classification.intent, Intent::RagQuery) {
-                        // RagQuery: ChatAgent already streamed all TextChunks — just complete.
-                        tracing::info!("RagQuery completed");
+                        // Contextual chat already streamed all TextChunks — just complete.
+                        tracing::info!("Contextual chat completed");
                     } else {
                         // Structured intents: format and stream immediately without looping.
                         // Previously this fell through to the next iteration for intent_ready —
@@ -816,15 +835,28 @@ impl MasterAgent {
                     // Raw LLM message is discarded — route through the formatter
                     // so the response is always in the user's language via Tera.
                     tracing::warn!(reason = %reason, "Request rejected by orchestrator");
-                    match self
-                        .formatter
-                        .format_out_of_scope_with_model(
-                            &current_context.language,
-                            &context.message,
-                            &state.ai_config.text_model,
+                    let formatted_result = async {
+                        let _formatter_slot = acquire_slot(
+                            &context.cancellation_token,
+                            &TEXT_LLM_SLOTS,
+                            TEXT_LLM_TIMEOUT,
+                            "response_formatter_queue",
+                        )
+                        .await?;
+                        run_cancellable(
+                            &context.cancellation_token,
+                            TEXT_LLM_TIMEOUT,
+                            "response_formatter",
+                            self.formatter.format_out_of_scope_with_model(
+                                &current_context.language,
+                                &context.message,
+                                &state.ai_config.text_model,
+                            ),
                         )
                         .await
-                    {
+                    }
+                    .await;
+                    match formatted_result {
                         Ok(formatted) => {
                             self.send_text_chunks(&tx, &formatted, &context.request_id)
                                 .await?;
@@ -958,8 +990,9 @@ impl MasterAgent {
                     self.template_manager.clone(),
                 );
                 // it is heavy operation with LLM calls, so we count tokens
-                let (result, tokens) = agent.execute_comparison(&state, descriptions).await?;
-                (result, tokens, 1u32)
+                let (result, tokens, calls) =
+                    agent.execute_comparison(&state, descriptions).await?;
+                (result, tokens, calls)
             }
             WorkerParameters::RagQuery { query: _ } => {
                 let agent = ChatAgent::new(
@@ -1097,8 +1130,6 @@ impl MasterAgent {
             })
             .await
             .unwrap_or_else(|_| tracing::error!("Failed to send TextChunk: {}", trimmed));
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         }
 
         Ok(())
@@ -1319,7 +1350,6 @@ impl Clone for MasterAgent {
             config: self.config.clone(),
             request_manager: self.request_manager.clone(),
             intent_router: self.intent_router.clone(),
-            orchestrator: self.orchestrator.clone(),
             formatter: self.formatter.clone(),
             lang_manager: self.lang_manager.clone(),
             template_manager: self.template_manager.clone(),

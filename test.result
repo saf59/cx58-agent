@@ -1,0 +1,139 @@
+﻿test compare_reports::de::full_auto_resolve_last_month ... FAILED
+test compare_reports::de::full_auto_resolve_period ... ok
+test compare_reports::de::full_context ... FAILED
+test compare_reports::en::auto_resolve_reports ... FAILED
+test compare_reports::en::full_auto_resolve_last_month ... FAILED
+test compare_reports::en::full_auto_resolve_period ... ok
+test compare_reports::en::full_context ... ok
+test context_request::de::missing_object ... ok
+test context_request::de::missing_report_id_describe ... FAILED
+test context_request::de::missing_report_ids_compare ... FAILED
+test context_request::en::missing_object ... ok
+test context_request::en::missing_report_id_describe ... ok
+test context_request::en::missing_report_ids_compare ... FAILED
+test describe_report::de::auto_resolve_reports ... ok
+test describe_report::de::full_auto_resolve_last ... ok
+test describe_report::de::full_auto_resolve_period ... ok
+test describe_report::de::full_context ... FAILED
+test describe_report::en::auto_resolve_reports ... ok
+test describe_report::en::full_auto_resolve_last ... ok
+test describe_report::en::full_auto_resolve_period ... ok
+test describe_report::en::full_context ... FAILED
+test get_object_tree::de::no_context ... ok
+test get_object_tree::de::with_object_id ... ok
+test get_object_tree::en::no_context ... ok
+test get_object_tree::en::with_object_id ... FAILED
+test get_report_list::de::auto_resolve_last ... ok
+test get_report_list::de::auto_resolve_object ... ok
+test get_report_list::de::auto_resolve_with_period ... ok
+test get_report_list::de::with_object_id ... ok
+test get_report_list::en::auto_resolve_last ... ok
+test get_report_list::en::auto_resolve_object ... ok
+test get_report_list::en::auto_resolve_with_period ... ok
+test get_report_list::en::with_object_id ... FAILED
+test rag_query::de::capabilities ... FAILED
+test rag_query::de::project_knowledge ... FAILED
+test rag_query::en::capabilities ... FAILED
+test rag_query::en::project_knowledge ... FAILED
+
+failures:
+
+---- compare_reports::de::full_auto_resolve_last_month stdout ----
+
+thread 'compare_reports::de::full_auto_resolve_last_month' (12460) panicked at tests\integration\common\mod.rs:247:13:
+Expected SSE event 'comparison' not found.
+All events: ["started", "progress", "progress", "progress", "progress", "progress", "description", "completed", "done"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- compare_reports::de::full_context stdout ----
+
+thread 'compare_reports::de::full_context' (1476) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- compare_reports::en::auto_resolve_reports stdout ----
+
+thread 'compare_reports::en::auto_resolve_reports' (10412) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- compare_reports::en::full_auto_resolve_last_month stdout ----
+
+thread 'compare_reports::en::full_auto_resolve_last_month' (16396) panicked at tests\integration\common\mod.rs:247:13:
+Expected SSE event 'comparison' not found.
+All events: ["started", "progress", "progress", "progress", "progress", "progress", "description", "completed", "done"]
+
+---- context_request::de::missing_report_id_describe stdout ----
+
+thread 'context_request::de::missing_report_id_describe' (4000) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- context_request::de::missing_report_ids_compare stdout ----
+
+thread 'context_request::de::missing_report_ids_compare' (3540) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- context_request::en::missing_report_ids_compare stdout ----
+
+thread 'context_request::en::missing_report_ids_compare' (13120) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- describe_report::de::full_context stdout ----
+
+thread 'describe_report::de::full_context' (5360) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- describe_report::en::full_context stdout ----
+
+thread 'describe_report::en::full_context' (21060) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- get_object_tree::en::with_object_id stdout ----
+
+thread 'get_object_tree::en::with_object_id' (18196) panicked at tests\integration\common\mod.rs:86:10:                                                                                                                                 6:13 PMget_tree failed: PoolTimedOut
+
+---- get_report_list::en::with_object_id stdout ----
+
+thread 'get_report_list::en::with_object_id' (3684) panicked at tests\integration\common\mod.rs:86:10:
+get_tree failed: PoolTimedOut
+
+---- rag_query::de::capabilities stdout ----
+
+thread 'rag_query::de::capabilities' (14564) panicked at tests\integration\rag_query.rs:15:5:
+Expected at least one TextChunk event.
+All event types: ["started", "progress", "progress", "progress", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "completed"]
+
+---- rag_query::de::project_knowledge stdout ----
+
+thread 'rag_query::de::project_knowledge' (10888) panicked at tests\integration\rag_query.rs:15:5:
+Expected at least one TextChunk event.
+All event types: ["started", "progress", "progress", "progress", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "completed"]
+
+---- rag_query::en::capabilities stdout ----
+
+thread 'rag_query::en::capabilities' (17544) panicked at tests\integration\common\mod.rs:278:5:
+Unexpected error event(s): ["{\"type\":\"error\",\"request_id\":\"019cc912-0e64-7a30-a1d8-50366ddbd0cb\",\"error\":\"An internal error occurred: \u{2068}Unknown decision type: \u{2068}RagQuery\u{2069}\u{2069}\\nPlease try again or contact support.\"}"]
+
+---- rag_query::en::project_knowledge stdout ----
+
+thread 'rag_query::en::project_knowledge' (20780) panicked at tests\integration\rag_query.rs:15:5:
+Expected at least one TextChunk event.
+All event types: ["started", "progress", "progress", "progress", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "text_chunk", "completed"]
+
+
+failures:
+    compare_reports::de::full_auto_resolve_last_month
+    compare_reports::de::full_context
+    compare_reports::en::auto_resolve_reports
+    compare_reports::en::full_auto_resolve_last_month
+    context_request::de::missing_report_id_describe
+    context_request::de::missing_report_ids_compare
+    context_request::en::missing_report_ids_compare
+    describe_report::de::full_context
+    describe_report::en::full_context
+    get_object_tree::en::with_object_id
+    get_report_list::en::with_object_id
+    rag_query::de::capabilities
+    rag_query::de::project_knowledge
+    rag_query::en::capabilities
+    rag_query::en::project_knowledge
+
+test result: FAILED. 23 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 921.72s

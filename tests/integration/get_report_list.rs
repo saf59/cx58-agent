@@ -23,7 +23,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!("Show all reports for \"{}\"", TEST_OBJECT_NAME),
+                format!("Show all reports for \"{}\"", TEST_OBJECT_NAME),
                 "en",
             ),
         )
@@ -39,7 +39,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Show reports for \"{}\" from the last month",
                     TEST_OBJECT_NAME
                 ),
@@ -58,7 +58,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!("List all reports for \"{}\"", TEST_OBJECT_NAME),
+                format!("List all reports for \"{}\"", TEST_OBJECT_NAME),
                 "en",
             ),
         )
@@ -92,7 +92,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!("Zeige alle Reports für \"{}\"", TEST_OBJECT_NAME),
+                format!("Zeige alle Reports für \"{}\"", TEST_OBJECT_NAME),
                 "de",
             ),
         )
@@ -108,7 +108,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Zeige Reports für \"{}\" vom letzten Monat",
                     TEST_OBJECT_NAME
                 ),
@@ -127,7 +127,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!("Zeige alle Reports für \"{}\"", TEST_OBJECT_NAME),
+                format!("Zeige alle Reports für \"{}\"", TEST_OBJECT_NAME),
                 "de",
             ),
         )

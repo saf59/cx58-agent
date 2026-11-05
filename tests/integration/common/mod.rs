@@ -159,7 +159,7 @@ async fn try_resolve_report_ids(
         )
         .into());
     }
-    images.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    images.sort_by_key(|image| std::cmp::Reverse(image.updated_at));
     Ok((images[0].id.to_string(), images[1].id.to_string()))
 }
 
@@ -303,13 +303,13 @@ pub fn assert_event(events: &[SseEvent], name: &str) -> String {
             panic!(
                 "Expected SSE event '{}' not found.\nAll events: {:?}",
                 name,
-                events.iter().map(|e| event_type(e)).collect::<Vec<_>>()
+                events.iter().map(event_type).collect::<Vec<_>>()
             )
         });
-    if let Ok(outer) = serde_json::from_str::<serde_json::Value>(&event.data) {
-        if let Some(inner) = outer.get("data") {
-            return inner.to_string();
-        }
+    if let Ok(outer) = serde_json::from_str::<serde_json::Value>(&event.data)
+        && let Some(inner) = outer.get("data")
+    {
+        return inner.to_string();
     }
     event.data.clone()
 }
@@ -331,7 +331,7 @@ pub fn assert_completed(events: &[SseEvent]) {
     assert!(
         has_completed,
         "Stream did not contain a 'completed' event.\nAll events: {:?}",
-        events.iter().map(|e| event_type(e)).collect::<Vec<_>>()
+        events.iter().map(event_type).collect::<Vec<_>>()
     );
 }
 

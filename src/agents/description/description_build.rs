@@ -13,10 +13,10 @@ pub fn extract_description_content_robust(
     llm_response: &str,
 ) -> Result<DescriptionContent, Box<dyn std::error::Error + Send + Sync>> {
     // Step 1: Try direct parsing
-    if let Ok(content) = serde_json::from_str::<DescriptionContent>(llm_response.trim()) {
-        if !content.description.trim().is_empty() {
-            return Ok(content);
-        }
+    if let Ok(content) = serde_json::from_str::<DescriptionContent>(llm_response.trim())
+        && !content.description.trim().is_empty()
+    {
+        return Ok(content);
     }
 
     // Step 2: RemoveMarkdown code blocks and try again
@@ -34,28 +34,16 @@ pub fn extract_description_content_robust(
     }
     // Step 2.5: LLM wrapped the JSON in quotes — unescape and try again
     if let Ok(inner) = serde_json::from_str::<String>(llm_response.trim()) {
-        if let Ok(content) = serde_json::from_str::<DescriptionContent>(inner.trim()) {
-            if !content.description.trim().is_empty() {
-                return Ok(content);
-            }
+        if let Ok(content) = serde_json::from_str::<DescriptionContent>(inner.trim())
+            && !content.description.trim().is_empty()
+        {
+            return Ok(content);
         }
         // Also try find { } inside the unescaped string
-        if let Some(start) = inner.find('{') {
-            if let Some(end) = inner.rfind('}') {
-                let json_str = &inner[start..=end];
-                if let Ok(content) = serde_json::from_str::<DescriptionContent>(json_str) {
-                    if !content.description.trim().is_empty() {
-                        return Ok(content);
-                    }
-                }
-            }
-        }
-    }
-
-    // Step 3: Try to find JSON object in the text
-    if let Some(start) = llm_response.find('{') {
-        if let Some(end) = llm_response.rfind('}') {
-            let json_str = &llm_response[start..=end];
+        if let Some(start) = inner.find('{')
+            && let Some(end) = inner.rfind('}')
+        {
+            let json_str = &inner[start..=end];
             if let Ok(content) = serde_json::from_str::<DescriptionContent>(json_str)
                 && !content.description.trim().is_empty()
             {
@@ -64,11 +52,19 @@ pub fn extract_description_content_robust(
         }
     }
 
-    Err(format!(
-        "Failed to parse DescriptionContent from response: {}",
-        llm_response
-    )
-    .into())
+    // Step 3: Try to find JSON object in the text
+    if let Some(start) = llm_response.find('{')
+        && let Some(end) = llm_response.rfind('}')
+    {
+        let json_str = &llm_response[start..=end];
+        if let Ok(content) = serde_json::from_str::<DescriptionContent>(json_str)
+            && !content.description.trim().is_empty()
+        {
+            return Ok(content);
+        }
+    }
+
+    Err("Failed to parse DescriptionContent from model response".into())
 }
 
 /// Generate description content from image bytes using LLM
@@ -95,13 +91,13 @@ pub async fn generate_description_from_image(
         UserContent::Text(user_prompt.into()),
         UserContent::Image(image),
     ])
-    .map_err(|e| AgentError::internal(e))?;
+    .map_err(AgentError::internal)?;
 
     // Limit output tokens — a structured JSON description needs at most ~1024 tokens.
     // Without this limit qwen3-vl:8b generates 4000-6000 tokens of reasoning before
     // the actual JSON, causing 2-5 minute timeouts.
     let request = model
-        .completion_request(Message::User { content: content })
+        .completion_request(Message::User { content })
         .preamble(system_prompt.to_string())
         .temperature(0.2)
         .max_tokens(1024)
@@ -139,22 +135,21 @@ pub fn resize_image_to_bytes(
     // Open the image from bytes
     let img = image::load_from_memory(image_bytes)?;
 
-    // If image is smaller than target, return as is
-    if img.height() <= output_height && img.width() <= output_width {
-        return Ok(image_bytes.to_vec());
-    }
-
-    // Resize using Lanczos3 filter for high quality
-    let resized_img = img.resize(
-        output_width,
-        output_height,
-        image::imageops::FilterType::Lanczos3,
-    );
+    // Normalize every input to JPEG so the declared model media type is truthful.
+    let normalized_img = if img.height() <= output_height && img.width() <= output_width {
+        img
+    } else {
+        img.resize(
+            output_width,
+            output_height,
+            image::imageops::FilterType::Lanczos3,
+        )
+    };
 
     // Encode as JPEG
     let mut bytes: Vec<u8> = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut bytes);
-    resized_img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
+    normalized_img.write_to(&mut cursor, image::ImageFormat::Jpeg)?;
 
     Ok(bytes)
 }
@@ -162,6 +157,26 @@ pub fn resize_image_to_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
+    use std::io::Cursor;
+
+    /// Encodes a small PNG fixture in memory.
+    fn small_png() -> Vec<u8> {
+        let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(2, 2, Rgb([1, 2, 3])));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    /// Verifies that small non-JPEG inputs match the declared JPEG media type.
+    #[test]
+    fn resize_normalizes_small_png_to_jpeg() {
+        let bytes = resize_image_to_bytes(&small_png(), 1200, 1200).unwrap();
+
+        assert_eq!(image::guess_format(&bytes).unwrap(), ImageFormat::Jpeg);
+    }
 
     #[test]
     fn test_extract_clean_json() {

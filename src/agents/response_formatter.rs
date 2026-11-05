@@ -65,13 +65,17 @@ impl ResponseFormatter {
             self.template_manager
                 .render(lang, "formatter-out-of-scope-prompt", ctx)?;
 
-        tracing::debug!("Out of scope format prompt: {}", user_prompt);
+        tracing::debug!(
+            prompt_bytes = user_prompt.len(),
+            "Out-of-scope prompt built"
+        );
 
         let model = self.client.completion_model(model_name);
         let request = model
             .completion_request(&user_prompt)
             .preamble(system_prompt)
             .temperature(0.5)
+            .max_tokens(512)
             .build();
 
         let response = model
@@ -86,7 +90,11 @@ impl ResponseFormatter {
 
         let text = extract_text_from_choice(response.choice);
 
-        tracing::info!(tokens, "Formatter out of scope response:\n{}", text);
+        tracing::info!(
+            tokens,
+            response_bytes = text.len(),
+            "Out-of-scope response generated"
+        );
 
         Ok(text)
     }

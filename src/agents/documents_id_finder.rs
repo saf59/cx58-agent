@@ -58,7 +58,7 @@ impl DocumentsIdFinder {
             return Err(AgentError::NoDocumentsFound);
         }
 
-        images.sort_by_key(|p| std::cmp::Reverse(p.updated_at.clone()));
+        images.sort_by_key(|p| std::cmp::Reverse(p.updated_at));
 
         let first_id = images.first().unwrap().id.to_string();
         if images.len() > 1 {

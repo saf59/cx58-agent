@@ -215,15 +215,15 @@ impl StorageService {
         &self,
         image_data: &Bytes,
         storage_path: &String,
-        mime_type: &String,
+        mime_type: &str,
         headers: HeaderMap,
     ) -> std::result::Result<(), AppError> {
         let _response_data = self
             .bucket
             .put_object_with_content_type_and_headers(
                 &storage_path,
-                &image_data,
-                &mime_type,
+                image_data,
+                mime_type,
                 Some(headers),
             )
             .await
@@ -347,7 +347,22 @@ impl StorageService {
             .get_thumbnail_path(original_path)
             .ok_or_else(|| AppError::internal("Invalid original path format"))?;
 
-        if self.object_exists(&thumbnail_path).await? {
+        let existing_metadata = match self.bucket.head_object(&thumbnail_path).await {
+            Ok((metadata, _)) => Some(metadata),
+            Err(error) => {
+                let message = error.to_string();
+                if message.contains("404") || message.contains("NotFound") {
+                    None
+                } else {
+                    return Err(AppError::new(
+                        ErrorCode::StorageError,
+                        format!("Failed to get thumbnail metadata: {error}"),
+                    ));
+                }
+            }
+        };
+
+        if let Some(metadata) = existing_metadata {
             let mime_type = mime_guess::from_path(&thumbnail_path)
                 .first_or_octet_stream()
                 .to_string();
@@ -355,23 +370,12 @@ impl StorageService {
             // Generate fresh presigned URL or use public URL
             let public_url = format!("{}/{}", self.bucket.url(), thumbnail_path);
 
-            // Get file size from S3 metadata
-            let (head_result, _) = self
-                .bucket
-                .head_object(&thumbnail_path)
-                .await
-                .map_err(|e| {
-                    AppError::new(
-                        ErrorCode::StorageError,
-                        format!("Failed to get thumbnail metadata: {}", e),
-                    )
-                })?;
-
-            let size = head_result.content_length.unwrap_or(0) as u64;
-
-            // Download to compute hash (optional - can be slow)
-            let data = self.download_image(&thumbnail_path).await?;
-            let hash = self.compute_hash(&data);
+            let size = metadata.content_length.unwrap_or(0) as u64;
+            let hash = std::path::Path::new(&thumbnail_path)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or_default()
+                .to_string();
 
             Ok(StorageResult {
                 storage_path: thumbnail_path,
@@ -1374,7 +1378,7 @@ mod tests {
         let storage = crate::init::setup_storage(&config).unwrap();
 
         // Read the test image file
-        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_data = fs::read("tests/fixtures/noise_1.jpg").expect("Failed to read test image");
         let image_bytes = Bytes::from(image_data);
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";
@@ -1420,7 +1424,7 @@ mod tests {
         let storage = crate::init::setup_storage(&config).unwrap();
 
         // Read the test image file
-        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_data = fs::read("tests/fixtures/noise_1.jpg").expect("Failed to read test image");
         let image_bytes = Bytes::from(image_data);
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";
@@ -1485,7 +1489,7 @@ mod tests {
         let storage = crate::init::setup_storage(&config).unwrap();
 
         // Test with PNG file (using the same data for simplicity)
-        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_data = fs::read("tests/fixtures/noise_1.jpg").expect("Failed to read test image");
         let image_bytes = Bytes::from(image_data);
         let node_id = Uuid::now_v7();
 
@@ -1515,7 +1519,7 @@ mod tests {
         let storage = crate::init::setup_storage(&config).unwrap();
 
         // First upload an image to create a thumbnail from
-        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_data = fs::read("tests/fixtures/noise_1.jpg").expect("Failed to read test image");
         let image_bytes = Bytes::from(image_data);
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";
@@ -1578,7 +1582,7 @@ mod tests {
         let storage = crate::init::setup_storage(&config).unwrap();
 
         // Upload original image
-        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_data = fs::read("tests/fixtures/noise_1.jpg").expect("Failed to read test image");
         let image_bytes = Bytes::from(image_data);
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";
@@ -1705,7 +1709,7 @@ mod tests {
         let storage = crate::init::setup_storage(&config).unwrap();
 
         // Upload test image
-        let image_data = fs::read("data/noise_1.jpg").expect("Failed to read test image");
+        let image_data = fs::read("tests/fixtures/noise_1.jpg").expect("Failed to read test image");
         let original_bytes = Bytes::from(image_data.clone());
         let node_id = Uuid::now_v7();
         let filename = "noise_1.jpg";

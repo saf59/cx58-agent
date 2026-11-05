@@ -73,7 +73,7 @@ progress-worker-loading-tree      = Objekthierarchie wird geladen...
 progress-worker-loading-reports   = Reportliste wird geladen...
 progress-worker-describing-report = Report wird analysiert...
 progress-worker-comparing-reports = Beide Reports werden verglichen...
-progress-worker-searching-knowledge = Projektwissen wird durchsucht...
+progress-worker-searching-knowledge = Antwort aus dem aktuellen Kontext wird vorbereitet...
 # ------------------------------------------------------------
 progress-downloading-image = Bild '{ $report_type }' wird heruntergeladen...
 progress-processing-image = Bild '{ $report_type }' wird verarbeitet...
@@ -106,13 +106,23 @@ error-object-not-found =
     Das Objekt „{ $id }" wurde nicht gefunden.
     Bitte prüfen Sie die Objekt-ID und versuchen Sie es erneut.
 
+error-ambiguous-object =
+    Mehrere Objekte heißen „{ $name }".
+    Bitte wählen Sie das Objekt im Baum aus.
+
 error-no-documents-found =
     Es wurden keine Dokumente gefunden, die Ihren Kriterien entsprechen.
     Versuchen Sie einen anderen Zeitraum oder ein anderes Objekt.
 
+error-result-limit-exceeded =
+    Mehr als { $limit } Berichte entsprechen der Anfrage.
+    Bitte wählen Sie einen Zeitraum aus.
+
+error-invalid-request =
+    Die Anfrage enthält ungültige oder zu große Felder.
+
 error-llm-json-parse =
     Das KI-Modell hat eine unerwartete Antwort zurückgegeben, die nicht verarbeitet werden konnte.
-    Details: { $detail }
 
 error-template-render =
     Die Vorlage „{ $template }" konnte nicht dargestellt werden.
@@ -122,19 +132,23 @@ error-localization-key-missing =
     Fehlender Übersetzungsschlüssel: { $key }.
     Bitte melden Sie dies dem Support.
 
+error-deadline-exceeded =
+    Die Anfrage dauerte zu lange und wurde sicher beendet.
+    Bitte versuchen Sie es erneut.
+
 error-date-parse =
     Das Datum „{ $raw }" konnte nicht verarbeitet werden.
     Bitte verwenden Sie das Format TT.MM.JJJJ HH:MM:SS.
 
 error-storage =
-    Ein Speicherfehler ist aufgetreten: { $detail }.
+    Ein Speicherfehler ist aufgetreten.
     Bitte versuchen Sie es später erneut.
 
 error-insufficient-descriptions =
     Für einen Vergleich werden mindestens 2 Berichtsbeschreibungen benötigt, aber nur { $found } waren verfügbar.
 
 error-internal =
-    Ein interner Fehler ist aufgetreten: { $detail }
+    Ein interner Fehler ist aufgetreten.
     Bitte versuchen Sie es erneut oder wenden Sie sich an den Support.
 
 # Context request — object selection

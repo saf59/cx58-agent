@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT data\n            FROM comparison\n            WHERE prev_id   = $1\n              AND next_id   = $2\n              AND lang      = $3\n              AND model     = $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6a96601dd869c69321f2f190a628151e670546dcce4c510988609b41d7a1fa79"
+}

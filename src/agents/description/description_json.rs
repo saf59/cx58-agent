@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-pub const DESCRIPTION_PROMPT_VERSION: &str = "2";
+pub const DESCRIPTION_PROMPT_VERSION: &str = "3";
 
 /// Parsed structure of the description JSON content
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,12 +83,86 @@ fn non_empty(text: String) -> Option<String> {
 }
 
 impl DescriptionContent {
+    /// Reports whether this value belongs to the active prompt and schema contract.
     pub fn uses_current_prompt(&self) -> bool {
         self.prompt_version.as_deref() == Some(DESCRIPTION_PROMPT_VERSION)
     }
 
+    /// Marks this value with the active prompt and schema contract.
     pub fn mark_current_prompt(&mut self) {
         self.prompt_version = Some(DESCRIPTION_PROMPT_VERSION.to_string());
+    }
+
+    /// Normalizes known structured field labels into the requested response language.
+    pub fn normalize_language(&mut self, lang: &str) {
+        for text in [
+            &mut self.windows,
+            &mut self.doors,
+            &mut self.radiators,
+            &mut self.openings,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *text = normalize_structured_labels(text, lang);
+        }
+    }
+}
+
+/// Translates known model-generated schema labels without altering observation values.
+fn normalize_structured_labels(text: &str, lang: &str) -> String {
+    let replacements = if lang == "de" {
+        [
+            ("Count:", "Anzahl:"),
+            ("Type:", "Typ:"),
+            ("Handle:", "Griff:"),
+            ("Condition:", "Zustand:"),
+            ("Installation phase:", "Einbauphase:"),
+            ("Doors:", "Türen:"),
+            ("Windows:", "Fenster:"),
+            ("Radiators:", "Heizkörper:"),
+            ("Openings:", "Öffnungen:"),
+        ]
+    } else {
+        [
+            ("Anzahl:", "Count:"),
+            ("Typ:", "Type:"),
+            ("Griff:", "Handle:"),
+            ("Zustand:", "Condition:"),
+            ("Einbauphase:", "Installation phase:"),
+            ("Türen:", "Doors:"),
+            ("Fenster:", "Windows:"),
+            ("Heizkörper:", "Radiators:"),
+            ("Öffnungen:", "Openings:"),
+        ]
+    };
+
+    replacements
+        .into_iter()
+        .fold(text.to_string(), |normalized, (from, to)| {
+            normalized.replace(from, to)
+        })
+}
+
+#[cfg(test)]
+mod language_tests {
+    use super::DescriptionContent;
+
+    /// Verifies normalization of German structured keys for an English response.
+    #[test]
+    fn german_door_keys_are_normalized_for_english() {
+        let mut content: DescriptionContent = serde_json::from_str(
+            r#"{"description":"Room","doors":[{"Anzahl":1,"Typ":"interior door","Griff":"silver"}]}"#,
+        )
+        .unwrap();
+
+        content.normalize_language("en");
+
+        let doors = content.doors.unwrap();
+        assert!(doors.contains("Count: 1"));
+        assert!(doors.contains("Type: interior door"));
+        assert!(doors.contains("Handle: silver"));
+        assert!(!doors.contains("Anzahl:"));
     }
 }
 

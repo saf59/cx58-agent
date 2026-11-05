@@ -98,7 +98,7 @@ pub async fn upsert_description(
         RETURNING id, node_id, model_name, description, confidence, created_at
         "#,
     )
-    .bind(&data.node_id)
+    .bind(data.node_id)
     .bind(&data.model_name)
     .bind(&data.description)
     .bind(data.confidence)
@@ -119,7 +119,7 @@ pub async fn create_description(
         RETURNING id, node_id, model_name, description, confidence, created_at
         "#,
     )
-    .bind(&data.node_id)
+    .bind(data.node_id)
     .bind(&data.model_name)
     .bind(&data.description)
     .bind(data.confidence)

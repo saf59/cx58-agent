@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO chat_session (user_id, chat_id, object_id, prev_leaf, next_leaf, history, updated_at)\n           VALUES ($1, $2, $3, $4, $5, $6, NOW())\n           ON CONFLICT (user_id) DO UPDATE SET\n               chat_id    = $2,\n               object_id  = $3,\n               prev_leaf  = $4,\n               next_leaf  = $5,\n               history    = CASE\n                                WHEN chat_session.chat_id = $2 THEN $6\n                                ELSE '[]'::jsonb\n                            END,\n               updated_at = NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "61e6a1ff935745ea114736b15a76340ecdec6b14c50479b6bf3e47d8b738efa2"
+}

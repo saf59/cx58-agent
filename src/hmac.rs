@@ -15,7 +15,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 type HmacSha256 = Hmac<Sha256>;
 const MAX_HMAC_BODY_BYTES: usize = 30 * 1024 * 1024;
@@ -23,7 +23,7 @@ const MAX_HMAC_BODY_BYTES: usize = 30 * 1024 * 1024;
 // Rate limiter
 #[derive(Clone)]
 pub struct RateLimiter {
-    requests: Arc<RwLock<HashMap<String, Vec<Instant>>>>,
+    requests: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
     max_requests: usize,
     window: Duration,
 }
@@ -31,18 +31,22 @@ pub struct RateLimiter {
 impl RateLimiter {
     pub fn new(max_requests: usize, window: Duration) -> Self {
         Self {
-            requests: Arc::new(RwLock::new(HashMap::new())),
+            requests: Arc::new(Mutex::new(HashMap::new())),
             max_requests,
             window,
         }
     }
 
     async fn check(&self, key: &str) -> bool {
-        let mut requests = self.requests.write().await;
+        let mut requests = self.requests.lock().await;
         let now = Instant::now();
 
+        requests.retain(|_, timestamps| {
+            timestamps.retain(|&time| now.duration_since(time) < self.window);
+            !timestamps.is_empty()
+        });
+
         let entry = requests.entry(key.to_string()).or_insert_with(Vec::new);
-        entry.retain(|&time| now.duration_since(time) < self.window);
 
         if entry.len() < self.max_requests {
             entry.push(now);
@@ -122,7 +126,7 @@ fn verify_signature_bytes(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     mac.update(timestamp.to_string().as_bytes());
-    mac.update(&bytes);
+    mac.update(bytes);
 
     // Using of embed constant-time verification to prevent timing attacks
     mac.verify_slice(&provided_signature_bytes).map_err(|_| {
@@ -154,6 +158,19 @@ mod tests {
             HeaderValue::from_str(&hex::encode(mac.finalize().into_bytes())).unwrap(),
         );
         headers
+    }
+
+    /// Verifies that expired client keys are removed from limiter state.
+    #[tokio::test]
+    async fn rate_limiter_removes_expired_keys() {
+        let limiter = RateLimiter::new(1, Duration::from_millis(1));
+        assert!(limiter.check("old-client").await);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(limiter.check("new-client").await);
+
+        let requests = limiter.requests.lock().await;
+        assert!(!requests.contains_key("old-client"));
+        assert!(requests.contains_key("new-client"));
     }
 
     #[test]

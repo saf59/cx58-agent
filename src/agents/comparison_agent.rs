@@ -16,6 +16,10 @@
 
 use crate::agents::agent_error::AgentError;
 use crate::agents::agents_helper::{clean_json_response, extract_text_from_choice};
+use crate::agents::runtime_policy::{
+    TEXT_LLM_SLOTS, TEXT_LLM_TIMEOUT, acquire_slot, run_cancellable,
+};
+use crate::agents::singleflight::acquire_singleflight;
 use crate::agents::{Language, LocalizationManager};
 use crate::templating::TemplateManager;
 use crate::{AgentContext, AppState, StreamEvent};
@@ -30,6 +34,8 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tera::Context;
 use tokio::sync::mpsc;
+
+const COMPARISON_PROMPT_VERSION: &str = "2";
 
 // ---------------------------------------------------------------------------
 // Output type
@@ -61,6 +67,31 @@ fn with_report_ids(mut value: Value, prev_id: &str, next_id: &str) -> Value {
     value
 }
 
+/// Adds cache provenance without changing the client response contract.
+fn with_cache_metadata(mut value: Value) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "_cache".to_string(),
+            json!({"prompt_version": COMPARISON_PROMPT_VERSION}),
+        );
+    }
+    value
+}
+
+/// Accepts only cache entries produced by the current comparison prompt contract.
+fn validated_cached_comparison(mut value: Value) -> Option<Value> {
+    let current = value
+        .get("_cache")
+        .and_then(|metadata| metadata.get("prompt_version"))
+        .and_then(Value::as_str)
+        == Some(COMPARISON_PROMPT_VERSION);
+    if !current {
+        return None;
+    }
+    value.as_object_mut()?.remove("_cache");
+    Some(value)
+}
+
 // ---------------------------------------------------------------------------
 // Agent
 // ---------------------------------------------------------------------------
@@ -68,7 +99,7 @@ fn with_report_ids(mut value: Value, prev_id: &str, next_id: &str) -> Value {
 pub struct ComparisonAgent {
     client: Arc<ollama::Client>,
     context: AgentContext,
-    event_tx: mpsc::Sender<StreamEvent>,
+    _event_tx: mpsc::Sender<StreamEvent>,
     lang_manager: Arc<LocalizationManager>,
     template_manager: Arc<TemplateManager>,
 }
@@ -84,7 +115,7 @@ impl ComparisonAgent {
         Self {
             client,
             context,
-            event_tx,
+            _event_tx: event_tx,
             lang_manager,
             template_manager,
         }
@@ -99,18 +130,18 @@ impl ComparisonAgent {
     /// # Arguments
     /// * `state`        – AppState with AI config.
     /// * `descriptions` – expects a Vec<Value> where the first element is an array of two objects
-    ///                    ordered [earlier, later] by date.
+    ///   ordered [earlier, later] by date.
     pub async fn execute_comparison(
         &self,
         state: &Arc<AppState>,
         descriptions: Vec<Value>,
-    ) -> Result<(Value, Option<u64>), AgentError> {
+    ) -> Result<(Value, Option<u64>, u32), AgentError> {
         // first row in the descriptions is expected to be an array of two objects
         // Validate we have at least two descriptions.
         let descriptions = descriptions
             .first()
             .and_then(|v| v.as_array())
-            .ok_or_else(|| AgentError::InsufficientDescriptions { found: 0 })?;
+            .ok_or(AgentError::InsufficientDescriptions { found: 0 })?;
 
         if descriptions.len() < 2 {
             let err = AgentError::InsufficientDescriptions {
@@ -121,12 +152,13 @@ impl ComparisonAgent {
                 request_id = %self.context.request_id,
                 "ComparisonAgent: insufficient descriptions, need 2"
             );
-            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
-                .await;
-            return Err(err.into());
+            return Err(err);
         }
 
-        tracing::debug!("ComparisonAgent descriptions: {:#?}", descriptions);
+        tracing::debug!(
+            description_count = descriptions.len(),
+            "ComparisonAgent descriptions loaded"
+        );
 
         let lang = Language::from_short(&self.context.language);
         let lang_code = lang.to_code();
@@ -173,14 +205,34 @@ impl ComparisonAgent {
             .await?
         {
             tracing::info!(prev_id, next_id, "Comparison cache HIT");
-            return Ok((with_report_ids(cached, prev_id, next_id), None));
+            return Ok((with_report_ids(cached, prev_id, next_id), None, 0));
+        }
+
+        let flight_key = format!("comparison:{prev_id}:{next_id}:{lang_code}:{model_name}");
+        let _flight = run_cancellable(
+            &self.context.cancellation_token,
+            TEXT_LLM_TIMEOUT,
+            "comparison_singleflight",
+            async { Ok(acquire_singleflight(&flight_key).await) },
+        )
+        .await?;
+        if let Some(cached) = self
+            .get_cached_comparison(&state.db, prev_id, next_id, lang_code, model_name)
+            .await?
+        {
+            tracing::info!(
+                prev_id,
+                next_id,
+                "Comparison cache HIT after singleflight wait"
+            );
+            return Ok((with_report_ids(cached, prev_id, next_id), None, 0));
         }
 
         // Load system prompt.
         let system_prompt = self
             .lang_manager
             .get_prompt(lang_code, "comparison-system-prompt")
-            .map_err(|e| AgentError::internal(e))?;
+            .map_err(AgentError::internal)?;
 
         // Build Tera context for user prompt template.
         let mut ctx = Context::new();
@@ -199,14 +251,31 @@ impl ComparisonAgent {
                 template: "comparison-user-prompt".to_string(),
             })?;
 
-        tracing::debug!("ComparisonAgent user_prompt:\n{}", user_prompt);
-        let model = self.client.completion_model(&model_name.clone());
+        tracing::debug!(
+            prompt_bytes = user_prompt.len(),
+            "ComparisonAgent prompt built"
+        );
+        let model = self.client.completion_model(model_name.clone());
         let request = model
             .completion_request(&user_prompt)
             .preamble(system_prompt)
             .temperature(0.2)
+            .max_tokens(1024)
             .build();
-        let response = model.completion(request).await?;
+        let _slot = acquire_slot(
+            &self.context.cancellation_token,
+            &TEXT_LLM_SLOTS,
+            TEXT_LLM_TIMEOUT,
+            "comparison_queue",
+        )
+        .await?;
+        let response = run_cancellable(
+            &self.context.cancellation_token,
+            TEXT_LLM_TIMEOUT,
+            "comparison",
+            async { model.completion(request).await.map_err(AgentError::from) },
+        )
+        .await?;
 
         let choice = response.choice.clone();
         let text = extract_text_from_choice(choice);
@@ -226,18 +295,11 @@ impl ComparisonAgent {
                 + response.raw_response.eval_count.unwrap_or(0),
         );
 
-        tracing::debug!("ComparisonAgent raw response:\n{}", &text);
-
         // Parse structured output.
         let cleaned = clean_json_response(&text);
-        tracing::debug!("ComparisonAgent cleaned JSON:\n{}", cleaned);
 
         let mut parsed: ComparisonData = serde_json::from_str(&cleaned).map_err(|e| {
-            tracing::error!(
-                "ComparisonAgent: failed to parse LLM response: {}\nCleaned: {}",
-                e,
-                cleaned
-            );
+            tracing::error!(error = %e, "ComparisonAgent failed to parse LLM response");
             AgentError::LlmJsonParseError {
                 detail: e.to_string(),
             }
@@ -258,7 +320,7 @@ impl ComparisonAgent {
         )
         .await?;
 
-        Ok((result_json, tokens))
+        Ok((result_json, tokens, 1))
     }
 
     // -----------------------------------------------------------------------
@@ -303,7 +365,7 @@ impl ComparisonAgent {
         .fetch_optional(pool)
         .await?;
 
-        Ok(row.map(|r| r.data))
+        Ok(row.and_then(|row| validated_cached_comparison(row.data)))
     }
 
     async fn save_comparison(
@@ -327,7 +389,7 @@ impl ComparisonAgent {
             next_id,
             lang,
             model,
-            data
+            with_cache_metadata(data.clone())
         )
         .execute(pool)
         .await?;
@@ -338,7 +400,7 @@ impl ComparisonAgent {
 
 #[cfg(test)]
 mod report_id_tests {
-    use super::with_report_ids;
+    use super::{validated_cached_comparison, with_cache_metadata, with_report_ids};
     use serde_json::json;
 
     #[test]
@@ -351,5 +413,21 @@ mod report_id_tests {
 
         assert_eq!(value["prev_id"], "older-report-id");
         assert_eq!(value["next_id"], "newer-report-id");
+    }
+
+    /// Verifies that legacy comparison entries are rejected after prompt changes.
+    #[test]
+    fn legacy_cache_entry_is_rejected() {
+        assert!(validated_cached_comparison(json!({"description": "old"})).is_none());
+    }
+
+    /// Verifies that current cache metadata is validated and hidden from clients.
+    #[test]
+    fn current_cache_entry_is_accepted_without_metadata() {
+        let cached = with_cache_metadata(json!({"description": "current"}));
+        let response = validated_cached_comparison(cached).unwrap();
+
+        assert_eq!(response["description"], "current");
+        assert!(response.get("_cache").is_none());
     }
 }

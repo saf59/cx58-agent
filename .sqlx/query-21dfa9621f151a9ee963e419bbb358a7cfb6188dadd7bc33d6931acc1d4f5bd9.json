@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT user_id, chat_id, object_id, prev_leaf, next_leaf,\n                  history as \"history: JsonValue\"\n           FROM chat_session\n           WHERE user_id = $1 AND chat_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "chat_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "object_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "prev_leaf",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "next_leaf",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "history: JsonValue",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "21dfa9621f151a9ee963e419bbb358a7cfb6188dadd7bc33d6931acc1d4f5bd9"
+}

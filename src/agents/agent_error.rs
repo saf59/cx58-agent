@@ -6,8 +6,7 @@
 // - `AgentError` is an enum that covers every distinct failure mode across all agents.
 // - Each variant carries only the minimal data needed to render a human-readable,
 //   language-specific message via `LocalizationManager` + Fluent `.ftl` bundles.
-// - `send_to_client()` renders the message and pushes it as `StreamEvent::Error`
-//   so every agent uses a single consistent code path.
+// - The top-level request owner renders each error and emits the only terminal event.
 //
 // ## Usage in agents
 // ```rust
@@ -16,18 +15,11 @@
 // // Return from any agent:
 // return Err( AgentError::MissingObjectId.into());
 //
-// // Or send directly and continue / stop:
-// AgentError::NoDocumentsFound
-//     .send_to_client(&self.event_tx, &self.context, &self.lang_manager)
-//     .await;
 // ```
 
 use std::fmt;
-use std::sync::Arc;
-use tokio::sync::mpsc;
 
 use crate::agents::LocalizationManager;
-use crate::{AgentContext, StreamEvent};
 use fluent_bundle::FluentArgs;
 
 // ---------------------------------------------------------------------------
@@ -59,8 +51,17 @@ pub enum AgentError {
     /// * `id` – the object id that was looked up.
     ObjectNotFound { id: String },
 
+    /// More than one accessible object has the requested display name.
+    AmbiguousObject { name: String },
+
     /// No documents / reports match the query criteria.
     NoDocumentsFound,
+
+    /// A request asks for more records than the bounded response contract permits.
+    ResultLimitExceeded { limit: usize },
+
+    /// Request fields violate the public input contract.
+    InvalidRequest,
 
     // --- LLM / prompt errors ---
     /// The LLM returned a response that could not be parsed as the expected JSON.
@@ -74,6 +75,9 @@ pub enum AgentError {
     /// A localization message key was not found.
     /// * `key` – the missing key.
     LocalizationKeyMissing { key: String },
+
+    /// A bounded runtime stage exceeded its configured deadline.
+    DeadlineExceeded { stage: &'static str },
 
     // --- Date / time errors ---
     /// A date string could not be parsed.
@@ -106,7 +110,14 @@ impl fmt::Display for AgentError {
             Self::MissingObjectId => write!(f, "Object ID is required but was not provided"),
             Self::InvalidUuid { raw } => write!(f, "Invalid UUID: '{}'", raw),
             Self::ObjectNotFound { id } => write!(f, "Object '{}' not found", id),
+            Self::AmbiguousObject { name } => {
+                write!(f, "More than one object is named '{}'", name)
+            }
             Self::NoDocumentsFound => write!(f, "No documents found matching the criteria"),
+            Self::ResultLimitExceeded { limit } => {
+                write!(f, "Result exceeds the limit of {} records", limit)
+            }
+            Self::InvalidRequest => write!(f, "Invalid agent request"),
             Self::LlmJsonParseError { detail } => {
                 write!(f, "Failed to parse LLM response: {}", detail)
             }
@@ -115,6 +126,9 @@ impl fmt::Display for AgentError {
             }
             Self::LocalizationKeyMissing { key } => {
                 write!(f, "Missing localization key: '{}'", key)
+            }
+            Self::DeadlineExceeded { stage } => {
+                write!(f, "Agent stage '{}' exceeded its deadline", stage)
             }
             Self::DateParseError { raw } => write!(f, "Failed to parse date: '{}'", raw),
             Self::StorageError { detail } => write!(f, "Storage error: {}", detail),
@@ -149,10 +163,14 @@ impl AgentError {
             Self::MissingObjectId => "error-missing-object-id",
             Self::InvalidUuid { .. } => "error-invalid-uuid",
             Self::ObjectNotFound { .. } => "error-object-not-found",
+            Self::AmbiguousObject { .. } => "error-ambiguous-object",
             Self::NoDocumentsFound => "error-no-documents-found",
+            Self::ResultLimitExceeded { .. } => "error-result-limit-exceeded",
+            Self::InvalidRequest => "error-invalid-request",
             Self::LlmJsonParseError { .. } => "error-llm-json-parse",
             Self::TemplateRenderError { .. } => "error-template-render",
             Self::LocalizationKeyMissing { .. } => "error-localization-key-missing",
+            Self::DeadlineExceeded { .. } => "error-deadline-exceeded",
             Self::DateParseError { .. } => "error-date-parse",
             Self::StorageError { .. } => "error-storage",
             Self::InsufficientDescriptions { .. } => "error-insufficient-descriptions",
@@ -178,15 +196,18 @@ impl AgentError {
             Self::Cancelled => None,
             Self::InvalidUuid { raw } => args!("raw"      => raw.clone()),
             Self::ObjectNotFound { id } => args!("id"       => id.clone()),
-            Self::LlmJsonParseError { detail } => args!("detail"   => detail.clone()),
+            Self::AmbiguousObject { name } => args!("name" => name.clone()),
+            Self::LlmJsonParseError { .. } => None,
             Self::TemplateRenderError { template } => args!("template" => template.clone()),
             Self::LocalizationKeyMissing { key } => args!("key"      => key.clone()),
+            Self::DeadlineExceeded { .. } => None,
             Self::DateParseError { raw } => args!("raw"      => raw.clone()),
-            Self::StorageError { detail } => args!("detail"   => detail.clone()),
+            Self::StorageError { .. } => None,
             Self::InsufficientDescriptions { found } => args!("found"    => found.to_string()),
-            Self::Internal { detail } => args!("detail"   => detail.clone()),
+            Self::ResultLimitExceeded { limit } => args!("limit" => limit.to_string()),
+            Self::Internal { .. } => None,
             // Parameter-less variants
-            Self::MissingObjectId | Self::NoDocumentsFound => None,
+            Self::MissingObjectId | Self::NoDocumentsFound | Self::InvalidRequest => None,
         }
     }
 
@@ -218,36 +239,6 @@ impl AgentError {
         } else {
             rendered
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // SSE helpers
-    // -----------------------------------------------------------------------
-
-    /// Sends a localized `StreamEvent::Error` to the client channel.
-    ///
-    /// This is the canonical way for any agent to report an error to the
-    /// frontend — call this instead of constructing `StreamEvent::Error` inline.
-    ///
-    /// # Arguments
-    /// * `tx`           – the SSE sender for this request.
-    /// * `context`      – the current `AgentContext` (provides `request_id` and `language`).
-    /// * `lang_manager` – shared `LocalizationManager`.
-    pub async fn send_to_client(
-        &self,
-        tx: &mpsc::Sender<StreamEvent>,
-        context: &AgentContext,
-        lang_manager: &Arc<LocalizationManager>,
-    ) {
-        let lang = crate::agents::Language::from_short(&context.language);
-        let message = self.localized_message(lang.to_code(), lang_manager);
-
-        let _ = tx
-            .send(StreamEvent::Error {
-                request_id: context.request_id.clone(),
-                error: message,
-            })
-            .await;
     }
 
     // -----------------------------------------------------------------------
@@ -293,5 +284,42 @@ impl From<sqlx::Error> for AgentError {
         AgentError::Internal {
             detail: e.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AgentError;
+    use crate::agents::LocalizationManager;
+
+    /// Verifies that internal diagnostic details never reach localized client text.
+    #[test]
+    fn internal_error_message_is_redacted() {
+        let error = AgentError::Internal {
+            detail: "secret model response and signed URL".to_string(),
+        };
+        let manager = LocalizationManager::new();
+
+        let english = error.localized_message("en", &manager);
+        let german = error.localized_message("de", &manager);
+
+        assert!(!english.contains("secret model response"));
+        assert!(!german.contains("secret model response"));
+        assert!(english.contains("internal error"));
+        assert!(german.contains("interner Fehler"));
+    }
+
+    /// Verifies that provider parse details are hidden from localized client text.
+    #[test]
+    fn llm_parse_error_message_is_redacted() {
+        let error = AgentError::LlmJsonParseError {
+            detail: "raw response payload".to_string(),
+        };
+        let manager = LocalizationManager::new();
+
+        let message = error.localized_message("en", &manager);
+
+        assert!(!message.contains("raw response payload"));
+        assert!(message.contains("unexpected response"));
     }
 }

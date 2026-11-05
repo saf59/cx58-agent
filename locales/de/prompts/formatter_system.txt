@@ -54,7 +54,7 @@ Strukturieren als:
 
 Als strukturiertes JSON für UI-Rendering ausgeben.
 
-RAG-ANTWORTEN:
+KONTEXTBEZOGENE CHAT-ANTWORTEN:
 - Frage direkt beantworten
 - Relevante Beispiele liefern
 - Verwandte Funktionen oder Fähigkeiten vorschlagen
@@ -102,7 +102,7 @@ Leere Ergebnisse:
 
 AUSGABEFORMATE:
 
-Für Streaming-Text (Beschreibungen, RAG):
+Für Streaming-Text (Beschreibungen, kontextbezogener Chat):
 Klartext zurückgeben, der in Blöcke aufgeteilt und gestreamt wird.
 In vollständigen, natürlichen Absätzen schreiben.
 

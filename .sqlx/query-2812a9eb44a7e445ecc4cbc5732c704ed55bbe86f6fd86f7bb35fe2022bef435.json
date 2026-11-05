@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM comparison WHERE created_at <= (NOW() - INTERVAL '30 days')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2812a9eb44a7e445ecc4cbc5732c704ed55bbe86f6fd86f7bb35fe2022bef435"
+}

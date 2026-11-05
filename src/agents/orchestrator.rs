@@ -189,7 +189,6 @@ impl Orchestrator {
     /// - Decision contains invalid worker type or parameters
     ///
     /// - [ ] Current implementation doesn't retry on failure
-
     pub async fn decide_next_step(
         &self,
         classification: &ClassificationResult,
@@ -254,7 +253,7 @@ impl Orchestrator {
             lang,
         )?;
 
-        tracing::debug!("Orchestrator - Prompt: {}", prompt);
+        tracing::debug!(prompt_bytes = prompt.len(), "Orchestrator prompt built");
         let model = self.client.completion_model(model_name);
 
         // Create LLM agent with low temperature (0.2) for consistent, predictable decisions
@@ -273,7 +272,7 @@ impl Orchestrator {
             let msg = "Orchestrator LLM returned no text content";
             let err = AgentError::internal(msg);
             tracing::error!("Orchestrator LLM response error: {}", msg);
-            return Err(err.into());
+            return Err(err);
         }
 
         let tokens = Some(
@@ -281,19 +280,19 @@ impl Orchestrator {
                 + response.raw_response.eval_count.unwrap_or(0),
         );
 
-        tracing::debug!("Orchestrator raw response:\n{}", text);
+        tracing::debug!(
+            response_bytes = text.len(),
+            "Orchestrator response received"
+        );
 
         // CleanMarkdown code fences and extract pure JSON
         let cleaned = clean_json_response(&text);
 
-        tracing::debug!("Orchestrator cleaned JSON:\n{}", cleaned);
+        tracing::debug!(cleaned_bytes = cleaned.len(), "Orchestrator JSON cleaned");
 
         // Parse JSON response
         let decision_json: Value = serde_json::from_str(&cleaned).map_err(|e| {
-            let err = AgentError::internal(format!(
-                "Failed to parse orchestrator decision: {}\nCleaned: {}\nOriginal: {}",
-                e, cleaned, text
-            ));
+            let err = AgentError::internal(format!("Failed to parse orchestrator decision: {e}"));
             tracing::error!("Orchestrator parse JSON response: {}", err);
             err
         })?;
@@ -343,7 +342,6 @@ impl Orchestrator {
     ///
     /// Returns error if template rendering fails or JSON serialization fails
     ///
-
     fn build_orchestrator_prompt(
         &self,
         classification: &ClassificationResult,
@@ -451,7 +449,7 @@ impl Orchestrator {
     /// - `GetReportList`: Retrieves photo reports (Report List Worker)
     /// - `DescribeReport`: Analyzes single image (Vision Analysis Worker)
     /// - `CompareReports`: Compares two images (Comparison Worker)
-    /// - `RagQuery`: Answers questions from knowledge base (Knowledge Base Worker)
+    /// - `RagQuery`: Legacy internal name for contextual chat (Chat Worker)
     ///
     /// ### RequestContextFromUser
     /// Request missing context from user (from context validation flow)
@@ -522,7 +520,6 @@ impl Orchestrator {
     /// - Required fields are missing
     /// - Worker type is invalid
     /// - Parameters are malformed
-
     fn parse_decision(
         &self,
         decision_json: Value,
@@ -664,7 +661,7 @@ impl Orchestrator {
                         reports: Value::Null,
                     },
 
-                    // Knowledge Base Worker: Chat retrieval for project questions
+                    // Contextual Chat Worker: answers from context already supplied to the agent.
                     "RagQuery" | "RAG_QUERY" => {
                         let query = action_data["parameters"]["query"]
                             .as_str()
@@ -743,7 +740,7 @@ impl Orchestrator {
                         let msg = self.lang_manager.get_msg(lang, "error-unknown-worker");
                         let err = AgentError::internal(msg);
                         tracing::error!("Orchestrator parse worker_type: {}", err);
-                        return Err(err.into());
+                        return Err(err);
                     }
                 };
 
@@ -933,7 +930,7 @@ impl Orchestrator {
                 );
                 let err = AgentError::internal(msg);
                 tracing::error!("Orchestrator parse decision_type: {}", err);
-                Err(err.into())
+                Err(err)
             }
         }
     }

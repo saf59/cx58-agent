@@ -1,4 +1,5 @@
 // Public module exports
+pub mod access_control;
 pub mod agent_context;
 pub mod agent_error;
 pub mod agents_helper;
@@ -10,12 +11,16 @@ pub mod document_agent;
 pub mod documents_id_finder;
 pub mod events;
 pub mod filter_objects;
+pub mod input_validation;
 pub mod intent_router;
 pub mod master_agent;
 pub mod object_agent;
 pub mod object_id_finder;
 pub mod orchestrator;
+pub mod planner;
 pub mod response_formatter;
+pub mod runtime_policy;
+pub mod singleflight;
 pub mod stats;
 pub mod tera;
 pub mod types;

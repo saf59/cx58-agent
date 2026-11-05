@@ -21,23 +21,36 @@ impl ObjectIdFinder {
         let tree = get_tree(&state.db, &self.context.user_id, true).await?;
         let object_name_key = ObjectNameKey::new(object_name);
 
-        let branch = tree.iter().find(|it| {
-            it.own
-                && it.node_type == crate::db::NodeType::Branch
-                && it
-                    .name
-                    .as_deref()
-                    .map(|name| ObjectNameKey::new(name).matches(&object_name_key))
-                    .unwrap_or(false)
-        });
+        let matches: Vec<_> = tree
+            .iter()
+            .filter(|it| {
+                it.own
+                    && it.node_type == crate::db::NodeType::Branch
+                    && it
+                        .name
+                        .as_deref()
+                        .map(|name| ObjectNameKey::new(name).matches(&object_name_key))
+                        .unwrap_or(false)
+            })
+            .collect();
 
-        if branch.is_none() {
+        if matches.is_empty() {
             tracing::warn!("ObjectIdFinder: object with name {} not found", object_name);
             return Err(AgentError::ObjectNotFound {
                 id: object_name.to_string(),
             });
         }
-        let uuid = branch.unwrap().id;
+        if matches.len() > 1 {
+            tracing::warn!(
+                object_name,
+                candidates = matches.len(),
+                "ObjectIdFinder found an ambiguous object name"
+            );
+            return Err(AgentError::AmbiguousObject {
+                name: object_name.to_string(),
+            });
+        }
+        let uuid = matches[0].id;
         Ok(uuid.to_string())
     }
 }

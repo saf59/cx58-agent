@@ -73,7 +73,7 @@ progress-worker-loading-tree     = Loading the object hierarchy...
 progress-worker-loading-reports  = Loading the report list...
 progress-worker-describing-report = Analyzing the report...
 progress-worker-comparing-reports = Comparing the two reports...
-progress-worker-searching-knowledge = Searching the project knowledge base...
+progress-worker-searching-knowledge = Preparing an answer from the current context...
 # ------------------------------------------------------------
 progress-downloading-image = Downloading '{ $report_type }' image...
 progress-processing-image = Processing '{ $report_type }' image...
@@ -109,13 +109,23 @@ error-object-not-found =
     Object "{ $id }" was not found.
     Please check the object ID and try again.
 
+error-ambiguous-object =
+    More than one object is named "{ $name }".
+    Please select the object in the tree.
+
 error-no-documents-found =
     No documents were found matching your criteria.
     Try a different time period or object.
 
+error-result-limit-exceeded =
+    More than { $limit } reports matched the request.
+    Please select a time period.
+
+error-invalid-request =
+    The request contains invalid or oversized fields.
+
 error-llm-json-parse =
     The AI model returned an unexpected response and it could not be processed.
-    Details: { $detail }
 
 error-template-render =
     Failed to render template "{ $template }".
@@ -125,19 +135,23 @@ error-localization-key-missing =
     Missing translation key: { $key }.
     Please report this to support.
 
+error-deadline-exceeded =
+    The request took too long and was stopped safely.
+    Please try again.
+
 error-date-parse =
     The date "{ $raw }" could not be parsed.
     Please use the format DD.MM.YYYY HH:MM:SS.
 
 error-storage =
-    A storage operation failed: { $detail }.
+    A storage operation failed.
     Please try again later.
 
 error-insufficient-descriptions =
     A comparison requires at least 2 report descriptions, but only { $found } were available.
 
 error-internal =
-    An internal error occurred: { $detail }
+    An internal error occurred.
     Please try again or contact support.
 
 # Context request — object selection

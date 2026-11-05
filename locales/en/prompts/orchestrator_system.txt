@@ -92,6 +92,7 @@ Resolution chain before DescribeReport guard fires:
   → ExecuteWorker **CompareReports**
 
 ### RAG_QUERY
+- This is a legacy internal name for contextual chat, not retrieval.
 - Execute immediately with the original user message as query.
 
 ### OUT_OF_SCOPE

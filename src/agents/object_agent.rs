@@ -9,8 +9,8 @@ use tokio::sync::mpsc;
 
 pub struct ObjectAgent {
     context: AgentContext,
-    event_tx: mpsc::Sender<StreamEvent>,
-    lang_manager: Arc<LocalizationManager>,
+    _event_tx: mpsc::Sender<StreamEvent>,
+    _lang_manager: Arc<LocalizationManager>,
 }
 
 /// It is not real AI agent at all.
@@ -25,8 +25,8 @@ impl ObjectAgent {
     ) -> Self {
         Self {
             context,
-            event_tx,
-            lang_manager,
+            _event_tx: event_tx,
+            _lang_manager: lang_manager,
         }
     }
 
@@ -42,10 +42,7 @@ impl ObjectAgent {
                 "ObjectAgent: no objects found for user {}",
                 self.context.user_id
             );
-            let err = AgentError::NoDocumentsFound;
-            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
-                .await;
-            return Err(err);
+            return Err(AgentError::NoDocumentsFound);
         }
         let json_data = json!(filtered);
         Ok(json_data)

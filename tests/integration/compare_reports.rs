@@ -63,7 +63,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Compare the reports from last month for \"{}\"",
                     TEST_OBJECT_NAME
                 ),
@@ -82,7 +82,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Compare the changes over the last month for \"{}\"",
                     TEST_OBJECT_NAME
                 ),
@@ -145,7 +145,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Vergleiche die Reports vom letzten Monat für \"{}\"",
                     TEST_OBJECT_NAME
                 ),
@@ -164,7 +164,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Vergleiche die Änderungen des letzten Monats für \"{}\"",
                     TEST_OBJECT_NAME
                 ),

@@ -295,11 +295,10 @@ pub async fn chat_stream_handler(
 
                     yield Ok(sse_event);
 
-                    // Keep reading after Error so the top-level Completed event
-                    // remains observable by clients.
                     match event {
                         StreamEvent::Completed { .. }
-                        | StreamEvent::Cancelled { .. } => {
+                        | StreamEvent::Cancelled { .. }
+                        | StreamEvent::Error { .. } => {
                             break;
                         }
                         _ => {}

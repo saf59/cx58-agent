@@ -1,0 +1,15 @@
+/.env
+/.env.*
+/docker-compose.yml
+/old
+/SQL
+/*.cmd
+/some
+/*.md
+/.idea
+
+# Build output, local data, and environment credentials
+target/
+data/
+*.env
+.env_*

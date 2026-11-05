@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM image_descriptions WHERE created_at <= (NOW() - INTERVAL '30 days')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0c4ec15e571c29f2fa136358e0e627e515c3624ea08726ad96bf6149e5379101"
+}

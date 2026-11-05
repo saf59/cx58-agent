@@ -4,9 +4,14 @@ use crate::agents::description::description_build::{
     extract_description_content_robust, resize_image_to_bytes,
 };
 use crate::agents::description::description_helper::{
-    resolve_node_full_name, resolve_node_storage_path,
+    resolve_image_node, resolve_node_full_name, resolve_node_storage_path,
 };
 use crate::agents::description::description_json::DescriptionData;
+use crate::agents::runtime_policy::{
+    IMAGE_PROCESS_SLOTS, IMAGE_PROCESS_TIMEOUT, STORAGE_TIMEOUT, VISION_LLM_SLOTS,
+    VISION_LLM_TIMEOUT, acquire_slot, run_cancellable,
+};
+use crate::agents::singleflight::acquire_singleflight;
 use crate::agents::{Language, ReportPair};
 use crate::db_description::{
     CreateImageDescription, ImageDescription, get_descriptions_by_node, upsert_description,
@@ -20,6 +25,19 @@ use std::sync::Arc;
 use tera::Context;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+const MAX_DESCRIPTION_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+
+/// Formats a stored UTC report timestamp in the report's Berlin wall-clock time.
+fn format_report_date(updated_at: chrono::NaiveDateTime) -> String {
+    use chrono::{TimeZone, Utc};
+    use chrono_tz::Europe::Berlin;
+
+    let utc = Utc.from_utc_datetime(&updated_at);
+    utc.with_timezone(&Berlin)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
 
 pub struct DescriptionAgent {
     client: Arc<ollama::Client>,
@@ -62,42 +80,34 @@ impl DescriptionAgent {
         let mut calls: u32 = 0;
 
         // Process prev report
-        if let Some((desc, prev_tokens)) = self
+        if let Some((desc, prev_tokens, generated)) = self
             .process_single_report(state, &reports.prev, "prev")
             .await?
         {
             descriptions.push(desc);
-            if let Some(n) = prev_tokens {
-                if n > 0 {
-                    calls += 1;
-                    total_tokens += n;
-                };
+            if generated {
+                calls += 1;
             }
+            total_tokens += prev_tokens.unwrap_or(0);
         }
 
         // Process next report if provided
-        if let Some(ref next_id) = reports.next {
-            if let Some((desc, next_tokens)) =
+        if let Some(ref next_id) = reports.next
+            && let Some((desc, next_tokens, generated)) =
                 self.process_single_report(state, next_id, "next").await?
-            {
-                descriptions.push(desc);
-                if let Some(n) = next_tokens {
-                    if n > 0 {
-                        calls += 1;
-                        total_tokens += n;
-                    };
-                };
+        {
+            descriptions.push(desc);
+            if generated {
+                calls += 1;
             }
+            total_tokens += next_tokens.unwrap_or(0);
         }
         if descriptions.is_empty() {
             tracing::error!(
                 "DescriptionAgent: no descriptions generated for reports {:?}",
                 reports
             );
-            let err = AgentError::InsufficientDescriptions { found: 0 };
-            err.send_to_client(&self.event_tx, &self.context, &self.lang_manager)
-                .await;
-            return Err(err);
+            return Err(AgentError::InsufficientDescriptions { found: 0 });
         }
 
         let tokens_result = Some(total_tokens);
@@ -112,7 +122,7 @@ impl DescriptionAgent {
         state: &Arc<AppState>,
         report_id: &str,
         report_type: &str,
-    ) -> Result<Option<(Value, Option<u64>)>, AgentError> {
+    ) -> Result<Option<(Value, Option<u64>, bool)>, AgentError> {
         // Parse the report_id as UUID
         let node_id = match Uuid::parse_str(report_id) {
             Ok(id) => id,
@@ -156,15 +166,10 @@ impl DescriptionAgent {
                 return Err(err);
             }
         };
-        let report_type = object_name.split('/').last().unwrap_or(report_type);
+        let report_type = object_name.split('/').next_back().unwrap_or(report_type);
 
         // Check if we have a matching description
-        let existing_desc = descriptions.iter().find(|description| {
-            serde_json::from_str::<
-                crate::agents::description::description_json::DescriptionContent,
-            >(&description.description)
-            .is_ok_and(|content| content.uses_current_prompt())
-        });
+        let existing_desc = current_description(&descriptions);
 
         if let Some(image_desc) = existing_desc {
             tracing::info!(
@@ -183,8 +188,33 @@ impl DescriptionAgent {
                     lang_code,
                 )
                 .await
-                .map_err(|e| AgentError::internal(e))?;
-            return Ok(Some((desc_json, Some(0))));
+                .map_err(AgentError::internal)?;
+            return Ok(Some((desc_json, None, false)));
+        }
+
+        let flight_key = format!("description:{node_id}:{model}:{lang_code}");
+        let _flight = run_cancellable(
+            &self.context.cancellation_token,
+            VISION_LLM_TIMEOUT,
+            "description_singleflight",
+            async { Ok(acquire_singleflight(&flight_key).await) },
+        )
+        .await?;
+        let refreshed = get_descriptions_by_node(&state.db, &node_id, &model, lang_code)
+            .await
+            .map_err(AgentError::internal)?;
+        if let Some(image_desc) = current_description(&refreshed) {
+            let desc_json = self
+                .build_description_json_response(
+                    state,
+                    image_desc,
+                    &object_name,
+                    &node_id,
+                    lang_code,
+                )
+                .await
+                .map_err(AgentError::internal)?;
+            return Ok(Some((desc_json, None, false)));
         }
 
         // No existing description found - need to generate one
@@ -208,7 +238,7 @@ impl DescriptionAgent {
             lang_code,
             "progress-downloading-image",
             "report_type",
-            &report_type,
+            report_type,
         );
         // Download and resize image
         self.send_event(StreamEvent::Progress {
@@ -219,40 +249,39 @@ impl DescriptionAgent {
         })
         .await;
 
-        let image_url = match state
-            .storage
-            .generate_presigned_url(&storage_path, 120)
-            .await
-        {
-            Ok(url) => url,
-            Err(e) => {
-                let msg = format!(
-                    "Failed to generate presigned URL for {}: {}",
-                    &storage_path, e
-                );
-                tracing::error!(msg);
-                let err = AgentError::internal(msg.clone());
-                return Err(err);
-            }
-        };
-        // Download image from storage
-        // The URL is the public presigned URL, we need to extract the storage path
-        // or use the image processor to download from the internal path
-        let image_bytes = match self.download_image_from_url(&image_url).await {
+        let download_result = run_cancellable(
+            &self.context.cancellation_token,
+            STORAGE_TIMEOUT,
+            "image_download",
+            async {
+                state
+                    .storage
+                    .download_image(&storage_path)
+                    .await
+                    .map_err(AgentError::internal)
+            },
+        )
+        .await;
+        let image_bytes = match download_result {
             Ok(bytes) => bytes,
             Err(e) => {
-                let err_msg = format!("Failed to download image from URL {}: {}", image_url, e);
-                tracing::error!("{}", err_msg);
+                let err_msg = format!("Failed to download image for node {}: {}", node_id, e);
+                tracing::error!(node_id = %node_id, error = %e, "Failed to download image");
                 let err = AgentError::internal(err_msg.clone());
                 return Err(err);
             }
         };
+        if image_bytes.len() > MAX_DESCRIPTION_IMAGE_BYTES {
+            return Err(AgentError::internal(format!(
+                "Image for node {node_id} exceeds the processing byte limit"
+            )));
+        }
 
         let executing_msg = self.lang_manager.get_msg_with_arg(
             lang_code,
             "progress-processing-image",
             "report_type",
-            &report_type,
+            report_type,
         );
 
         // Validate and resize image
@@ -265,30 +294,40 @@ impl DescriptionAgent {
         .await;
 
         // Resize to 1200x1200
-        let resized_bytes = match tokio::task::spawn_blocking(move || {
-            resize_image_to_bytes(&image_bytes, 1200, 1200)
-        })
-        .await
-        {
-            Ok(Ok(bytes)) => bytes,
-            Ok(Err(e)) => {
-                let err_msg = format!("Failed to resize image for node {}: {}", node_id, e);
-                tracing::error!("{}", err_msg);
-                return Err(AgentError::internal(err_msg));
-            }
-            Err(e) => {
-                // JoinError — spawn_blocking task panicked
-                let err_msg = format!("Image resize task panicked for node {}: {}", node_id, e);
-                tracing::error!("{}", err_msg);
-                return Err(AgentError::internal(err_msg));
-            }
-        };
+        let _image_slot = acquire_slot(
+            &self.context.cancellation_token,
+            &IMAGE_PROCESS_SLOTS,
+            IMAGE_PROCESS_TIMEOUT,
+            "image_processing_queue",
+        )
+        .await?;
+        let resized_bytes = run_cancellable(
+            &self.context.cancellation_token,
+            IMAGE_PROCESS_TIMEOUT,
+            "image_processing",
+            async move {
+                match tokio::task::spawn_blocking(move || {
+                    resize_image_to_bytes(&image_bytes, 1200, 1200)
+                })
+                .await
+                {
+                    Ok(Ok(bytes)) => Ok(bytes),
+                    Ok(Err(error)) => Err(AgentError::internal(format!(
+                        "Failed to resize image for node {node_id}: {error}"
+                    ))),
+                    Err(error) => Err(AgentError::internal(format!(
+                        "Image resize task panicked for node {node_id}: {error}"
+                    ))),
+                }
+            },
+        )
+        .await?;
 
         let executing_msg = self.lang_manager.get_msg_with_arg(
             lang_code,
             "progress-generating-description",
             "report_type",
-            &report_type,
+            report_type,
         );
 
         // Get system prompt from localization
@@ -330,22 +369,35 @@ impl DescriptionAgent {
             })?;
 
         // Generate description using LLM
-        let (description_text, tokens) = match generate_description_from_image(
+        let generation_future = generate_description_from_image(
             &self.client,
             &state.ai_config.vision_model,
             &resized_bytes,
             &description_prompt,
             &system_prompt,
+        );
+        let _vision_slot = acquire_slot(
+            &self.context.cancellation_token,
+            &VISION_LLM_SLOTS,
+            VISION_LLM_TIMEOUT,
+            "vision_queue",
         )
-        .await
-        {
+        .await?;
+        let generation_result = run_cancellable(
+            &self.context.cancellation_token,
+            VISION_LLM_TIMEOUT,
+            "vision",
+            generation_future,
+        )
+        .await;
+        let (description_text, tokens) = match generation_result {
             Ok(text) => text,
             Err(e) => {
                 let err_msg = self.lang_manager.get_msg_with_arg(
                     lang_code,
                     "progress-generate-err",
                     "report_type",
-                    &report_type,
+                    report_type,
                 );
                 tracing::error!("{} {}", err_msg, e);
                 let err = AgentError::internal(err_msg.clone());
@@ -366,7 +418,7 @@ impl DescriptionAgent {
                     lang_code,
                     "progress-description-parse-warning",
                     "report_type",
-                    &report_type,
+                    report_type,
                 );
                 self.send_event(StreamEvent::Progress {
                     request_id: self.context.request_id.clone(),
@@ -381,11 +433,11 @@ impl DescriptionAgent {
                 )));
             }
         };
+        content.normalize_language(lang_code);
         content.mark_current_prompt();
 
         // Convert back to JSON string for storage
-        let description_json =
-            serde_json::to_string(&content).map_err(|e| AgentError::internal(e))?;
+        let description_json = serde_json::to_string(&content).map_err(AgentError::internal)?;
 
         // Save to database
         let create_data = CreateImageDescription {
@@ -416,8 +468,8 @@ impl DescriptionAgent {
         let desc_json = self
             .build_description_json_response(state, &saved_data, &object_name, &node_id, lang_code)
             .await
-            .map_err(|e| AgentError::internal(e))?;
-        Ok(Some((desc_json, tokens)))
+            .map_err(AgentError::internal)?;
+        Ok(Some((desc_json, tokens, true)))
     }
 
     /// Build JSON response from ImageDescription
@@ -435,14 +487,9 @@ impl DescriptionAgent {
 
         // Build DescriptionData
         let object_str = object_name.to_string();
-        let date_str = image_desc
-            .created_at
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string();
-
-        let mut node_data =
-            crate::agents::description::description_helper::resolve_node_data(&state.db, node_id)
-                .await?;
+        let resolved_node = resolve_image_node(&state.db, node_id).await?;
+        let date_str = format_report_date(resolved_node.updated_at);
+        let mut node_data = resolved_node.data;
         if let Some(object) = node_data.as_object_mut() {
             crate::storage::set_storage_url(state.clone(), object, node_id).await;
         }
@@ -459,7 +506,7 @@ impl DescriptionAgent {
             object: object_str,
             object_id: *node_id,
             date: date_str,
-            date_id: image_desc.node_id.clone(),
+            date_id: image_desc.node_id,
             thumbnail_url,
             full_url,
             description: content.description,
@@ -476,27 +523,46 @@ impl DescriptionAgent {
         let json_data = serde_json::to_value(desc_data)?;
         Ok(json_data)
     }
+}
 
-    /// Download image from presigned URL
-    async fn download_image_from_url(
-        &self,
-        url: &str,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        // The URL is a presigned S3 URL
-        // We can use reqwest to download from it
-        let response = reqwest::get(url)
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+/// Finds a cached description generated with the current schema and prompt contract.
+fn current_description(descriptions: &[ImageDescription]) -> Option<&ImageDescription> {
+    descriptions.iter().find(|description| {
+        serde_json::from_str::<crate::agents::description::description_json::DescriptionContent>(
+            &description.description,
+        )
+        .is_ok_and(|content| content.uses_current_prompt())
+    })
+}
 
-        if !response.status().is_success() {
-            return Err(format!("HTTP error: {}", response.status()).into());
-        }
+#[cfg(test)]
+mod tests {
+    use super::format_report_date;
+    use chrono::NaiveDate;
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
+    /// Builds a UTC timestamp for report-date formatting tests.
+    fn utc_datetime(year: i32, month: u32, day: u32, hour: u32) -> chrono::NaiveDateTime {
+        NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .and_hms_opt(hour, 0, 0)
+            .unwrap()
+    }
 
-        Ok(bytes.to_vec())
+    /// Verifies conversion from UTC to Berlin summer wall-clock time.
+    #[test]
+    fn report_date_uses_berlin_summer_time() {
+        assert_eq!(
+            format_report_date(utc_datetime(2026, 7, 7, 16)),
+            "2026-07-07 18:00:00"
+        );
+    }
+
+    /// Verifies conversion from UTC to Berlin winter wall-clock time.
+    #[test]
+    fn report_date_uses_berlin_winter_time() {
+        assert_eq!(
+            format_report_date(utc_datetime(2026, 1, 7, 17)),
+            "2026-01-07 18:00:00"
+        );
     }
 }

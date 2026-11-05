@@ -1,5 +1,8 @@
 use crate::agents::agent_error::AgentError;
 use crate::agents::agents_helper::extract_text_from_choice;
+use crate::agents::runtime_policy::{
+    TEXT_LLM_SLOTS, TEXT_LLM_TIMEOUT, acquire_slot, run_cancellable,
+};
 use crate::agents::{Language, LocalizationManager, StreamEvent};
 use crate::{AgentContext, AppState};
 use rig::completion::CompletionModel;
@@ -49,15 +52,29 @@ impl ChatAgent {
         let system_prompt = self
             .lang_manager
             .get_prompt(lang_code, "chat-system-prompt")
-            .map_err(|e| AgentError::internal(e))?;
+            .map_err(AgentError::internal)?;
 
         let model = self.client.completion_model(&state.ai_config.text_model);
         let request = model
             .completion_request(message)
             .preamble(system_prompt)
             .temperature(0.5)
+            .max_tokens(1024)
             .build();
-        let response = model.completion(request).await?;
+        let _slot = acquire_slot(
+            &self.context.cancellation_token,
+            &TEXT_LLM_SLOTS,
+            TEXT_LLM_TIMEOUT,
+            "chat_queue",
+        )
+        .await?;
+        let response = run_cancellable(
+            &self.context.cancellation_token,
+            TEXT_LLM_TIMEOUT,
+            "chat",
+            async { model.completion(request).await.map_err(AgentError::from) },
+        )
+        .await?;
 
         let choice = response.choice.clone();
         let text = extract_text_from_choice(choice);
@@ -77,25 +94,12 @@ impl ChatAgent {
                 + response.raw_response.eval_count.unwrap_or(0),
         );
 
-        // Send response in chunks for streaming effect
-        let chunk_size = 20;
-        for chunk in text.chars().collect::<Vec<_>>().chunks(chunk_size) {
-            self.context.cancellation_token.check().await?;
-            let chunk_str: String = chunk.iter().collect();
-            tracing::info!(
-                "Sending text chunk:{} {}",
-                &self.context.request_id,
-                chunk_str
-            );
-            self.send_event(StreamEvent::TextChunk {
-                request_id: self.context.request_id.clone(),
-                chunk: chunk_str,
-            })
-            .await;
-
-            // Small delay for streaming effect
-            tokio::time::sleep(tokio::time::Duration::from_millis(4)).await;
-        }
+        self.context.cancellation_token.check().await?;
+        self.send_event(StreamEvent::TextChunk {
+            request_id: self.context.request_id.clone(),
+            chunk: text.clone(),
+        })
+        .await;
 
         Ok((text, tokens))
     }

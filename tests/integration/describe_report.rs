@@ -58,7 +58,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Describe the report from last month for \"{}\"",
                     TEST_OBJECT_NAME
                 ),
@@ -78,7 +78,7 @@ mod en {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!("Show me the latest report for \"{}\"", TEST_OBJECT_NAME),
+                format!("Show me the latest report for \"{}\"", TEST_OBJECT_NAME),
                 "en",
             ),
         )
@@ -134,7 +134,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!(
+                format!(
                     "Beschreibe den Report vom letzten Monat für \"{}\"",
                     TEST_OBJECT_NAME
                 ),
@@ -153,7 +153,7 @@ mod de {
         let events = send_and_collect(
             &state,
             &build_request(
-                &format!("Zeige mir den neuesten Report für \"{}\"", TEST_OBJECT_NAME),
+                format!("Zeige mir den neuesten Report für \"{}\"", TEST_OBJECT_NAME),
                 "de",
             ),
         )

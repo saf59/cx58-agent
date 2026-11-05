@@ -1,0 +1,17 @@
+services:
+  server:
+    image: alsh/cx58a
+    container_name: cx58-agent
+    restart: unless-stopped
+    networks:
+      - cx58
+    ports:
+      - 3050:3050
+    environment:
+      RUST_LOG: info
+    volumes:
+      - ${DATA}/env/cx58a.env:/.env
+
+networks:
+  cx58:
+    external: true 

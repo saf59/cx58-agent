@@ -1,0 +1,43 @@
+Crate:     quick-xml
+Version:   0.38.4
+Title:     Quadratic run time when checking a start tag for duplicate attribute names
+Date:      2026-06-29
+ID:        RUSTSEC-2026-0194
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0194
+Severity:  7.5 (high)
+Solution:  Upgrade to >=0.41.0
+
+Crate:     quick-xml
+Version:   0.38.4
+Title:     Unbounded namespace-declaration allocation in `NsReader` enables memory-exhaustion denial of service
+Date:      2026-06-29
+ID:        RUSTSEC-2026-0195
+URL:       https://rustsec.org/advisories/RUSTSEC-2026-0195
+Severity:  7.5 (high)
+Solution:  Upgrade to >=0.41.0
+
+Crate:     rsa
+Version:   0.9.10
+Title:     Marvin Attack: potential key recovery through timing sidechannels
+Date:      2023-11-22
+ID:        RUSTSEC-2023-0071
+URL:       https://rustsec.org/advisories/RUSTSEC-2023-0071
+Severity:  5.9 (medium)
+Solution:  No fixed upgrade is available!
+
+Crate:     dotenv
+Version:   0.15.0
+Warning:   unmaintained
+Title:     dotenv is Unmaintained
+Date:      2021-12-24
+ID:        RUSTSEC-2021-0141
+URL:       https://rustsec.org/advisories/RUSTSEC-2021-0141
+
+Crate:     paste
+Version:   1.0.15
+Warning:   unmaintained
+Title:     paste - no longer maintained
+Date:      2024-10-07
+ID:        RUSTSEC-2024-0436
+URL:       https://rustsec.org/advisories/RUSTSEC-2024-0436
+

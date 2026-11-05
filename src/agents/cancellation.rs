@@ -5,11 +5,19 @@
 use crate::agents::agent_error::AgentError;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::{Notify, RwLock};
+
+/// Shared cancellation state with race-free waiter notification.
+#[derive(Debug)]
+struct CancellationState {
+    cancelled: AtomicBool,
+    notify: Notify,
+}
 
 #[derive(Clone, Debug)]
 pub struct CancellationToken {
-    cancelled: Arc<RwLock<bool>>,
+    state: Arc<CancellationState>,
 }
 impl Default for CancellationToken {
     fn default() -> Self {
@@ -19,17 +27,32 @@ impl Default for CancellationToken {
 impl CancellationToken {
     pub fn new() -> Self {
         Self {
-            cancelled: Arc::new(RwLock::new(false)),
+            state: Arc::new(CancellationState {
+                cancelled: AtomicBool::new(false),
+                notify: Notify::new(),
+            }),
         }
     }
 
     pub async fn cancel(&self) {
-        let mut cancelled = self.cancelled.write().await;
-        *cancelled = true;
+        if !self.state.cancelled.swap(true, Ordering::AcqRel) {
+            self.state.notify.notify_waiters();
+        }
     }
 
     pub async fn is_cancelled(&self) -> bool {
-        *self.cancelled.read().await
+        self.state.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Waits until cancellation is requested without polling.
+    pub async fn cancelled(&self) {
+        loop {
+            let notified = self.state.notify.notified();
+            if self.state.cancelled.load(Ordering::Acquire) {
+                return;
+            }
+            notified.await;
+        }
     }
 
     pub async fn check(&self) -> Result<(), AgentError> {
@@ -99,5 +122,20 @@ mod tests {
 
         manager.unregister("request-1").await;
         assert!(!manager.cancel("request-1").await);
+    }
+
+    /// Verifies that an active waiter wakes as soon as cancellation is requested.
+    #[tokio::test]
+    async fn cancellation_wakes_waiters() {
+        let token = CancellationToken::new();
+        let waiter = token.clone();
+        let task = tokio::spawn(async move { waiter.cancelled().await });
+
+        token.cancel().await;
+
+        tokio::time::timeout(std::time::Duration::from_millis(100), task)
+            .await
+            .expect("cancellation waiter timed out")
+            .expect("cancellation waiter panicked");
     }
 }

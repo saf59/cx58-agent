@@ -6,7 +6,7 @@ GET_OBJECT_TREE   — Benutzer möchte Objekte oder die Hierarchie durchsuchen/a
 GET_REPORT_LIST   — Benutzer möchte eine Liste verfügbarer Reports/Fotos für ein Objekt
 DESCRIBE_REPORT   — Benutzer möchte Inhalt/Analyse eines oder mehrerer bestimmter Reports
 COMPARE_REPORTS   — Benutzer möchte einen Vergleich zwischen zwei Reports (erfordert zwei verschiedene Zeitpunkte)
-RAG_QUERY         — Benutzer fragt nach Systemfunktionen oder allgemeinem Projektwissen
+RAG_QUERY         — Legacy-Code für kontextbezogene Fragen zu Systemfunktionen oder bereitgestelltem Projektkontext; kein Retrieval
 OUT_OF_SCOPE      — alles außerhalb der Baustellenüberwachung (Wetter, Kochen, Smalltalk…)
 AMBIGUOUS         — Intent kann nicht mit Sicherheit bestimmt werden
 

@@ -1,0 +1,5 @@
+Inspektionsobjekt: {{ object_name }}
+
+Analysiere dieses Baustellenfoto. Beschreibe alle sichtbaren Fenster, Türen, Heizkörper und offene Durchbrüche.
+
+Gib NUR ein gültiges JSON-Objekt zurück — kein Markdown, keine Erklärung, kein Denken. Beginne die Antwort mit { und ende mit }.
