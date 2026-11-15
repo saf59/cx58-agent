@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG RUST_VERSION=1.99
+ARG RUST_VERSION=1.100.0
 ARG APP_NAME=cx58-agent
 ARG SCCACHE_VERSION=0.17.0
 
