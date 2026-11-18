@@ -80,26 +80,22 @@ impl DescriptionAgent {
         let mut calls: u32 = 0;
 
         // Process prev report
-        if let Some((desc, prev_tokens, generated)) = self
+        if let Some((desc, prev_tokens, report_calls)) = self
             .process_single_report(state, &reports.prev, "prev")
             .await?
         {
             descriptions.push(desc);
-            if generated {
-                calls += 1;
-            }
+            calls += report_calls;
             total_tokens += prev_tokens.unwrap_or(0);
         }
 
         // Process next report if provided
         if let Some(ref next_id) = reports.next
-            && let Some((desc, next_tokens, generated)) =
+            && let Some((desc, next_tokens, report_calls)) =
                 self.process_single_report(state, next_id, "next").await?
         {
             descriptions.push(desc);
-            if generated {
-                calls += 1;
-            }
+            calls += report_calls;
             total_tokens += next_tokens.unwrap_or(0);
         }
         if descriptions.is_empty() {
@@ -122,7 +118,7 @@ impl DescriptionAgent {
         state: &Arc<AppState>,
         report_id: &str,
         report_type: &str,
-    ) -> Result<Option<(Value, Option<u64>, bool)>, AgentError> {
+    ) -> Result<Option<(Value, Option<u64>, u32)>, AgentError> {
         // Parse the report_id as UUID
         let node_id = match Uuid::parse_str(report_id) {
             Ok(id) => id,
@@ -189,7 +185,7 @@ impl DescriptionAgent {
                 )
                 .await
                 .map_err(AgentError::internal)?;
-            return Ok(Some((desc_json, None, false)));
+            return Ok(Some((desc_json, None, 0)));
         }
 
         let flight_key = format!("description:{node_id}:{model}:{lang_code}");
@@ -214,7 +210,7 @@ impl DescriptionAgent {
                 )
                 .await
                 .map_err(AgentError::internal)?;
-            return Ok(Some((desc_json, None, false)));
+            return Ok(Some((desc_json, None, 0)));
         }
 
         // No existing description found - need to generate one
@@ -390,18 +386,11 @@ impl DescriptionAgent {
             generation_future,
         )
         .await;
-        let (description_text, tokens) = match generation_result {
+        let (description_text, tokens, calls) = match generation_result {
             Ok(text) => text,
             Err(e) => {
-                let err_msg = self.lang_manager.get_msg_with_arg(
-                    lang_code,
-                    "progress-generate-err",
-                    "report_type",
-                    report_type,
-                );
-                tracing::error!("{} {}", err_msg, e);
-                let err = AgentError::internal(err_msg.clone());
-                return Err(err);
+                tracing::error!(%report_type, error = %e, "Photo description generation failed");
+                return Err(e);
             }
         };
 
@@ -469,7 +458,7 @@ impl DescriptionAgent {
             .build_description_json_response(state, &saved_data, &object_name, &node_id, lang_code)
             .await
             .map_err(AgentError::internal)?;
-        Ok(Some((desc_json, tokens, true)))
+        Ok(Some((desc_json, tokens, calls)))
     }
 
     /// Build JSON response from ImageDescription
@@ -509,6 +498,7 @@ impl DescriptionAgent {
             date_id: image_desc.node_id,
             thumbnail_url,
             full_url,
+            power_outlets: content.power_outlet_count(),
             description: content.description,
             windows: content.windows,
             doors: content.doors,

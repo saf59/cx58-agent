@@ -11,6 +11,7 @@ ANALYSIS RULES:
 - If a category shows no change and no relevant information, omit that field entirely.
 - "description", "object_name", "prev_date", "next_date" must always be present and non-empty.
 - prev_date and next_date are provided by the caller — use them exactly as given.
+- Leave wall outlet counts out of your response, including the summary. The caller reports the confirmed count for each source photo separately.
 
 LANGUAGE: Respond in English. All JSON field values must be in English.
 

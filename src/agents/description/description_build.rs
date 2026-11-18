@@ -1,7 +1,7 @@
 use crate::agents::agent_error::AgentError;
 use crate::agents::agents_helper::extract_text_from_choice;
 use crate::agents::description::DescriptionContent;
-use rig::completion::CompletionModel;
+use rig::completion::{CompletionError, CompletionModel};
 use rig::message::{DocumentSourceKind, Message, UserContent};
 use rig::prelude::CompletionClient;
 use rig::providers::ollama;
@@ -75,7 +75,7 @@ pub async fn generate_description_from_image(
     image_bytes: &[u8],
     user_prompt: &str,
     system_prompt: &str,
-) -> Result<(String, Option<u64>), AgentError> {
+) -> Result<(String, Option<u64>, u32), AgentError> {
     // Convert image to base64
     let image_base64 = base64::Engine::encode(&base64::prelude::BASE64_STANDARD, image_bytes);
 
@@ -86,43 +86,63 @@ pub async fn generate_description_from_image(
         ..Default::default()
     };
 
-    let model = client.completion_model(model);
+    let model_name = model;
+    let model = client.completion_model(model_name);
     let content = OneOrMany::many(vec![
         UserContent::Text(user_prompt.into()),
         UserContent::Image(image),
     ])
     .map_err(AgentError::internal)?;
 
-    // Limit output tokens — a structured JSON description needs at most ~1024 tokens.
-    // Without this limit qwen3-vl:8b generates 4000-6000 tokens of reasoning before
-    // the actual JSON, causing 2-5 minute timeouts.
-    let request = model
+    // Ollama reads the generation limit from options.num_predict.
+    let mut request = model
         .completion_request(Message::User { content })
         .preamble(system_prompt.to_string())
         .temperature(0.2)
-        .max_tokens(1024)
+        .additional_params(serde_json::json!({"num_predict": 1024}))
         .build();
-    let response = model.completion(request).await?;
+    let tokens = match description_completion(model.completion(request.clone()).await)? {
+        (Some(text), used) => return Ok((text, Some(used), 1)),
+        (None, used) => used,
+    };
 
-    let choice = response.choice.clone();
-    let text = extract_text_from_choice(choice);
-
-    if text.is_empty() {
-        let err_msg = format!(
-            "Orchestrator LLM returned no text content for image-based description generation. Response: {:?}",
-            response.choice
-        );
-        tracing::error!("{}", err_msg);
-        let err = AgentError::internal(err_msg.clone());
-        return Err(err);
-    }
-
-    let tokens = Some(
-        response.raw_response.prompt_eval_count.unwrap_or(0)
-            + response.raw_response.eval_count.unwrap_or(0),
+    tracing::warn!(model = %model_name, "Ollama returned an empty photo description; retrying once");
+    request.additional_params = Some(serde_json::json!({"num_predict": 2048}));
+    request.output_schema = Some(
+        serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": {"description": {"type": "string"}},
+            "required": ["description"],
+            "additionalProperties": true
+        }))
+        .map_err(AgentError::internal)?,
     );
+    match description_completion(model.completion(request).await)? {
+        (Some(text), used) => Ok((text, Some(tokens + used), 2)),
+        (None, _) => Err(AgentError::EmptyPhotoDescription),
+    }
+}
 
-    Ok((text, tokens))
+fn description_completion(
+    result: Result<
+        rig::completion::CompletionResponse<ollama::CompletionResponse>,
+        CompletionError,
+    >,
+) -> Result<(Option<String>, u64), AgentError> {
+    match result {
+        Ok(response) => {
+            let text = extract_text_from_choice(response.choice);
+            Ok((
+                (!text.trim().is_empty()).then_some(text),
+                response.usage.total_tokens,
+            ))
+        }
+        // Rig discards the raw response and its token counts when content and tool calls are empty.
+        Err(CompletionError::ResponseError(message)) if message == "No content provided" => {
+            Ok((None, 0))
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Resize image to maximum dimensions while maintaining aspect ratio
@@ -168,6 +188,103 @@ mod tests {
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
             .unwrap();
         bytes
+    }
+
+    async fn run_vision_fixture(
+        responses: &[&'static str],
+    ) -> Result<(String, Option<u64>, u32), AgentError> {
+        use axum::{Json, Router, extract::State, routing::post};
+        use serde_json::{Value, json};
+        use std::sync::Mutex;
+        type Responses = Arc<Mutex<std::iter::Enumerate<std::vec::IntoIter<&'static str>>>>;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = Arc::new(
+            ollama::Client::builder()
+                .api_key(rig::client::Nothing)
+                .base_url(format!("http://{}", listener.local_addr().unwrap()))
+                .build()
+                .unwrap(),
+        );
+        let responses = Arc::new(Mutex::new(responses.to_vec().into_iter().enumerate()));
+        let app = Router::new()
+            .route(
+                "/api/chat",
+                post(
+                    |State(responses): State<Responses>, Json(request): Json<Value>| async move {
+                        let (attempt, content) =
+                            responses.lock().unwrap().next().expect("unexpected retry");
+                        assert_eq!(request["think"], false);
+                        assert_eq!(request["messages"][0]["content"], "Use JSON");
+                        assert_eq!(request["messages"][1]["content"], "Describe");
+                        assert!(
+                            !request["messages"][1]["images"][0]
+                                .as_str()
+                                .unwrap()
+                                .is_empty()
+                        );
+                        assert_eq!(
+                            request["options"]["num_predict"],
+                            if attempt == 0 { 1024 } else { 2048 }
+                        );
+                        if attempt == 0 {
+                            assert!(request.get("format").is_none());
+                        } else {
+                            assert_eq!(request["format"]["required"], json!(["description"]));
+                        }
+                        Json(json!({
+                            "model": "qwen3-vl:8b",
+                            "created_at": "2026-11-18T11:00:00Z",
+                            "message": {"role": "assistant", "content": content},
+                            "done": true,
+                            "done_reason": if content.is_empty() { "length" } else { "stop" },
+                            "prompt_eval_count": 2,
+                            "eval_count": 1
+                        }))
+                    },
+                ),
+            )
+            .with_state(responses.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let jpeg = resize_image_to_bytes(&small_png(), 1200, 1200).unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            generate_description_from_image(&client, "qwen3-vl:8b", &jpeg, "Describe", "Use JSON"),
+        )
+        .await;
+        server.abort();
+        assert_eq!(responses.lock().unwrap().len(), 0);
+        result.unwrap()
+    }
+
+    #[tokio::test]
+    async fn vision_request_sets_ollama_generation_limit() {
+        let json = r#"{"description":"Room"}"#;
+        assert_eq!(
+            run_vision_fixture(&[json]).await.unwrap(),
+            (json.to_string(), Some(3), 1)
+        );
+    }
+
+    #[tokio::test]
+    async fn retries_empty_ollama_response_with_more_tokens_and_json_format() {
+        let json = r#"{"description":"Room","power_outlets":[]}"#;
+        let (text, tokens, calls) = run_vision_fixture(&["", json]).await.unwrap();
+        assert_eq!((tokens, calls), (Some(3), 2));
+        assert_eq!(
+            extract_description_content_robust(&text)
+                .unwrap()
+                .description,
+            "Room"
+        );
+    }
+
+    #[tokio::test]
+    async fn stops_after_two_empty_ollama_responses() {
+        assert!(matches!(
+            run_vision_fixture(&[" \n", ""]).await,
+            Err(AgentError::EmptyPhotoDescription)
+        ));
     }
 
     /// Verifies that small non-JPEG inputs match the declared JPEG media type.

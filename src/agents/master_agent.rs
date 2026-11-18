@@ -96,7 +96,7 @@ use super::{
 };
 
 use crate::agents::agent_error::AgentError;
-use crate::agents::documents_id_finder::DocumentsIdFinder;
+use crate::agents::documents_id_finder::{DocumentsIdFinder, resolve_named_reports};
 use crate::agents::object_id_finder::ObjectIdFinder;
 use crate::agents::stats::AgentStats;
 use crate::localization::LocalizationManager;
@@ -157,6 +157,10 @@ pub struct MasterAgent {
 }
 
 impl MasterAgent {
+    pub(crate) fn localization(&self) -> &LocalizationManager {
+        &self.lang_manager
+    }
+
     pub fn new(client: Arc<ollama::Client>, config: AiConfig) -> Self {
         let lang_manager = Arc::new(LocalizationManager::new());
         let template_manager = Arc::new(TemplateManager::new());
@@ -424,17 +428,34 @@ impl MasterAgent {
         })
         .await?;
 
+        let mut current_context = user_context.clone();
+        let extracted = &classification.extracted_parameters;
+        let has_named_reports = matches!(
+            classification.intent,
+            Intent::GetReportList | Intent::DescribeReport | Intent::CompareReports
+        ) && !extracted.report_identifiers.is_empty();
+        if has_named_reports {
+            if extracted.report_identifiers.len() > 2 {
+                return Err(AgentError::ResultLimitExceeded { limit: 2 }.into());
+            }
+            resolve_named_reports(
+                &state.db,
+                &mut current_context,
+                extracted.object_identifier.as_deref(),
+                &extracted.report_identifiers,
+            )
+            .await?;
+        }
+
         // Early context validation: check required fields before entering the
         // orchestration loop. Workers panic with internal errors when context is
         // missing; catching it here turns those crashes into a clean ContextRequest.
         // Fields that can be auto-resolved (object_identifier present in extracted
         // parameters, or task_params available for report resolution) are skipped —
         // the orchestrator loop will handle them via ObjectIdFinder / DocumentsIdFinder.
-        if let Some((msg_key, hint_key, field)) = Self::missing_context_for_intent(
-            &classification.intent,
-            &user_context,
-            &classification.extracted_parameters,
-        ) {
+        if let Some((msg_key, hint_key, field)) =
+            Self::missing_context_for_intent(&classification.intent, &current_context, extracted)
+        {
             let prompt = self.lang_manager.get_msg_or(lang_code, msg_key, msg_key);
             let hint = self.lang_manager.get_msg(lang_code, hint_key);
             let suggestions = if hint.is_empty() || hint.starts_with("Missing message:") {
@@ -464,10 +485,6 @@ impl MasterAgent {
         }
 
         let mut worker_results: Vec<WorkerResponse> = Vec::new();
-        // Mutable so ObjectIdFinder / DocumentsIdFinder results can be written
-        // back into context before the next orchestrator call.
-        let mut current_context = user_context.clone();
-
         // If the user explicitly named an object in the message, discard any
         // object_id / report IDs that arrived from the session or the client.
         // Keeping stale IDs would cause ObjectIdFinder to be skipped and the
@@ -476,11 +493,7 @@ impl MasterAgent {
         // Examples of when this fires:
         //   - new chat, prev_leaf/next_leaf sent by frontend from old chat
         //   - user switches objects mid-conversation ("now show me Room 211")
-        if classification
-            .extracted_parameters
-            .object_identifier
-            .is_some()
-        {
+        if !has_named_reports && extracted.object_identifier.is_some() {
             if current_context.object_id.is_some() {
                 tracing::info!(
                     object_identifier = ?classification.extracted_parameters.object_identifier,
@@ -491,7 +504,7 @@ impl MasterAgent {
             current_context.object_id = None;
             current_context.current_report_id = None;
             current_context.previous_report_id = None;
-        } else {
+        } else if !has_named_reports {
             // Quick description requests are relative to the selected report pair.
             // Keep exactly one report so a preceding comparison cannot leak both
             // endpoints into a single-description response.
@@ -947,14 +960,17 @@ impl MasterAgent {
                 tracing::debug!("DocumentsIdFinder result: {:?}", &result);
                 (json!(result), None, 0u32)
             }
-            WorkerParameters::GetReportList { task_params } => {
+            WorkerParameters::GetReportList {
+                task_params,
+                reports,
+            } => {
                 let agent = DocumentAgent::new(
                     context.clone(),
                     event_tx.clone(),
                     self.lang_manager.clone(),
                 );
                 // get report list is a simple lookup, no LLM calls, so tokens and calls are 0
-                let result = agent.execute(state, &task_params).await?;
+                let result = agent.execute(state, &task_params, reports.as_ref()).await?;
                 (result, None, 0u32)
             }
             WorkerParameters::DescribeReport { reports } => {

@@ -21,6 +21,7 @@ use crate::agents::runtime_policy::{
 };
 use crate::agents::singleflight::acquire_singleflight;
 use crate::agents::{Language, LocalizationManager};
+use crate::power_outlets::{PowerOutletComparison, PowerOutletCount};
 use crate::templating::TemplateManager;
 use crate::{AgentContext, AppState, StreamEvent};
 
@@ -35,7 +36,7 @@ use std::sync::Arc;
 use tera::Context;
 use tokio::sync::mpsc;
 
-const COMPARISON_PROMPT_VERSION: &str = "2";
+const COMPARISON_PROMPT_VERSION: &str = "3";
 
 // ---------------------------------------------------------------------------
 // Output type
@@ -63,6 +64,24 @@ fn with_report_ids(mut value: Value, prev_id: &str, next_id: &str) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.insert("prev_id".to_string(), json!(prev_id));
         object.insert("next_id".to_string(), json!(next_id));
+    }
+    value
+}
+
+fn with_outlet_counts(mut value: Value, prev: &Value, next: &Value) -> Value {
+    let count = |source: &Value| {
+        source
+            .get("power_outlets")
+            .and_then(|data| serde_json::from_value::<PowerOutletCount>(data.clone()).ok())
+    };
+    let counts = PowerOutletComparison {
+        previous: count(prev),
+        current: count(next),
+    };
+    if (counts.previous.is_some() || counts.current.is_some())
+        && let Some(object) = value.as_object_mut()
+    {
+        object.insert("power_outlets".to_string(), json!(counts));
     }
     value
 }
@@ -205,7 +224,11 @@ impl ComparisonAgent {
             .await?
         {
             tracing::info!(prev_id, next_id, "Comparison cache HIT");
-            return Ok((with_report_ids(cached, prev_id, next_id), None, 0));
+            return Ok((
+                with_outlet_counts(with_report_ids(cached, prev_id, next_id), prev, next),
+                None,
+                0,
+            ));
         }
 
         let flight_key = format!("comparison:{prev_id}:{next_id}:{lang_code}:{model_name}");
@@ -225,7 +248,11 @@ impl ComparisonAgent {
                 next_id,
                 "Comparison cache HIT after singleflight wait"
             );
-            return Ok((with_report_ids(cached, prev_id, next_id), None, 0));
+            return Ok((
+                with_outlet_counts(with_report_ids(cached, prev_id, next_id), prev, next),
+                None,
+                0,
+            ));
         }
 
         // Load system prompt.
@@ -320,7 +347,7 @@ impl ComparisonAgent {
         )
         .await?;
 
-        Ok((result_json, tokens, 1))
+        Ok((with_outlet_counts(result_json, prev, next), tokens, 1))
     }
 
     // -----------------------------------------------------------------------
@@ -400,7 +427,9 @@ impl ComparisonAgent {
 
 #[cfg(test)]
 mod report_id_tests {
-    use super::{validated_cached_comparison, with_cache_metadata, with_report_ids};
+    use super::{
+        validated_cached_comparison, with_cache_metadata, with_outlet_counts, with_report_ids,
+    };
     use serde_json::json;
 
     #[test]
@@ -419,6 +448,28 @@ mod report_id_tests {
     #[test]
     fn legacy_cache_entry_is_rejected() {
         assert!(validated_cached_comparison(json!({"description": "old"})).is_none());
+        assert!(
+            validated_cached_comparison(
+                json!({"description": "old", "_cache": {"prompt_version": "2"}})
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn comparison_copies_photo_counts_without_guessing_missing_counts() {
+        let old = json!({"description":"Old"});
+        let current = json!({"power_outlets":{"confirmed":0,"uncertain":false}});
+        let comparison = with_outlet_counts(json!({"description":"Changes"}), &old, &current);
+        assert_eq!(
+            comparison["power_outlets"],
+            json!({"previous":null,"current":{"confirmed":0,"uncertain":false}})
+        );
+        assert!(
+            with_outlet_counts(json!({}), &old, &old)
+                .get("power_outlets")
+                .is_none()
+        );
     }
 
     /// Verifies that current cache metadata is validated and hidden from clients.

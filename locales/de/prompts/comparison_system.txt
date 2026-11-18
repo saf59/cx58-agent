@@ -11,6 +11,7 @@ ANALYSEREGELN:
 - Ein Feld weglassen, wenn eine Kategorie keine Änderung und keine relevanten Informationen aufweist.
 - „description", „object_name", „prev_date", „next_date" müssen immer vorhanden und nicht leer sein.
 - prev_date und next_date werden vom Aufrufer vorgegeben — exakt so übernehmen.
+- Steckdosenzahlen auch in der Zusammenfassung weglassen. Der Aufrufer gibt die bestätigte Anzahl je Quellfoto separat aus.
 
 SPRACHE: Antworte auf Deutsch. Alle JSON-Feldwerte müssen auf Deutsch sein.
 

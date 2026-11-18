@@ -1,5 +1,5 @@
 Inspektionsobjekt: {{ object_name }}
 
-Analysiere dieses Baustellenfoto. Beschreibe alle sichtbaren Fenster, Türen, Heizkörper und offene Durchbrüche.
+Analysiere dieses Baustellenfoto. Beschreibe sichtbare Fenster, Türen, Heizkörper und offene Durchbrüche und klassifiziere sichtbare Wandsteckdosen mit den vorgegebenen Labels.
 
 Gib NUR ein gültiges JSON-Objekt zurück — kein Markdown, keine Erklärung, kein Denken. Beginne die Antwort mit { und ende mit }.

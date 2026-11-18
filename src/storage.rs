@@ -246,6 +246,39 @@ impl StorageService {
     }
 
     /// Delete image from S3
+    pub(crate) async fn download_image_bounded(
+        &self,
+        storage_path: &str,
+        max_bytes: usize,
+    ) -> Result<Bytes> {
+        let mut response = self
+            .bucket
+            .get_object_stream(storage_path)
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, "Export image download failed");
+                AppError::service_unavailable("Report photo")
+            })?;
+        if !(200..300).contains(&response.status_code) {
+            return Err(AppError::service_unavailable("Report photo"));
+        }
+        let mut bytes = bytes::BytesMut::new();
+        while let Some(chunk) = response.bytes().next().await {
+            let chunk = chunk.map_err(|error| {
+                tracing::warn!(%error, "Export image stream failed");
+                AppError::service_unavailable("Report photo")
+            })?;
+            if chunk.len() > max_bytes - bytes.len() {
+                return Err(AppError::new(
+                    ErrorCode::PayloadTooLarge,
+                    "Report photo is too large",
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(bytes.freeze())
+    }
+
     pub async fn delete_image(&self, storage_path: &str) -> Result<()> {
         self.bucket.delete_object(storage_path).await.map_err(|e| {
             AppError::new(ErrorCode::StorageError, format!("S3 delete failed: {}", e))
@@ -631,6 +664,7 @@ pub async fn upload_image_handler(
     let mut filename = String::new();
     let mut image_data = Bytes::new();
     let mut berlin_datetime = String::new();
+    let mut cx_id = None;
 
     // Parse multipart form
     while let Some(field) = multipart
@@ -654,6 +688,18 @@ pub async fn upload_image_handler(
                     .text()
                     .await
                     .map_err(|e| AppError::bad_request(format!("Text error: {}", e)))?;
+            }
+            Some("cx_id") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("Text error: {e}")))?;
+                if value.contains('\0') {
+                    return Err(AppError::bad_request(
+                        "CX ID cannot contain a NUL character",
+                    ));
+                }
+                cx_id = (!value.is_empty()).then_some(value);
             }
             _ => {}
         }
@@ -691,13 +737,14 @@ pub async fn upload_image_handler(
     // Insert into database with parent_id
     let insert_result = sqlx::query(
         r#"
-        INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at)
+        INSERT INTO tree_nodes (id, parent_id, node_type, data, updated_at, cx_id)
         VALUES (
             $1,
             $2,
             $3,
             $4,
-            $5
+            $5,
+            $6
         )
         "#,
     )
@@ -713,6 +760,7 @@ pub async fn upload_image_handler(
         "hash": storage_result.hash,
     }))
     .bind(updated_at_utc)
+    .bind(cx_id)
     .execute(&state.db)
     .await;
 
@@ -905,7 +953,7 @@ fn apply_exif_orientation(image: DynamicImage, orientation: u32) -> DynamicImage
     }
 }
 
-fn encode_jpeg(
+pub(crate) fn encode_jpeg(
     image: &DynamicImage,
     quality: u8,
 ) -> std::result::Result<Vec<u8>, image::ImageError> {

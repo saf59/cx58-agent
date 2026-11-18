@@ -580,7 +580,10 @@ impl Orchestrator {
                             tracing::error!("Orchestrator parse task_params: {} {}", err, e);
                             err
                         })?;
-                        WorkerParameters::GetReportList { task_params }
+                        WorkerParameters::GetReportList {
+                            task_params,
+                            reports: None,
+                        }
                     }
 
                     // Vision Analysis Worker: Processes single image from S3

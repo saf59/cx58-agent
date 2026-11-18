@@ -33,6 +33,21 @@ impl DeterministicPlanner {
                         WorkerType::GetReportList,
                         WorkerParameters::GetReportList {
                             task_params: task_params_or_default(classification, false),
+                            reports: if classification
+                                .extracted_parameters
+                                .report_identifiers
+                                .is_empty()
+                            {
+                                None
+                            } else {
+                                Some(ReportPair {
+                                    prev: context
+                                        .current_report_id
+                                        .clone()
+                                        .ok_or(AgentError::NoDocumentsFound)?,
+                                    next: context.previous_report_id.clone(),
+                                })
+                            },
                         },
                     ))
                 }
@@ -208,6 +223,7 @@ mod tests {
                     exact_datetime: None,
                 }),
                 object_identifier: Some("Kitchen".to_string()),
+                report_identifiers: Vec::new(),
                 time_reference: None,
                 report_references: Vec::new(),
             },

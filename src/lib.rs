@@ -12,6 +12,8 @@ pub mod model_settings;
 pub mod models;
 pub mod prompt_context;
 pub mod report_datetime;
+pub mod report_export;
+mod power_outlets;
 pub mod session;
 pub mod storage;
 pub mod templating;

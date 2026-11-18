@@ -1,5 +1,5 @@
 Inspection object: {{ object_name }}
 
-Analyze this construction site photo. Describe all visible windows, doors, radiators, and bare openings.
+Analyze this construction site photo. Describe visible windows, doors, radiators, and bare openings, and classify visible wall receptacles using the required outlet labels.
 
 Return ONLY a valid JSON object — no markdown, no explanation, no thinking. Start your response with { and end with }.

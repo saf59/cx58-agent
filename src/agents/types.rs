@@ -27,6 +27,8 @@ pub struct ExtractedParameters {
     #[serde(deserialize_with = "deserialize_task_parameters_opt")]
     pub task_params: Option<TaskParameters>,
     pub object_identifier: Option<String>, // "Building A", "Site 123", etc.
+    #[serde(default, deserialize_with = "deserialize_report_references")]
+    pub report_identifiers: Vec<String>, // Explicit report names or CX IDs.
     pub time_reference: Option<String>,    // "last week", "yesterday", etc.
     #[serde(deserialize_with = "deserialize_report_references")]
     pub report_references: Vec<String>, // "latest", "from Monday", etc.
@@ -36,7 +38,7 @@ fn deserialize_report_references<'de, D>(deserializer: D) -> Result<Vec<String>,
 where
     D: serde::Deserializer<'de>,
 {
-    let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    let values = Option::<Vec<serde_json::Value>>::deserialize(deserializer)?.unwrap_or_default();
     Ok(values
         .into_iter()
         .map(|v| match v {
@@ -222,6 +224,8 @@ pub enum WorkerParameters {
     },
     GetReportList {
         task_params: TaskParameters,
+        #[serde(default)]
+        reports: Option<ReportPair>,
     },
     DescribeReport {
         reports: ReportPair,

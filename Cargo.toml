@@ -53,6 +53,8 @@ reqwest = { version = "0.13", features = ["json", "stream", "multipart"] }
 # Image processing
 image = "0.25"
 mime_guess = "2"
+krilla = { version = "0.8.2", default-features = false, features = ["simple-text", "raster-images"] }
+ttf-parser = "0.25"
 
 # Hashing
 sha2 = "0.10"

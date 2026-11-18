@@ -107,8 +107,16 @@ error-object-not-found =
     Bitte prüfen Sie die Objekt-ID und versuchen Sie es erneut.
 
 error-ambiguous-object =
-    Mehrere Objekte heißen „{ $name }".
+    Mehrere Objekte passen zu „{ $name }".
     Bitte wählen Sie das Objekt im Baum aus.
+
+error-report-not-found =
+    Der Bericht „{ $id }" wurde nicht gefunden.
+    Bitte prüfen Sie den Berichtsnamen oder die CX-ID.
+
+error-ambiguous-report =
+    Mehrere Berichte passen zu „{ $name }".
+    Bitte geben Sie das Objekt an oder wählen Sie den Bericht aus.
 
 error-no-documents-found =
     Es wurden keine Dokumente gefunden, die Ihren Kriterien entsprechen.
@@ -123,6 +131,9 @@ error-invalid-request =
 
 error-llm-json-parse =
     Das KI-Modell hat eine unerwartete Antwort zurückgegeben, die nicht verarbeitet werden konnte.
+
+error-empty-photo-description =
+    Das KI-Modell hat keine Fotobeschreibung zurückgegeben. Bitte versuchen Sie es erneut.
 
 error-template-render =
     Die Vorlage „{ $template }" konnte nicht dargestellt werden.
@@ -166,3 +177,21 @@ context-request-select-previous-report-hint = Wählen Sie einen älteren und ein
 # Context request — second report missing
 context-request-select-second-report = Für den Vergleich wird ein zweiter Bericht benötigt.
 context-request-select-second-report-hint = Bitte wählen Sie einen anderen Bericht aus, um ihn mit dem aktuellen zu vergleichen.
+report-export-description = Fotobeschreibung
+report-export-comparison = Fotovergleich
+report-export-tree-path = Objektpfad
+report-export-object-cx-id = CX ID des Objekts
+report-export-request = Anfrage
+report-export-result = Ergebnis
+report-export-windows = Fenster
+report-export-doors = Türen
+report-export-radiators = Heizkörper
+report-export-openings = Öffnungen
+report-export-power-outlets = Vollständig montierte Wandsteckdosen
+report-export-outlet-uncertain = unklare Fälle nicht mitgezählt
+report-export-outlet-unavailable = nicht beurteilt
+report-export-model = Modell
+report-export-photo = Berichtsfoto
+report-export-previous-photo = Vorheriges Berichtsfoto
+report-export-current-photo = Aktuelles Berichtsfoto
+report-export-page = Seite

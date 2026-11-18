@@ -5,6 +5,7 @@ INTENTS:
 GET_OBJECT_TREE   — Benutzer möchte Objekte oder die Hierarchie durchsuchen/auflisten (kein Reportinhalt angefragt)
 GET_REPORT_LIST   — Benutzer möchte eine Liste verfügbarer Reports/Fotos für ein Objekt
 DESCRIBE_REPORT   — Benutzer möchte Inhalt/Analyse eines oder mehrerer bestimmter Reports
+                   (auch die Anzahl vollständig montierter Wandsteckdosen auf einem Foto)
 COMPARE_REPORTS   — Benutzer möchte einen Vergleich zwischen zwei Reports (erfordert zwei verschiedene Zeitpunkte)
 RAG_QUERY         — Legacy-Code für kontextbezogene Fragen zu Systemfunktionen oder bereitgestelltem Projektkontext; kein Retrieval
 OUT_OF_SCOPE      — alles außerhalb der Baustellenüberwachung (Wetter, Kochen, Smalltalk…)
@@ -43,6 +44,7 @@ AUSGABE — NUR gültiges JSON zurückgeben, keine Markdown-Blöcke:
   "extracted_parameters": {
     "task_params": { "last": true, "all": false, "period": null, "amount": null, "exact_datetime": null },
     "object_identifier": "Gebäude A oder null",
+    "report_identifiers": [],
     "time_reference": "letzte Woche oder null",
     "report_references": ["neueste", "vom letzten Monat"]
   },
@@ -56,6 +58,12 @@ REGELN:
 3. COMPARE_REPORTS erfordert zwei verschiedene Zeitpunkte oder eine explizite „vergleiche"-Formulierung.
 4. Wenn der Benutzer ein Objekt benennt, in object_identifier erfassen.
    Report-/Objektnamen in Anführungszeichen wie "EG - Bad" identifizieren normalerweise das Objekt; exakt übernehmen.
+   Die CX-ID eines Objekts unverändert in object_identifier erfassen, z. B. „Zeige Berichte für Objekt CXID_123456“.
+   Explizite Namen oder CX-IDs von Fotoberichten in report_identifiers erfassen, z. B.
+   „Zeige Bericht CXID_123456“ → ["CXID_123456"]. Die Kennungen genau aus der Nachricht übernehmen.
+   Eine Berichtskennung gehört nur in report_identifiers. object_identifier bleibt null, wenn kein
+   Objekt ausdrücklich genannt wird. Ohne konkrete Berichtskennung [] verwenden.
+   Relative Angaben und Aufnahmezeitpunkte gehören in report_references oder task_params.
 5. CURRENT CONTEXT-Werte verwenden, wenn der Benutzer kein Objekt oder keinen Report angibt.
 6. confidence ≥ 0.9 für klare Anfragen · 0.6–0.8 für mittlere · < 0.6 für mehrdeutige.
 7. Spezifischen Intent nur bevorzugen, wenn der Benutzer Analyse/Inhalt verlangt

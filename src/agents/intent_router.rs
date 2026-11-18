@@ -72,6 +72,7 @@ pub fn classify_known_action(message: &str, context: &UserContext) -> Option<Cla
         extracted_parameters: ExtractedParameters {
             task_params: None,
             object_identifier: None,
+            report_identifiers: Vec::new(),
             time_reference: None,
             report_references: Vec::new(),
         },
@@ -273,7 +274,21 @@ fn normalize_classification_result(
     context: &UserContext,
     message: &str,
 ) {
+    result
+        .extracted_parameters
+        .report_identifiers
+        .retain_mut(|identifier| {
+            let value = identifier.trim();
+            if value.is_empty() || !message.contains(value) {
+                return false;
+            }
+            *identifier = value.to_string();
+            true
+        });
+    let has_named_reports = !result.extracted_parameters.report_identifiers.is_empty()
+        && needs_object_id(&result.intent);
     if result.extracted_parameters.object_identifier.is_none()
+        && !has_named_reports
         && let Some(object_identifier) = extract_quoted_object_name(message)
     {
         result.extracted_parameters.object_identifier = Some(object_identifier);
@@ -299,7 +314,9 @@ fn normalize_classification_result(
         }
     }
 
-    if is_selected_pair_comparison_request(message, context) {
+    if has_named_reports {
+        result.extracted_parameters.task_params = None;
+    } else if is_selected_pair_comparison_request(message, context) {
         result.intent = Intent::CompareReports;
         result.extracted_parameters.task_params = None;
     } else if is_endpoint_comparison_request(message) {
@@ -324,12 +341,14 @@ fn normalize_classification_result(
         params.exact_datetime = Some(exact_datetime);
     }
 
-    let can_resolve_reports = result.extracted_parameters.task_params.is_some();
+    let can_resolve_reports =
+        has_named_reports || result.extracted_parameters.task_params.is_some();
     result.missing_context.retain(|field| match field {
         ContextField::ObjectId => {
             needs_object_id(&result.intent)
                 && context.object_id.is_none()
                 && result.extracted_parameters.object_identifier.is_none()
+                && !has_named_reports
         }
         ContextField::CurrentReportId => {
             needs_current_report_id(&result.intent)
@@ -649,6 +668,7 @@ mod tests {
             extracted_parameters: ExtractedParameters {
                 task_params: None,
                 object_identifier: None,
+                report_identifiers: Vec::new(),
                 time_reference: None,
                 report_references: Vec::new(),
             },

@@ -1,9 +1,10 @@
 use crate::db_description::ImageDescription;
+use crate::power_outlets::PowerOutletCount;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
-pub const DESCRIPTION_PROMPT_VERSION: &str = "3";
+pub const DESCRIPTION_PROMPT_VERSION: &str = "4";
 
 /// Parsed structure of the description JSON content
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +40,49 @@ pub struct DescriptionContent {
         skip_serializing_if = "Option::is_none"
     )]
     pub openings: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_outlet_candidates",
+        skip_serializing_if = "Option::is_none"
+    )]
+    power_outlets: Option<Vec<OutletCandidate>>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OutletCandidate {
+    FullyInstalled,
+    Unfinished,
+    Unclear,
+}
+
+fn deserialize_outlet_candidates<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<OutletCandidate>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = JsonValue::deserialize(deserializer)?;
+    Ok(match value {
+        JsonValue::Array(items) => Some(
+            items
+                .into_iter()
+                .map(|item| {
+                    let label = match &item {
+                        JsonValue::Object(fields) if fields.len() == 1 => fields.get("label"),
+                        JsonValue::String(_) => Some(&item),
+                        _ => None,
+                    };
+                    match label.and_then(JsonValue::as_str) {
+                        Some("fully_installed") => OutletCandidate::FullyInstalled,
+                        Some("unfinished") => OutletCandidate::Unfinished,
+                        _ => OutletCandidate::Unclear,
+                    }
+                })
+                .collect(),
+        ),
+        _ => None,
+    })
 }
 
 fn deserialize_optional_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -83,6 +127,24 @@ fn non_empty(text: String) -> Option<String> {
 }
 
 impl DescriptionContent {
+    pub(crate) fn power_outlet_count(&self) -> Option<PowerOutletCount> {
+        let Some(candidates) = &self.power_outlets else {
+            return self.uses_current_prompt().then_some(PowerOutletCount {
+                confirmed: 0,
+                uncertain: true,
+            });
+        };
+        Some(PowerOutletCount {
+            confirmed: candidates
+                .iter()
+                .filter(|candidate| matches!(candidate, OutletCandidate::FullyInstalled))
+                .count() as u32,
+            uncertain: candidates
+                .iter()
+                .any(|candidate| matches!(candidate, OutletCandidate::Unclear)),
+        })
+    }
+
     /// Reports whether this value belongs to the active prompt and schema contract.
     pub fn uses_current_prompt(&self) -> bool {
         self.prompt_version.as_deref() == Some(DESCRIPTION_PROMPT_VERSION)
@@ -166,6 +228,66 @@ mod language_tests {
     }
 }
 
+#[cfg(test)]
+mod outlet_tests {
+    use super::DescriptionContent;
+    use crate::power_outlets::PowerOutletCount;
+
+    #[test]
+    fn counts_only_confirmed_candidates() {
+        let content: DescriptionContent = serde_json::from_str(r#"{
+            "description":"Room",
+            "power_outlets":["fully_installed","unfinished","unclear",{"label":"fully_installed"},{"label":"fully_installed","condition":"exposed wiring"}]
+        }"#).unwrap();
+        assert_eq!(
+            content.power_outlet_count(),
+            Some(PowerOutletCount {
+                confirmed: 2,
+                uncertain: true
+            })
+        );
+    }
+
+    #[test]
+    fn distinguishes_zero_from_missing_or_unclear_assessments() {
+        let count = |json: &str| {
+            serde_json::from_str::<DescriptionContent>(json)
+                .unwrap()
+                .power_outlet_count()
+        };
+        assert_eq!(count(r#"{"description":"Room"}"#), None);
+        assert_eq!(count(r#"{"description":"Room","power_outlets":7}"#), None);
+        assert_eq!(
+            count(r#"{"description":"Room","power_outlets":["unfinished"]}"#),
+            Some(PowerOutletCount {
+                confirmed: 0,
+                uncertain: false
+            })
+        );
+        assert_eq!(
+            count(r#"{"description":"Room","power_outlets":[]}"#),
+            Some(PowerOutletCount {
+                confirmed: 0,
+                uncertain: false
+            })
+        );
+        assert_eq!(
+            count(r#"{"description":"Room","power_outlets":["unclear"]}"#),
+            Some(PowerOutletCount {
+                confirmed: 0,
+                uncertain: true
+            })
+        );
+    }
+
+    #[test]
+    fn pre_outlet_description_cache_is_stale() {
+        let content: DescriptionContent =
+            serde_json::from_str(r#"{"description":"Room","_prompt_version":"3"}"#).unwrap();
+        assert!(!content.uses_current_prompt());
+    }
+}
+
 /// Complete description data ready to send via SSE
 #[derive(Debug, Clone, Serialize)]
 pub struct DescriptionData {
@@ -186,6 +308,8 @@ pub struct DescriptionData {
     pub radiators: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub openings: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) power_outlets: Option<PowerOutletCount>,
     pub model_name: String,
     pub confidence: Option<f32>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -208,6 +332,7 @@ pub fn build_description_data(
         date_id: image_desc.node_id, // node_id is date_id
         thumbnail_url: None,
         full_url: None,
+        power_outlets: content.power_outlet_count(),
         description: content.description,
         windows: content.windows,
         doors: content.doors,
@@ -231,6 +356,11 @@ pub fn build_description_json(
 
     // Add caller context fields
     if let Some(obj) = content.as_object_mut() {
+        let parsed: DescriptionContent = serde_json::from_str(&image_desc.description)?;
+        obj.remove("power_outlets");
+        if let Some(count) = parsed.power_outlet_count() {
+            obj.insert("power_outlets".to_string(), serde_json::to_value(count)?);
+        }
         obj.insert("object".to_string(), serde_json::json!(object));
         obj.insert("object_id".to_string(), serde_json::json!(object_id));
         obj.insert("date".to_string(), serde_json::json!(date));

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CX58 report export v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "outletCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confirmed", "uncertain"],
+      "properties": {
+        "confirmed": { "type": "integer", "minimum": 0, "description": "Visible fully installed wall receptacles." },
+        "uncertain": { "type": "boolean", "description": "Unclear candidates were excluded from the count." }
+      }
+    }
+  },
+  "required": ["schema", "export_id", "generated_at", "language", "kind", "request", "result", "tree_path", "object_cx_id", "reports"],
+  "properties": {
+    "schema": { "const": "cx-report-export/v1" },
+    "export_id": { "type": "string", "format": "uuid" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "language": { "enum": ["de", "en"] },
+    "kind": { "enum": ["description", "comparison"] },
+    "request": { "type": "string" },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description"],
+      "properties": {
+        "description": { "type": "string" },
+        "windows": { "type": "string" },
+        "doors": { "type": "string" },
+        "radiators": { "type": "string" },
+        "openings": { "type": "string" },
+        "power_outlets": {
+          "oneOf": [
+            { "$ref": "#/$defs/outletCount" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["previous", "current"],
+              "properties": {
+                "previous": { "anyOf": [{ "$ref": "#/$defs/outletCount" }, { "type": "null" }] },
+                "current": { "anyOf": [{ "$ref": "#/$defs/outletCount" }, { "type": "null" }] }
+              }
+            }
+          ]
+        },
+        "model_name": { "type": "string" }
+      }
+    },
+    "tree_path": {
+      "description": "Root to object, inclusive.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" }
+        }
+      }
+    },
+    "object_cx_id": { "type": ["string", "null"] },
+    "reports": {
+      "description": "One source for a description. Previous source first and current source second for a comparison.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "cx_id", "captured_at", "photo"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "cx_id": { "type": ["string", "null"] },
+          "captured_at": {
+            "description": "Capture time in Europe/Berlin with the date-specific UTC offset.",
+            "type": "string",
+            "format": "date-time"
+          },
+          "photo": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["media_type", "base64"],
+            "properties": {
+              "media_type": { "const": "image/jpeg" },
+              "base64": { "type": "string", "minLength": 4, "contentEncoding": "base64", "contentMediaType": "image/jpeg" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "if": { "properties": { "kind": { "const": "description" } } },
+  "then": { "properties": { "reports": { "minItems": 1, "maxItems": 1 } } },
+  "else": { "properties": { "reports": { "minItems": 2, "maxItems": 2 } } }
+}

@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::agents::LocalizationManager;
-use crate::agents::agent_error::AgentError;
+use crate::agents::{ReportPair, agent_error::AgentError};
 use crate::db::{NodeType, NodeWithLeaf, get_node_with_leafs};
 use crate::storage::set_storage_url;
 use crate::{AgentContext, AppState, StreamEvent, TaskParameters};
@@ -44,6 +44,7 @@ impl DocumentAgent {
         &self,
         state: Arc<AppState>,
         parameters: &TaskParameters,
+        reports: Option<&ReportPair>,
     ) -> Result<Value, AgentError> {
         let pool = &state.db;
 
@@ -59,7 +60,28 @@ impl DocumentAgent {
             raw: node_id_str.to_string(),
         })?;
 
-        let mut data = get_documents(&parameters, pool, node_id).await?;
+        let mut data = if let Some(reports) = reports {
+            let mut data = get_node_with_leafs(pool, node_id, Some(0), None, None).await?;
+            for identifier in std::iter::once(reports.prev.as_str()).chain(reports.next.as_deref())
+            {
+                let id = Uuid::parse_str(identifier).map_err(|_| AgentError::InvalidUuid {
+                    raw: identifier.to_string(),
+                })?;
+                let report = get_node_with_leafs(pool, id, Some(0), None, None)
+                    .await?
+                    .into_iter()
+                    .find(|row| {
+                        row.node_type == NodeType::ImageLeaf && row.parent_id == Some(node_id)
+                    })
+                    .ok_or_else(|| AgentError::ReportNotFound {
+                        id: identifier.to_string(),
+                    })?;
+                data.push(report);
+            }
+            data
+        } else {
+            get_documents(&parameters, pool, node_id).await?
+        };
 
         // No results — send a localized info message and return empty.
         if data.is_empty() {

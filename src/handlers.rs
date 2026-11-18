@@ -41,6 +41,97 @@ pub struct ModelsQuery {
     pub capability: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CxIdRequest {
+    Read { user_id: String, node_id: Uuid },
+    Write {
+        user_id: String,
+        node_id: Uuid,
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        cx_id: Option<String>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CxIdBatchRequest {
+    user_id: String,
+    node_ids: Vec<Uuid>,
+}
+
+pub async fn cx_id_batch_handler(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<CxIdBatchRequest>,
+) -> Result<Json<std::collections::HashMap<Uuid, String>>> {
+    if request.node_ids.len() > 1000 {
+        return Err(AppError::bad_request("Too many CX ID nodes"));
+    }
+    let ids = sqlx::query_as::<_, (Uuid, String)>(
+        r#"
+        SELECT node.id, node.cx_id
+        FROM get_tree($1, true) AS accessible
+        JOIN tree_nodes AS node ON node.id = accessible.id
+        WHERE accessible.own AND node.id = ANY($2)
+          AND node.node_type IN ('Branch', 'ImageLeaf') AND node.cx_id <> ''
+        "#,
+    )
+    .bind(request.user_id)
+    .bind(request.node_ids)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(ids.into_iter().collect()))
+}
+
+#[derive(Serialize)]
+pub struct CxIdResponse {
+    cx_id: Option<String>,
+}
+
+pub async fn cx_id_handler(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<CxIdRequest>,
+) -> Result<Json<CxIdResponse>> {
+    let cx_id = match request {
+        CxIdRequest::Read { user_id, node_id } => sqlx::query_scalar(
+            r#"
+            SELECT node.cx_id
+            FROM tree_nodes AS node
+            JOIN get_tree($1, true) AS accessible ON accessible.id = node.id
+            WHERE node.id = $2 AND accessible.own AND node.node_type IN ('Branch', 'ImageLeaf')
+            "#,
+        )
+        .bind(user_id)
+        .bind(node_id)
+        .fetch_optional(&state.db)
+        .await?,
+        CxIdRequest::Write { user_id, node_id, cx_id } => {
+            if cx_id.as_deref().is_some_and(|value| value.contains('\0')) {
+                return Err(AppError::bad_request("CX ID cannot contain a NUL character"));
+            }
+            let cx_id = cx_id.filter(|value| !value.is_empty());
+            sqlx::query_scalar(
+                r#"
+                UPDATE tree_nodes AS node
+                SET cx_id = $3
+                FROM get_tree($1, true) AS accessible
+                WHERE node.id = $2 AND accessible.id = node.id AND accessible.own
+                  AND node.node_type IN ('Branch', 'ImageLeaf')
+                RETURNING node.cx_id
+                "#,
+            )
+            .bind(user_id)
+            .bind(node_id)
+            .bind(cx_id)
+            .fetch_optional(&state.db)
+            .await?
+        }
+    }
+    .ok_or_else(|| AppError::not_found("Node"))?;
+
+    Ok(Json(CxIdResponse { cx_id }))
+}
+
 pub async fn get_tree_handler(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<String>,

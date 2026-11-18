@@ -1,13 +1,14 @@
 use crate::agents::agent_error::AgentError;
-use crate::db::get_tree;
+use crate::db::{NodeType, TreeNode, get_tree};
 use crate::{AgentContext, AppState};
+use sqlx::PgPool;
 use std::sync::Arc;
+use uuid::Uuid;
 
 pub struct ObjectIdFinder {
     context: AgentContext,
 }
-/// It is not real AI agent at all.
-/// Used to find object id by name in the list user of objects
+/// Resolves an object identifier within the user's accessible tree.
 impl ObjectIdFinder {
     pub fn new(context: AgentContext) -> Self {
         Self { context }
@@ -18,41 +19,99 @@ impl ObjectIdFinder {
         state: Arc<AppState>,
         object_name: &str,
     ) -> Result<String, AgentError> {
-        let tree = get_tree(&state.db, &self.context.user_id, true).await?;
-        let object_name_key = ObjectNameKey::new(object_name);
-
-        let matches: Vec<_> = tree
-            .iter()
-            .filter(|it| {
-                it.own
-                    && it.node_type == crate::db::NodeType::Branch
-                    && it
-                        .name
-                        .as_deref()
-                        .map(|name| ObjectNameKey::new(name).matches(&object_name_key))
-                        .unwrap_or(false)
-            })
-            .collect();
-
-        if matches.is_empty() {
-            tracing::warn!("ObjectIdFinder: object with name {} not found", object_name);
-            return Err(AgentError::ObjectNotFound {
-                id: object_name.to_string(),
-            });
-        }
-        if matches.len() > 1 {
-            tracing::warn!(
-                object_name,
-                candidates = matches.len(),
-                "ObjectIdFinder found an ambiguous object name"
-            );
-            return Err(AgentError::AmbiguousObject {
-                name: object_name.to_string(),
-            });
-        }
-        let uuid = matches[0].id;
-        Ok(uuid.to_string())
+        find_named_node(
+            &state.db,
+            &self.context.user_id,
+            NodeType::Branch,
+            None,
+            object_name,
+        )
+        .await
+        .map(|node| node.id.to_string())
     }
+}
+
+/// Resolves an owned node by display name, falling back to its CX ID.
+pub(crate) async fn find_named_node(
+    pool: &PgPool,
+    user_id: &str,
+    node_type: NodeType,
+    parent_id: Option<Uuid>,
+    identifier: &str,
+) -> Result<TreeNode, AgentError> {
+    let is_report = node_type == NodeType::ImageLeaf;
+    let tree = get_tree(pool, user_id, is_report).await?;
+    let owned_objects: std::collections::HashSet<_> = tree
+        .iter()
+        .filter(|node| node.own && node.node_type == NodeType::Branch)
+        .map(|node| node.id)
+        .collect();
+    let candidates: Vec<_> = tree
+        .into_iter()
+        .filter(|node| {
+            node.own
+                && node.node_type == node_type
+                && (!is_report
+                    || node.parent_id.is_some_and(|parent| {
+                        parent_id.is_none_or(|selected| selected == parent)
+                            && owned_objects.contains(&parent)
+                    }))
+        })
+        .collect();
+    let identifier = identifier.trim();
+    let key = ObjectNameKey::new(identifier);
+    let mut named = candidates.iter().filter(|node| {
+        node.name
+            .as_deref()
+            .is_some_and(|name| ObjectNameKey::new(name).matches(&key))
+    });
+    let ambiguous = || {
+        if is_report {
+            AgentError::AmbiguousReport {
+                name: identifier.to_string(),
+            }
+        } else {
+            AgentError::AmbiguousObject {
+                name: identifier.to_string(),
+            }
+        }
+    };
+    if let Some(node) = named.next() {
+        return if named.next().is_some() {
+            Err(ambiguous())
+        } else {
+            Ok(node.clone())
+        };
+    }
+
+    if !identifier.is_empty() && !identifier.contains('\0') && !candidates.is_empty() {
+        let candidate_ids: Vec<_> = candidates.iter().map(|node| node.id).collect();
+        let matches = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM tree_nodes WHERE id = ANY($1) AND lower(btrim(cx_id)) = lower($2) LIMIT 2",
+        )
+        .bind(candidate_ids)
+        .bind(identifier)
+        .fetch_all(pool)
+        .await?;
+        match matches.as_slice() {
+            [id] => {
+                if let Some(node) = candidates.into_iter().find(|node| node.id == *id) {
+                    return Ok(node);
+                }
+            }
+            [_, _] => return Err(ambiguous()),
+            _ => {}
+        }
+    }
+    Err(if is_report {
+        AgentError::ReportNotFound {
+            id: identifier.to_string(),
+        }
+    } else {
+        AgentError::ObjectNotFound {
+            id: identifier.to_string(),
+        }
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

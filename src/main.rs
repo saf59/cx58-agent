@@ -24,6 +24,12 @@ fn create_app_router(state: Arc<AppState>) -> Router {
 
     let protected_routes = Router::new()
         .route("/agent/chat", post(chat_stream_handler))
+        .route("/agent/cx-id", post(cx58_agent::handlers::cx_id_handler))
+        .route("/agent/cx-ids", post(cx58_agent::handlers::cx_id_batch_handler))
+        .route(
+            "/agent/report-export",
+            post(cx58_agent::report_export::download),
+        )
         .route(
             "/agent/reports/{node_id}",
             post(reports_handler).put(update_report_datetime_handler),

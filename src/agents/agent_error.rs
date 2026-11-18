@@ -54,6 +54,12 @@ pub enum AgentError {
     /// More than one accessible object has the requested display name.
     AmbiguousObject { name: String },
 
+    /// No accessible report matches the supplied identifier.
+    ReportNotFound { id: String },
+
+    /// More than one accessible report matches the supplied identifier.
+    AmbiguousReport { name: String },
+
     /// No documents / reports match the query criteria.
     NoDocumentsFound,
 
@@ -67,6 +73,9 @@ pub enum AgentError {
     /// The LLM returned a response that could not be parsed as the expected JSON.
     /// * `detail` – a short human-readable description of the parse failure.
     LlmJsonParseError { detail: String },
+
+    /// The vision model returned no description after a retry.
+    EmptyPhotoDescription,
 
     /// A required prompt template could not be rendered.
     /// * `template` – the template name.
@@ -113,6 +122,8 @@ impl fmt::Display for AgentError {
             Self::AmbiguousObject { name } => {
                 write!(f, "More than one object is named '{}'", name)
             }
+            Self::ReportNotFound { id } => write!(f, "Report '{}' not found", id),
+            Self::AmbiguousReport { name } => write!(f, "More than one report matches '{}'", name),
             Self::NoDocumentsFound => write!(f, "No documents found matching the criteria"),
             Self::ResultLimitExceeded { limit } => {
                 write!(f, "Result exceeds the limit of {} records", limit)
@@ -121,6 +132,10 @@ impl fmt::Display for AgentError {
             Self::LlmJsonParseError { detail } => {
                 write!(f, "Failed to parse LLM response: {}", detail)
             }
+            Self::EmptyPhotoDescription => write!(
+                f,
+                "Vision model returned no photo description after two attempts"
+            ),
             Self::TemplateRenderError { template } => {
                 write!(f, "Template render error: '{}'", template)
             }
@@ -164,10 +179,13 @@ impl AgentError {
             Self::InvalidUuid { .. } => "error-invalid-uuid",
             Self::ObjectNotFound { .. } => "error-object-not-found",
             Self::AmbiguousObject { .. } => "error-ambiguous-object",
+            Self::ReportNotFound { .. } => "error-report-not-found",
+            Self::AmbiguousReport { .. } => "error-ambiguous-report",
             Self::NoDocumentsFound => "error-no-documents-found",
             Self::ResultLimitExceeded { .. } => "error-result-limit-exceeded",
             Self::InvalidRequest => "error-invalid-request",
             Self::LlmJsonParseError { .. } => "error-llm-json-parse",
+            Self::EmptyPhotoDescription => "error-empty-photo-description",
             Self::TemplateRenderError { .. } => "error-template-render",
             Self::LocalizationKeyMissing { .. } => "error-localization-key-missing",
             Self::DeadlineExceeded { .. } => "error-deadline-exceeded",
@@ -195,9 +213,11 @@ impl AgentError {
         match self {
             Self::Cancelled => None,
             Self::InvalidUuid { raw } => args!("raw"      => raw.clone()),
-            Self::ObjectNotFound { id } => args!("id"       => id.clone()),
-            Self::AmbiguousObject { name } => args!("name" => name.clone()),
-            Self::LlmJsonParseError { .. } => None,
+            Self::ObjectNotFound { id } | Self::ReportNotFound { id } => args!("id" => id.clone()),
+            Self::AmbiguousObject { name } | Self::AmbiguousReport { name } => {
+                args!("name" => name.clone())
+            }
+            Self::LlmJsonParseError { .. } | Self::EmptyPhotoDescription => None,
             Self::TemplateRenderError { template } => args!("template" => template.clone()),
             Self::LocalizationKeyMissing { key } => args!("key"      => key.clone()),
             Self::DeadlineExceeded { .. } => None,

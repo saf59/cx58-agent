@@ -110,8 +110,16 @@ error-object-not-found =
     Please check the object ID and try again.
 
 error-ambiguous-object =
-    More than one object is named "{ $name }".
+    More than one object matches "{ $name }".
     Please select the object in the tree.
+
+error-report-not-found =
+    Report "{ $id }" was not found.
+    Please check the report name or CX ID.
+
+error-ambiguous-report =
+    More than one report matches "{ $name }".
+    Please specify the object or select the report.
 
 error-no-documents-found =
     No documents were found matching your criteria.
@@ -126,6 +134,9 @@ error-invalid-request =
 
 error-llm-json-parse =
     The AI model returned an unexpected response and it could not be processed.
+
+error-empty-photo-description =
+    The AI model did not return a photo description. Please try again.
 
 error-template-render =
     Failed to render template "{ $template }".
@@ -169,3 +180,21 @@ context-request-select-previous-report-hint = Select an earlier and a later repo
 # Context request — second report missing (CompareReports, previous_report_id absent)
 context-request-select-second-report = A second report is needed to run a comparison.
 context-request-select-second-report-hint = Please select another report to compare with the current one.
+report-export-description = Photo description
+report-export-comparison = Photo comparison
+report-export-tree-path = Object path
+report-export-object-cx-id = Object CX ID
+report-export-request = Request
+report-export-result = Result
+report-export-windows = Windows
+report-export-doors = Doors
+report-export-radiators = Radiators
+report-export-openings = Openings
+report-export-power-outlets = Fully installed wall outlets
+report-export-outlet-uncertain = unclear candidates excluded
+report-export-outlet-unavailable = not assessed
+report-export-model = Model
+report-export-photo = Report photo
+report-export-previous-photo = Previous report photo
+report-export-current-photo = Current report photo
+report-export-page = Page
